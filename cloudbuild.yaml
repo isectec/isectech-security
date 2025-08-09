@@ -2,7 +2,7 @@ steps:
   # Install dependencies
   - name: 'node:18'
     entrypoint: npm
-    args: ['ci', '--production=false', '--legacy-peer-deps']
+    args: ['install', '--production=false', '--legacy-peer-deps']
     
   # Build the Next.js application
   - name: 'node:18'
