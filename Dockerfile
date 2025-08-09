@@ -1,34 +1,17 @@
 # Production Dockerfile for iSECTECH Security Platform
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install ALL dependencies for build
-RUN npm ci
-
-# Copy application files
-COPY . .
-
-# Build the Next.js application
-RUN npm run build
-
-# Production stage
 FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files first
+# Copy and install dependencies
 COPY package*.json ./
+RUN npm install --legacy-peer-deps
 
-# Install only production dependencies
-RUN npm ci --only=production
+# Copy application code
+COPY . .
 
-# Copy built application from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
+# Build the application
+RUN npm run build
 
 # Set production environment
 ENV NODE_ENV=production
