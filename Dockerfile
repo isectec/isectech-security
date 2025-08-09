@@ -21,4 +21,4 @@ ENV HOSTNAME=0.0.0.0
 EXPOSE 8080
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["npm", "start"]# Trigger rebuild Sat Aug  9 17:43:28 EDT 2025
