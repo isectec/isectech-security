@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install ALL dependencies for build
+RUN npm ci
 
 # Copy application files
 COPY . .
@@ -20,15 +20,20 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy built application
+# Copy package files first
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production
+
+# Copy built application from builder
 COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/public ./public
 
 # Set production environment
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
 
 EXPOSE 8080
 
