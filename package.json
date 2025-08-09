@@ -151,7 +151,6 @@
     "@redocly/cli": "^1.6.0",
     "@stoplight/spectral-cli": "^6.11.0",
     "swagger-parser": "^10.0.3",
-    "redocly": "^1.6.0",
     "ts-node": "^10.9.2",
     "nodemon": "^3.1.4"
   },
