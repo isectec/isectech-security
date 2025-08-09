@@ -49,7 +49,7 @@ class MobilePerformanceMonitor {
 
   private initializeObservers() {
     if (this.isInitialized || typeof window === 'undefined') return;
-    
+
     try {
       // Core Web Vitals Observer
       const vitalsObserver = new PerformanceObserver((list) => {
@@ -60,19 +60,18 @@ class MobilePerformanceMonitor {
                 this.metrics.firstContentfulPaint = entry.startTime;
               }
               break;
-            
+
             case 'largest-contentful-paint':
               this.metrics.largestContentfulPaint = entry.startTime;
               break;
-            
+
             case 'first-input':
               this.metrics.firstInputDelay = (entry as any).processingStart - entry.startTime;
               break;
-            
+
             case 'layout-shift':
               if (!(entry as any).hadRecentInput) {
-                this.metrics.cumulativeLayoutShift = 
-                  (this.metrics.cumulativeLayoutShift || 0) + (entry as any).value;
+                this.metrics.cumulativeLayoutShift = (this.metrics.cumulativeLayoutShift || 0) + (entry as any).value;
               }
               break;
           }
@@ -84,7 +83,6 @@ class MobilePerformanceMonitor {
 
       // Navigation timing
       this.metrics.loadTime = performance.timing?.loadEventEnd - performance.timing?.navigationStart || 0;
-
     } catch (error) {
       console.warn('Performance observers not supported:', error);
     }
@@ -103,17 +101,21 @@ class MobilePerformanceMonitor {
       firstInputDelay: this.metrics.firstInputDelay || 0,
       cumulativeLayoutShift: this.metrics.cumulativeLayoutShift || 0,
       timeToInteractive: this.calculateTTI(),
-      memoryUsage: memory ? {
-        used: memory.usedJSHeapSize,
-        total: memory.totalJSHeapSize,
-        limit: memory.jsHeapSizeLimit,
-      } : undefined,
-      networkInfo: connection ? {
-        effectiveType: connection.effectiveType,
-        downlink: connection.downlink,
-        rtt: connection.rtt,
-        saveData: connection.saveData,
-      } : undefined,
+      memoryUsage: memory
+        ? {
+            used: memory.usedJSHeapSize,
+            total: memory.totalJSHeapSize,
+            limit: memory.jsHeapSizeLimit,
+          }
+        : undefined,
+      networkInfo: connection
+        ? {
+            effectiveType: connection.effectiveType,
+            downlink: connection.downlink,
+            rtt: connection.rtt,
+            saveData: connection.saveData,
+          }
+        : undefined,
     };
   }
 
@@ -130,12 +132,14 @@ class MobilePerformanceMonitor {
   public async getBatteryInfo() {
     try {
       const battery = await (navigator as any).getBattery?.();
-      return battery ? {
-        level: battery.level,
-        charging: battery.charging,
-        chargingTime: battery.chargingTime,
-        dischargingTime: battery.dischargingTime,
-      } : null;
+      return battery
+        ? {
+            level: battery.level,
+            charging: battery.charging,
+            chargingTime: battery.chargingTime,
+            dischargingTime: battery.dischargingTime,
+          }
+        : null;
     } catch {
       return null;
     }
@@ -155,7 +159,7 @@ class MobilePerformanceMonitor {
   }
 
   public dispose() {
-    this.observers.forEach(observer => observer.disconnect());
+    this.observers.forEach((observer) => observer.disconnect());
     this.observers = [];
     this.isInitialized = false;
   }
@@ -185,7 +189,7 @@ export const imageOptimization = {
   // Generate responsive image sizes
   generateSizes(maxWidth: number): number[] {
     const breakpoints = [320, 480, 640, 768, 1024, 1280, 1600];
-    return breakpoints.filter(bp => bp <= maxWidth);
+    return breakpoints.filter((bp) => bp <= maxWidth);
   },
 
   // Lazy load images with intersection observer
@@ -193,24 +197,27 @@ export const imageOptimization = {
     if (!('IntersectionObserver' in window)) return;
 
     const images = document.querySelectorAll(selector);
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const img = entry.target as HTMLImageElement;
-          const src = img.dataset.src;
-          
-          if (src) {
-            img.src = src;
-            img.removeAttribute('data-src');
-            observer.unobserve(img);
-          }
-        }
-      });
-    }, {
-      rootMargin: '50px',
-    });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const img = entry.target as HTMLImageElement;
+            const src = img.dataset.src;
 
-    images.forEach(img => observer.observe(img));
+            if (src) {
+              img.src = src;
+              img.removeAttribute('data-src');
+              observer.unobserve(img);
+            }
+          }
+        });
+      },
+      {
+        rootMargin: '50px',
+      }
+    );
+
+    images.forEach((img) => observer.observe(img));
     return observer;
   },
 };
@@ -219,16 +226,13 @@ export const imageOptimization = {
 export const bundleOptimization = {
   // Preload critical resources
   preloadCriticalResources() {
-    const criticalResources = [
-      '/fonts/inter.woff2',
-      '/icons/icon-192x192.png',
-    ];
+    const criticalResources = ['/fonts/inter.woff2', '/icons/icon-192x192.png'];
 
-    criticalResources.forEach(resource => {
+    criticalResources.forEach((resource) => {
       const link = document.createElement('link');
       link.rel = 'preload';
       link.href = resource;
-      
+
       if (resource.includes('.woff2')) {
         link.as = 'font';
         link.type = 'font/woff2';
@@ -236,7 +240,7 @@ export const bundleOptimization = {
       } else if (resource.includes('.png') || resource.includes('.jpg')) {
         link.as = 'image';
       }
-      
+
       document.head.appendChild(link);
     });
   },
@@ -244,8 +248,10 @@ export const bundleOptimization = {
   // Lazy load non-critical JavaScript modules
   async loadModule(modulePath: string) {
     try {
-      // Instruct the bundler to ignore resolving this at build time; load at runtime only
-      const module = await import(/* webpackIgnore: true */ (modulePath as string));
+      if (!modulePath || typeof modulePath !== 'string') return null;
+      // Use eval-based dynamic import to avoid bundler static resolution errors (Turbopack)
+      const dynamicImport = new Function('p', 'return import(p)') as (p: string) => Promise<any>;
+      const module = await dynamicImport(modulePath);
       return module;
     } catch (error) {
       console.error(`Failed to load module: ${modulePath}`, error);
@@ -282,11 +288,9 @@ export const memoryOptimization = {
     if (usage && usage.percentage > threshold) {
       try {
         const cacheNames = await caches.keys();
-        const oldCaches = cacheNames.filter(name => 
-          !name.includes('v1') && !name.includes('critical')
-        );
-        
-        await Promise.all(oldCaches.map(name => caches.delete(name)));
+        const oldCaches = cacheNames.filter((name) => !name.includes('v1') && !name.includes('critical'));
+
+        await Promise.all(oldCaches.map((name) => caches.delete(name)));
         console.log(`Cleared ${oldCaches.length} old caches due to high memory usage`);
       } catch (error) {
         console.error('Failed to clear caches:', error);
@@ -319,7 +323,7 @@ export const batteryOptimization = {
   async shouldReducePerformance(): Promise<boolean> {
     const batteryLevel = await this.getBatteryLevel();
     const isCharging = await this.isCharging();
-    
+
     return batteryLevel < 0.2 && !isCharging;
   },
 
@@ -328,7 +332,7 @@ export const batteryOptimization = {
     if (await this.shouldReducePerformance()) {
       // Reduce animation frequency
       document.documentElement.style.setProperty('--animation-duration', '0.1s');
-      
+
       // Disable non-critical background tasks
       return {
         reducedAnimations: true,
@@ -336,7 +340,7 @@ export const batteryOptimization = {
         refreshIntervalIncreased: true,
       };
     }
-    
+
     return {
       reducedAnimations: false,
       backgroundSyncDisabled: false,
@@ -354,7 +358,7 @@ export const performanceReporting = {
   async reportMetrics(endpoint = '/api/analytics/performance') {
     const observation = performanceMonitor.createPerformanceObservation();
     const batteryInfo = await performanceMonitor.getBatteryInfo();
-    
+
     if (batteryInfo) {
       observation.battery = batteryInfo;
     }
@@ -383,7 +387,7 @@ export const performanceReporting = {
     };
 
     const currentMetrics = metrics || performanceMonitor.getMetrics();
-    
+
     return (
       currentMetrics.loadTime <= targets.loadTime &&
       currentMetrics.firstContentfulPaint <= targets.firstContentfulPaint &&
