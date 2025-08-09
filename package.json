@@ -145,7 +145,6 @@
     "axe-playwright": "^2.0.3",
     "@pact-foundation/pact": "^13.1.1",
     "@pact-foundation/pact-node": "^10.17.7",
-    "pact-js-cli": "^1.0.2",
     "jest-pact": "^0.11.0",
     "k6": "^0.0.0",
     "artillery": "^2.0.11",
