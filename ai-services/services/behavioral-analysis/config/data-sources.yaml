@@ -1,0 +1,41 @@
+version: 1
+
+defaults:
+  require_tls: true
+  connect_timeout_seconds: 5
+  read_timeout_seconds: 10
+
+kafka:
+  enabled: true
+  brokers:
+    - kafka-0.kafka.svc.cluster.local:9092
+    - kafka-1.kafka.svc.cluster.local:9092
+  topics:
+    auth_events: auth.events.v1
+    access_logs: access.logs.v1
+    endpoint_telemetry: endpoint.telemetry.v1
+  sasl:
+    enabled: false
+    mechanism: SCRAM-SHA-512
+    username: ""
+    password: ""
+  tls:
+    enabled: true
+    ca_cert_path: "/etc/ssl/certs/ca-certificates.crt"
+
+postgres:
+  enabled: true
+  dsn: "postgresql://app_user:CHANGE_ME@postgres.isectech.svc.cluster.local:5432/isectech?sslmode=require"
+  rls_required: true
+
+elasticsearch:
+  enabled: true
+  url: "https://elasticsearch.isectech.svc.cluster.local:9200"
+  index_patterns:
+    - "siem-*"
+    - "web-logs-*"
+  tls:
+    verify: true
+    ca_cert_path: "/etc/ssl/certs/ca-certificates.crt"
+
+

@@ -1,0 +1,495 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ssh-honeypot
+  namespace: deception
+  labels:
+    app: ssh-honeypot
+    honeypot-type: infrastructure
+    service-type: ssh
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ssh-honeypot
+  template:
+    metadata:
+      labels:
+        app: ssh-honeypot
+        honeypot-type: infrastructure
+        service-type: ssh
+      annotations:
+        security.isectech.com/purpose: "ssh-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: ssh-honeypot
+        image: isectech/ssh-honeypot:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 22
+          name: ssh
+          protocol: TCP
+        - containerPort: 2222
+          name: ssh-alt
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "ssh"
+        - name: SSH_HOST_KEY_RSA
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: ssh.host.rsa.key
+        - name: SSH_HOST_KEY_ED25519
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: ssh.host.ed25519.key
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: FAKE_SYSTEM_CONFIG
+          value: |
+            {
+              "hostname": "isectech-prod-web-01",
+              "os_info": {
+                "name": "Ubuntu 20.04.6 LTS",
+                "kernel": "Linux 5.4.0-173-generic",
+                "architecture": "x86_64"
+              },
+              "services": [
+                "docker", "nginx", "postgresql", "redis-server", 
+                "prometheus", "grafana-server", "elasticsearch"
+              ],
+              "users": [
+                "root", "isectech", "deploy", "monitoring", "backup", "postgres"
+              ],
+              "fake_directories": [
+                "/opt/isectech/",
+                "/var/log/isectech/",
+                "/etc/isectech/",
+                "/home/isectech/",
+                "/var/lib/postgresql/",
+                "/var/lib/redis/",
+                "/etc/nginx/sites-enabled/",
+                "/opt/prometheus/",
+                "/var/lib/grafana/"
+              ],
+              "fake_files": [
+                "/etc/isectech/config.yaml",
+                "/opt/isectech/api-keys.txt",
+                "/home/isectech/.aws/credentials",
+                "/home/isectech/.ssh/id_rsa",
+                "/etc/ssl/private/isectech.key",
+                "/var/log/isectech/security.log",
+                "/opt/backup/database-backup.sql.gz"
+              ]
+            }
+        - name: CREDENTIAL_TRAPS
+          value: |
+            {
+              "weak_passwords": [
+                {"username": "root", "password": "password"},
+                {"username": "admin", "password": "admin"},
+                {"username": "isectech", "password": "isectech123"},
+                {"username": "deploy", "password": "deploy2024"},
+                {"username": "backup", "password": "backup123"},
+                {"username": "postgres", "password": "postgres"}
+              ],
+              "ssh_keys": [
+                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC7...[HONEYPOT_TRAP]",
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAA...[HONEYPOT_TRAP]"
+              ],
+              "api_keys_file_content": [
+                "# isectech API Keys",
+                "PRODUCTION_API_KEY=sk_live_a1b2c3d4e5f6g7h8i9j0",
+                "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+                "AWS_SECRET_ACCESS_KEY=abcdef1234567890abcdef1234567890abcdef12",
+                "DATABASE_URL=postgresql://isectech_admin:super_secret_db_pass@prod-db:5432/isectech",
+                "REDIS_URL=redis://:redis_prod_pass@prod-cache:6379/0",
+                "JWT_SECRET=super_secret_jwt_key_do_not_share_2024"
+              ]
+            }
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: ssh-config
+          mountPath: /etc/ssh
+          readOnly: true
+        - name: fake-filesystem
+          mountPath: /honeypot/fs
+        - name: logs-volume
+          mountPath: /var/log/honeypot
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: ssh-config
+        configMap:
+          name: ssh-honeypot-config
+          defaultMode: 0600
+      - name: fake-filesystem
+        configMap:
+          name: ssh-honeypot-filesystem
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ssh-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssh-honeypot-service
+  namespace: deception
+  labels:
+    app: ssh-honeypot
+    service-type: honeypot
+    protocol-type: ssh
+spec:
+  selector:
+    app: ssh-honeypot
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: ssh-alt
+    port: 2222
+    targetPort: 2222
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssh-honeypot-config
+  namespace: deception
+  labels:
+    app: ssh-honeypot
+data:
+  sshd_config: |
+    # SSH Honeypot Configuration
+    Port 22
+    Protocol 2
+    
+    # Host keys
+    HostKey /etc/ssh/ssh_host_rsa_key
+    HostKey /etc/ssh/ssh_host_ed25519_key
+    
+    # Logging
+    SyslogFacility AUTH
+    LogLevel INFO
+    
+    # Authentication
+    LoginGraceTime 120
+    PermitRootLogin yes
+    StrictModes no
+    MaxAuthTries 6
+    MaxSessions 10
+    
+    PubkeyAuthentication yes
+    AuthorizedKeysFile /honeypot/authorized_keys
+    
+    PasswordAuthentication yes
+    PermitEmptyPasswords no
+    ChallengeResponseAuthentication no
+    
+    UsePAM yes
+    
+    # Honeypot specific settings
+    AllowUsers root isectech deploy monitoring backup postgres admin
+    Banner /etc/ssh/banner.txt
+    
+    # Network settings
+    X11Forwarding no
+    X11DisplayOffset 10
+    PrintMotd yes
+    PrintLastLog yes
+    TCPKeepAlive yes
+    
+    # Accept environment variables
+    AcceptEnv LANG LC_*
+    
+    # Subsystem configuration
+    Subsystem sftp /usr/lib/openssh/sftp-server
+    
+  banner.txt: |
+    
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║                                                                  ║
+    ║                    iSECTECH Production Server                    ║
+    ║                                                                  ║
+    ║   WARNING: This system is for authorized personnel only.        ║
+    ║   All activities are monitored and logged.                      ║
+    ║   Unauthorized access is strictly prohibited.                   ║
+    ║                                                                  ║
+    ║   Server: isectech-prod-web-01                                  ║
+    ║   Location: US-West-2 (Primary Datacenter)                     ║
+    ║   Purpose: Web Application & API Services                       ║
+    ║                                                                  ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    
+  motd: |
+    Welcome to isectech-prod-web-01 (Ubuntu 20.04.6 LTS)
+    
+    * Documentation:  https://help.ubuntu.com
+    * Management:     https://landscape.canonical.com
+    * Support:        https://ubuntu.com/advantage
+    
+    System information:
+      System load:    0.08              Processes:           134
+      Usage of /:     23.4% of 29.02GB  Users logged in:     2
+      Memory usage:   34%               IP address:          10.0.1.15
+      Swap usage:     0%                Security updates:    0
+    
+    * Super-optimized for small spaces - read how we shrank the memory
+      footprint of MicroK8s to make it the smallest full K8s around.
+      https://ubuntu.com/blog/microk8s-memory-optimisation
+    
+    Last login: Mon Jan 15 09:23:15 2024 from 10.0.1.100
+    
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssh-honeypot-filesystem
+  namespace: deception
+  labels:
+    app: ssh-honeypot
+data:
+  etc_isectech_config.yaml: |
+    # iSECTECH Application Configuration
+    # DO NOT SHARE - Contains sensitive configuration
+    
+    application:
+      name: "iSECTECH Security Platform"
+      version: "2.1.4"
+      environment: "production"
+      debug: false
+    
+    database:
+      primary:
+        host: "prod-postgres-cluster.internal"
+        port: 5432
+        database: "isectech_production"
+        username: "isectech_admin"
+        password: "P@ssw0rd_Pr0d_2024!"  # HONEYPOT TRAP
+        ssl_mode: "require"
+        max_connections: 50
+      
+      analytics:
+        host: "prod-mongo-cluster.internal"
+        port: 27017
+        database: "isectech_analytics"
+        username: "analytics_user"
+        password: "M0ng0_Pr0d_2024!"  # HONEYPOT TRAP
+        auth_source: "admin"
+    
+    cache:
+      redis:
+        host: "prod-redis-cluster.internal"
+        port: 6379
+        password: "R3dis_Pr0d_2024!"  # HONEYPOT TRAP
+        database: 0
+    
+    security:
+      jwt_secret: "super_secret_jwt_key_production_2024_do_not_share"  # HONEYPOT TRAP
+      encryption_key: "aes256_encryption_key_production_very_secret"  # HONEYPOT TRAP
+      api_rate_limit: 1000
+      session_timeout: 3600
+    
+    external_apis:
+      threat_intelligence:
+        endpoint: "https://api.threat-intel-provider.com/v1"
+        api_key: "ti_api_key_production_secret_123456789"  # HONEYPOT TRAP
+      
+      notification_service:
+        webhook_url: "https://hooks.slack.com/services/SECRET/WEBHOOK/URL"  # HONEYPOT TRAP
+        api_token: "slack_bot_token_production_xoxb-123456789"  # HONEYPOT TRAP
+    
+    monitoring:
+      prometheus_endpoint: "http://prometheus.monitoring.svc.cluster.local:9090"
+      grafana_api_key: "grafana_admin_api_key_production_secret"  # HONEYPOT TRAP
+      
+    aws:
+      region: "us-west-2"
+      access_key_id: "AKIA1234567890ABCDEF"  # HONEYPOT TRAP
+      secret_access_key: "abcdef1234567890abcdef1234567890abcdef12"  # HONEYPOT TRAP
+      s3_bucket: "isectech-prod-backups"
+      
+  opt_isectech_api_keys.txt: |
+    # iSECTECH API Keys Configuration
+    # PRODUCTION ENVIRONMENT - CONFIDENTIAL
+    # Last updated: 2024-01-15
+    
+    # Primary API Keys
+    PRODUCTION_API_KEY=sk_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0
+    ADMIN_API_KEY=sk_live_admin_z9y8x7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0
+    BACKUP_API_KEY=sk_live_backup_f1e2d3c4b5a6987654321098765432109876543210
+    
+    # Third-party Integration Keys
+    CROWDSTRIKE_API_KEY=cs_api_12345678901234567890123456789012
+    VIRUSTOTAL_API_KEY=vt_api_abcdefghijklmnopqrstuvwxyz1234567890abcdef
+    SHODAN_API_KEY=shodan_1234567890abcdef1234567890abcdef12345678
+    
+    # Database Credentials
+    DB_ADMIN_PASSWORD=P@ssw0rd_DB_Admin_2024!
+    DB_BACKUP_PASSWORD=B@ckup_P@ss_2024!
+    MONGO_ADMIN_PASSWORD=M0ng0_Admin_2024!
+    REDIS_ADMIN_PASSWORD=R3dis_Admin_2024!
+    
+    # OAuth/SAML Secrets
+    OAUTH_CLIENT_SECRET=oauth_client_secret_production_very_long_and_secure_2024
+    SAML_PRIVATE_KEY_PASSPHRASE=saml_private_key_passphrase_super_secret_2024
+    
+    # Encryption Keys
+    MASTER_ENCRYPTION_KEY=master_encryption_key_aes_256_very_secure_2024_production
+    BACKUP_ENCRYPTION_KEY=backup_encryption_key_rsa_4096_secure_2024_production
+    
+    # Certificate Passwords
+    SSL_PRIVATE_KEY_PASSWORD=ssl_private_key_password_2024_secure
+    CLIENT_CERT_PASSWORD=client_certificate_password_2024_secure
+    
+  home_isectech_ssh_id_rsa: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAlwAAAAdzc2gtcn
+    NhAAAAAwEAAQAAAIEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP
+    QRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX
+    YZ1234567890abcdefghijklmnopqrstuvwxyz  [HONEYPOT TRAP - FAKE KEY]
+    -----END OPENSSH PRIVATE KEY-----
+    
+  var_log_isectech_security.log: |
+    2024-01-15 09:15:23 [INFO] User admin@isectech.com authenticated successfully from 192.168.1.100
+    2024-01-15 09:16:45 [WARN] Multiple failed login attempts from 203.0.113.45 (5 attempts)
+    2024-01-15 09:17:12 [INFO] API key sk_live_a1b2c3d4e5f6g7h8i9j0 accessed endpoint /api/v1/alerts
+    2024-01-15 09:18:33 [ERROR] Database connection pool exhausted, scaling up
+    2024-01-15 09:19:01 [INFO] Backup job started for customer tenant_main
+    2024-01-15 09:20:15 [WARN] Unusual API usage pattern detected for user usr_suspicious_001
+    2024-01-15 09:21:45 [INFO] Security scan completed, 0 vulnerabilities found
+    2024-01-15 09:22:33 [WARN] Rate limit exceeded for IP 198.51.100.42
+    2024-01-15 09:23:12 [INFO] System health check passed - all services operational
+    2024-01-15 09:24:01 [ERROR] Failed to decrypt data - invalid encryption key used
+    
+  etc_nginx_sites_enabled_isectech: |
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name isectech.com www.isectech.com;
+        return 301 https://$host$request_uri;
+    }
+    
+    server {
+        listen 443 ssl http2;
+        listen [::]:443 ssl http2;
+        server_name isectech.com www.isectech.com;
+        
+        ssl_certificate /etc/ssl/certs/isectech.com.crt;
+        ssl_certificate_key /etc/ssl/private/isectech.com.key;
+        
+        # Security headers
+        add_header X-Frame-Options DENY;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        
+        # API endpoints
+        location /api/ {
+            proxy_pass http://backend-service:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Rate limiting
+            limit_req zone=api burst=100 nodelay;
+        }
+        
+        # Admin endpoints (HONEYPOT TRAP)
+        location /admin/ {
+            auth_basic "Administrator Access";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+            proxy_pass http://admin-service:9090;
+        }
+        
+        # Static files
+        location / {
+            root /var/www/html;
+            try_files $uri $uri/ /index.html;
+        }
+    }
+    
+  etc_nginx_htpasswd: |
+    # Basic auth credentials for admin access (HONEYPOT TRAPS)
+    admin:$apr1$xyz12345$abcdefghijklmnopqrstuvwx
+    root:$apr1$abc67890$defghijklmnopqrstuvwxyz12
+    isectech:$apr1$def12345$ghijklmnopqrstuvwxyz3456

@@ -1,0 +1,388 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-honeypot
+  namespace: deception
+  labels:
+    app: web-honeypot
+    honeypot-type: web
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web-honeypot
+  template:
+    metadata:
+      labels:
+        app: web-honeypot
+        honeypot-type: web
+      annotations:
+        security.isectech.com/purpose: "web-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: web-honeypot
+        image: isectech/web-honeypot:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http-web
+          protocol: TCP
+        - containerPort: 443
+          name: https-web
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "web"
+        - name: DOMAIN_NAME
+          value: "admin.isectech.internal"
+        - name: SSL_ENABLED
+          value: "true"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: CAPTURE_UPLOADS
+          value: "true"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE  # Required for port 80/443
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: web-templates
+          mountPath: /var/www/html
+          readOnly: true
+        - name: upload-temp
+          mountPath: /tmp/uploads
+        - name: logs-volume
+          mountPath: /var/log/honeypot
+      volumes:
+      - name: web-templates
+        configMap:
+          name: web-honeypot-templates
+      - name: upload-temp
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: logs-volume
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-honeypot-service
+  namespace: deception
+  labels:
+    app: web-honeypot
+spec:
+  selector:
+    app: web-honeypot
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-honeypot-templates
+  namespace: deception
+  labels:
+    app: web-honeypot
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>isectech Admin Portal</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f4f4; }
+            .container { max-width: 400px; margin: 100px auto; padding: 20px; background: white; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .logo { text-align: center; margin-bottom: 30px; }
+            .form-group { margin-bottom: 15px; }
+            label { display: block; margin-bottom: 5px; font-weight: bold; }
+            input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px; box-sizing: border-box; }
+            .btn { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; }
+            .btn:hover { background: #0056b3; }
+            .warning { color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 3px; margin-bottom: 15px; }
+            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo">
+                <h2>🔒 isectech Admin</h2>
+                <p>Security Administration Portal</p>
+            </div>
+            <form id="loginForm" action="/admin/login" method="POST">
+                <div class="form-group">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">Login</button>
+            </form>
+            <div class="footer">
+                <p>© 2024 isectech Security Platform</p>
+                <p>Build: v2.4.1 | Node: admin-01</p>
+            </div>
+        </div>
+        <script>
+            document.getElementById('loginForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                // Capture credentials and send alert
+                fetch('/api/capture', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value,
+                        timestamp: new Date().toISOString(),
+                        user_agent: navigator.userAgent,
+                        referrer: document.referrer
+                    })
+                });
+                // Show fake loading
+                document.querySelector('.btn').innerHTML = 'Authenticating...';
+                setTimeout(() => {
+                    alert('Authentication failed. Please check your credentials.');
+                    document.querySelector('.btn').innerHTML = 'Login';
+                }, 2000);
+            });
+        </script>
+    </body>
+    </html>
+  admin.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>System Administration - isectech</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #fff; }
+            .header { background: #333; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+            .nav { background: #444; padding: 10px; margin-bottom: 20px; border-radius: 5px; }
+            .nav a { color: #fff; text-decoration: none; margin-right: 20px; padding: 5px 10px; border-radius: 3px; }
+            .nav a:hover { background: #555; }
+            .content { background: #2a2a2a; padding: 20px; border-radius: 5px; }
+            .system-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+            .info-card { background: #333; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; }
+            .critical { border-left-color: #dc3545; }
+            .warning { border-left-color: #ffc107; }
+            .good { border-left-color: #28a745; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #444; }
+            th { background: #444; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🛡️ isectech System Administration</h1>
+            <p>Last updated: <span id="timestamp"></span></p>
+        </div>
+        <div class="nav">
+            <a href="/admin/dashboard">Dashboard</a>
+            <a href="/admin/users">User Management</a>
+            <a href="/admin/security">Security Settings</a>
+            <a href="/admin/logs">System Logs</a>
+            <a href="/admin/backup">Backup & Recovery</a>
+            <a href="/admin/config">Configuration</a>
+        </div>
+        <div class="content">
+            <h2>System Overview</h2>
+            <div class="system-info">
+                <div class="info-card good">
+                    <h3>System Status</h3>
+                    <p>🟢 All systems operational</p>
+                    <p>Uptime: 45 days, 12 hours</p>
+                </div>
+                <div class="info-card warning">
+                    <h3>Security Alerts</h3>
+                    <p>⚠️ 3 pending security reviews</p>
+                    <p>Last scan: 2 hours ago</p>
+                </div>
+                <div class="info-card critical">
+                    <h3>Database</h3>
+                    <p>🔴 High CPU usage detected</p>
+                    <p>Connection pool: 89% utilized</p>
+                </div>
+                <div class="info-card good">
+                    <h3>API Gateway</h3>
+                    <p>🟢 Healthy</p>
+                    <p>Rate limit: 1,247/10,000 req/min</p>
+                </div>
+            </div>
+            
+            <h2>Active Sessions</h2>
+            <table>
+                <thead>
+                    <tr><th>User</th><th>IP Address</th><th>Login Time</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>admin@isectech.com</td><td>192.168.1.100</td><td>10:30 AM</td><td>🟢 Active</td><td><button>Terminate</button></td></tr>
+                    <tr><td>security@isectech.com</td><td>10.0.0.45</td><td>09:15 AM</td><td>🟢 Active</td><td><button>Terminate</button></td></tr>
+                    <tr><td>analyst@isectech.com</td><td>172.16.0.23</td><td>08:45 AM</td><td>🟡 Idle</td><td><button>Terminate</button></td></tr>
+                </tbody>
+            </table>
+        </div>
+        <script>
+            document.getElementById('timestamp').textContent = new Date().toLocaleString();
+            // Capture all interactions
+            document.addEventListener('click', function(e) {
+                fetch('/api/capture', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'click',
+                        element: e.target.tagName,
+                        text: e.target.textContent,
+                        timestamp: new Date().toISOString()
+                    })
+                });
+            });
+        </script>
+    </body>
+    </html>
+  file-upload.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>File Upload - isectech Admin</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f4; }
+            .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .upload-area { border: 2px dashed #ccc; border-radius: 5px; padding: 40px; text-align: center; margin: 20px 0; }
+            .upload-area.dragover { border-color: #007bff; background: #f8f9ff; }
+            input[type="file"] { margin: 20px 0; }
+            .btn { padding: 12px 30px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+            .progress { width: 100%; height: 20px; background: #f0f0f0; border-radius: 10px; margin: 20px 0; overflow: hidden; }
+            .progress-bar { height: 100%; background: #28a745; width: 0%; transition: width 0.3s ease; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>🗂️ File Upload Portal</h2>
+            <p>Upload configuration files, logs, or security reports for analysis.</p>
+            
+            <div class="upload-area" id="uploadArea">
+                <p>📁 Drag and drop files here or click to browse</p>
+                <input type="file" id="fileInput" multiple accept=".txt,.log,.json,.xml,.cfg,.conf">
+            </div>
+            
+            <div class="progress" id="progressContainer" style="display:none;">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            
+            <button class="btn" onclick="uploadFiles()">Upload Files</button>
+            
+            <div id="results"></div>
+        </div>
+        
+        <script>
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            uploadArea.addEventListener('click', () => fileInput.click());
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            function handleFiles(files) {
+                for (let file of files) {
+                    // Capture file information
+                    fetch('/api/capture', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'file_upload',
+                            filename: file.name,
+                            filesize: file.size,
+                            filetype: file.type,
+                            timestamp: new Date().toISOString()
+                        })
+                    });
+                }
+            }
+            
+            function uploadFiles() {
+                const files = fileInput.files;
+                if (files.length === 0) return;
+                
+                document.getElementById('progressContainer').style.display = 'block';
+                let progress = 0;
+                const progressBar = document.getElementById('progressBar');
+                
+                const interval = setInterval(() => {
+                    progress += Math.random() * 10;
+                    if (progress >= 100) {
+                        progress = 100;
+                        clearInterval(interval);
+                        document.getElementById('results').innerHTML = '<p style="color:green;">✅ Files uploaded successfully!</p>';
+                    }
+                    progressBar.style.width = progress + '%';
+                }, 200);
+                
+                handleFiles(files);
+            }
+        </script>
+    </body>
+    </html>

@@ -1,0 +1,49 @@
+# PostgreSQL Configuration for iSECTECH Development Environment
+# This configuration uses a single PostgreSQL instance for local development
+
+postgres:
+  # Connection settings
+  connection_timeout: 30s
+  query_timeout: 60s
+  
+  # Security settings (simplified for development)
+  enable_row_level_security: true
+  encryption_key: "dev-encryption-key-change-in-production"
+  
+  # Monitoring (disabled for development)
+  enable_metrics: false
+  enable_tracing: false
+  slow_query_threshold: 2s
+  
+  # Circuit breaker configuration
+  circuit_breaker:
+    max_requests: 100
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 10
+  
+  # Retry configuration
+  retry_config:
+    max_attempts: 2
+    initial_interval: 50ms
+    max_interval: 1s
+    multiplier: 2.0
+  
+  # Single shard configuration for development
+  shards:
+    - name: "shard-dev"
+      host: "${POSTGRES_HOST:-localhost}"
+      port: 5432
+      database: "${POSTGRES_DB:-isectech_dev}"
+      username: "${POSTGRES_USER:-isectech}"
+      password: "${POSTGRES_PASSWORD:-isectech123}"
+      ssl_mode: "disable"
+      max_conns: 25
+      min_conns: 2
+      max_conn_lifetime: 1h
+      max_conn_idle_time: 30m
+      shard_key: "tenant_id"
+      shard_range:
+        min: "00000000-0000-0000-0000-000000000000"
+        max: "ffffffff-ffff-ffff-ffff-ffffffffffff"
+      read_replicas: []  # No replicas in development

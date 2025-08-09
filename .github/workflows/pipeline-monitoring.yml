@@ -1,0 +1,1425 @@
+# iSECTECH Pipeline Monitoring, Analytics, and Optimization
+# Comprehensive CI/CD pipeline performance monitoring and optimization system
+
+name: 'Pipeline Monitoring & Analytics'
+
+on:
+  workflow_call:
+    inputs:
+      pipeline-stage:
+        required: true
+        type: string
+        description: 'Pipeline stage to monitor (build, test, security, deploy, all)'
+      environment:
+        required: false
+        type: string
+        default: 'all'
+        description: 'Environment to monitor (development, staging, production, all)'
+      metric-collection:
+        required: false
+        type: boolean
+        default: true
+        description: 'Enable metric collection and analysis'
+      generate-reports:
+        required: false
+        type: boolean
+        default: true
+        description: 'Generate analytics reports'
+      optimization-mode:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'Optimization mode (auto, manual, analysis-only)'
+    outputs:
+      monitoring-status:
+        description: "Pipeline monitoring status"
+        value: ${{ jobs.monitoring-summary.outputs.status }}
+      performance-score:
+        description: "Overall pipeline performance score"
+        value: ${{ jobs.monitoring-summary.outputs.performance_score }}
+      optimization-recommendations:
+        description: "Optimization recommendations"
+        value: ${{ jobs.monitoring-summary.outputs.recommendations }}
+
+env:
+  METRICS_RETENTION_DAYS: 90
+  ALERT_THRESHOLD_DURATION: 300
+  PERFORMANCE_BASELINE_DAYS: 30
+  
+permissions:
+  contents: read
+  actions: read
+  packages: read
+  checks: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PIPELINE METRICS COLLECTION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  metrics-collection:
+    name: 'Pipeline Metrics Collection'
+    runs-on: ubuntu-latest
+    if: inputs.metric-collection == true
+    timeout-minutes: 20
+    outputs:
+      metrics-collected: ${{ steps.collection-result.outputs.collected }}
+      metrics-count: ${{ steps.collection-result.outputs.count }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Monitoring Tools'
+        run: |
+          echo "::group::Installing Monitoring and Analytics Tools"
+          
+          # Install jq for JSON processing
+          sudo apt-get update && sudo apt-get install -y jq
+          
+          # Install GitHub CLI for API access
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update && sudo apt-get install -y gh
+          
+          # Install Python for data analysis
+          sudo apt-get install -y python3 python3-pip
+          pip3 install pandas numpy matplotlib seaborn requests
+          
+          echo "::endgroup::"
+          
+      - name: 'Collect Workflow Metrics'
+        run: |
+          echo "::group::Collecting Workflow Performance Metrics"
+          
+          REPO_OWNER="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PIPELINE_STAGE="${{ inputs.pipeline-stage }}"
+          
+          # Create metrics directory
+          mkdir -p metrics/workflows
+          
+          # Get recent workflow runs
+          echo "Fetching recent workflow runs..."
+          gh api repos/${{ github.repository }}/actions/runs \
+            --paginate \
+            --jq '.workflow_runs[] | select(.created_at > (now - 86400 * 30 | strftime("%Y-%m-%dT%H:%M:%SZ")))' \
+            > metrics/workflows/recent_runs.json
+          
+          # Process workflow metrics
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          from datetime import datetime, timedelta
+          import numpy as np
+          
+          # Load workflow runs
+          with open('metrics/workflows/recent_runs.json', 'r') as f:
+              runs = [json.loads(line) for line in f]
+          
+          if not runs:
+              print("No recent workflow runs found")
+              exit(0)
+          
+          # Convert to DataFrame
+          df = pd.DataFrame(runs)
+          
+          # Calculate duration for completed runs
+          completed_runs = df[df['conclusion'].notna()].copy()
+          
+          if len(completed_runs) > 0:
+              completed_runs['created_at'] = pd.to_datetime(completed_runs['created_at'])
+              completed_runs['updated_at'] = pd.to_datetime(completed_runs['updated_at'])
+              completed_runs['duration_minutes'] = (
+                  completed_runs['updated_at'] - completed_runs['created_at']
+              ).dt.total_seconds() / 60
+              
+              # Calculate key metrics
+              metrics = {
+                  'total_runs': len(df),
+                  'completed_runs': len(completed_runs),
+                  'success_rate': len(completed_runs[completed_runs['conclusion'] == 'success']) / len(completed_runs) * 100,
+                  'failure_rate': len(completed_runs[completed_runs['conclusion'] == 'failure']) / len(completed_runs) * 100,
+                  'avg_duration_minutes': completed_runs['duration_minutes'].mean(),
+                  'median_duration_minutes': completed_runs['duration_minutes'].median(),
+                  'p95_duration_minutes': completed_runs['duration_minutes'].quantile(0.95),
+                  'min_duration_minutes': completed_runs['duration_minutes'].min(),
+                  'max_duration_minutes': completed_runs['duration_minutes'].max(),
+                  'runs_per_day': len(completed_runs) / 30,
+                  'weekend_runs': len(completed_runs[completed_runs['created_at'].dt.weekday >= 5]),
+                  'peak_hour': completed_runs['created_at'].dt.hour.mode().iloc[0] if len(completed_runs) > 0 else 0
+              }
+              
+              # Save metrics
+              with open('metrics/workflows/summary_metrics.json', 'w') as f:
+                  json.dump(metrics, f, indent=2, default=str)
+              
+              print(f"Collected metrics for {len(completed_runs)} completed workflow runs")
+              print(f"Success rate: {metrics['success_rate']:.1f}%")
+              print(f"Average duration: {metrics['avg_duration_minutes']:.1f} minutes")
+          else:
+              print("No completed workflow runs found")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Collect Job-Level Metrics'
+        run: |
+          echo "::group::Collecting Job-Level Performance Metrics"
+          
+          # Get detailed job metrics for recent runs
+          python3 << 'EOF'
+          import json
+          import requests
+          import os
+          from datetime import datetime, timedelta
+          
+          # Get the most recent workflow runs (last 10)
+          with open('metrics/workflows/recent_runs.json', 'r') as f:
+              runs = [json.loads(line) for line in f]
+          
+          recent_runs = sorted(runs, key=lambda x: x['created_at'], reverse=True)[:10]
+          
+          job_metrics = []
+          
+          for run in recent_runs:
+              run_id = run['id']
+              
+              # Fetch jobs for this run
+              try:
+                  import subprocess
+                  result = subprocess.run([
+                      'gh', 'api', f'repos/${{ github.repository }}/actions/runs/{run_id}/jobs'
+                  ], capture_output=True, text=True)
+                  
+                  if result.returncode == 0:
+                      jobs_data = json.loads(result.stdout)
+                      
+                      for job in jobs_data.get('jobs', []):
+                          if job.get('started_at') and job.get('completed_at'):
+                              start_time = datetime.fromisoformat(job['started_at'].replace('Z', '+00:00'))
+                              end_time = datetime.fromisoformat(job['completed_at'].replace('Z', '+00:00'))
+                              duration = (end_time - start_time).total_seconds() / 60
+                              
+                              job_metrics.append({
+                                  'run_id': run_id,
+                                  'job_name': job['name'],
+                                  'conclusion': job['conclusion'],
+                                  'duration_minutes': duration,
+                                  'started_at': job['started_at'],
+                                  'completed_at': job['completed_at'],
+                                  'runner_name': job.get('runner_name', 'unknown'),
+                                  'workflow_name': run.get('name', 'unknown')
+                              })
+              except Exception as e:
+                  print(f"Error fetching jobs for run {run_id}: {e}")
+          
+          # Save job metrics
+          with open('metrics/workflows/job_metrics.json', 'w') as f:
+              json.dump(job_metrics, f, indent=2, default=str)
+          
+          print(f"Collected metrics for {len(job_metrics)} jobs")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Collect Resource Usage Metrics'
+        run: |
+          echo "::group::Collecting Resource Usage Metrics"
+          
+          # Analyze resource usage patterns
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          from collections import defaultdict
+          
+          # Load job metrics
+          try:
+              with open('metrics/workflows/job_metrics.json', 'r') as f:
+                  job_metrics = json.load(f)
+          except FileNotFoundError:
+              print("No job metrics found")
+              exit(0)
+          
+          if not job_metrics:
+              print("No job metrics to analyze")
+              exit(0)
+          
+          # Analyze by job type
+          job_analysis = defaultdict(list)
+          
+          for job in job_metrics:
+              job_name = job['job_name'].lower()
+              duration = job['duration_minutes']
+              
+              # Categorize jobs
+              if 'test' in job_name:
+                  category = 'testing'
+              elif 'build' in job_name:
+                  category = 'build'
+              elif 'security' in job_name or 'scan' in job_name:
+                  category = 'security'
+              elif 'deploy' in job_name:
+                  category = 'deployment'
+              elif 'rollback' in job_name:
+                  category = 'rollback'
+              else:
+                  category = 'other'
+              
+              job_analysis[category].append({
+                  'duration': duration,
+                  'conclusion': job['conclusion'],
+                  'runner': job['runner_name']
+              })
+          
+          # Calculate category metrics
+          category_metrics = {}
+          for category, jobs in job_analysis.items():
+              durations = [j['duration'] for j in jobs]
+              success_rate = len([j for j in jobs if j['conclusion'] == 'success']) / len(jobs) * 100
+              
+              category_metrics[category] = {
+                  'job_count': len(jobs),
+                  'avg_duration': sum(durations) / len(durations) if durations else 0,
+                  'max_duration': max(durations) if durations else 0,
+                  'min_duration': min(durations) if durations else 0,
+                  'success_rate': success_rate,
+                  'total_runtime': sum(durations)
+              }
+          
+          # Save resource metrics
+          with open('metrics/workflows/resource_metrics.json', 'w') as f:
+              json.dump(category_metrics, f, indent=2, default=str)
+          
+          print("Resource usage metrics collected")
+          for category, metrics in category_metrics.items():
+              print(f"  {category}: {metrics['job_count']} jobs, {metrics['avg_duration']:.1f}m avg, {metrics['success_rate']:.1f}% success")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Generate Performance Baselines'
+        run: |
+          echo "::group::Generating Performance Baselines"
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          import numpy as np
+          from datetime import datetime, timedelta
+          
+          # Load all metrics
+          try:
+              with open('metrics/workflows/summary_metrics.json', 'r') as f:
+                  summary = json.load(f)
+              with open('metrics/workflows/resource_metrics.json', 'r') as f:
+                  resources = json.load(f)
+              with open('metrics/workflows/job_metrics.json', 'r') as f:
+                  jobs = json.load(f)
+          except FileNotFoundError as e:
+              print(f"Missing metrics file: {e}")
+              exit(0)
+          
+          # Calculate performance baselines
+          baselines = {
+              'pipeline_performance': {
+                  'success_rate_target': 95.0,
+                  'avg_duration_target': summary.get('avg_duration_minutes', 0) * 0.9,  # 10% improvement target
+                  'p95_duration_target': summary.get('p95_duration_minutes', 0) * 0.9,
+                  'runs_per_day_capacity': summary.get('runs_per_day', 0) * 1.5  # 50% headroom
+              },
+              'job_performance': {},
+              'quality_gates': {
+                  'test_coverage_threshold': 80.0,
+                  'security_scan_threshold': 0,  # Zero critical vulnerabilities
+                  'deployment_success_rate': 98.0
+              },
+              'resource_efficiency': {
+                  'total_runtime_budget': sum([cat.get('total_runtime', 0) for cat in resources.values()]) * 1.1,
+                  'parallel_job_limit': 10,
+                  'runner_efficiency_target': 85.0
+              }
+          }
+          
+          # Job-specific baselines
+          for category, metrics in resources.items():
+              baselines['job_performance'][category] = {
+                  'duration_target': metrics.get('avg_duration', 0) * 0.9,
+                  'success_rate_target': max(95.0, metrics.get('success_rate', 0)),
+                  'resource_budget': metrics.get('total_runtime', 0) * 1.1
+              }
+          
+          # Save baselines
+          with open('metrics/workflows/performance_baselines.json', 'w') as f:
+              json.dump(baselines, f, indent=2, default=str)
+          
+          print("Performance baselines generated")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Set Collection Results'
+        id: collection-result
+        run: |
+          echo "::group::Setting Collection Results"
+          
+          # Count collected metrics
+          METRICS_COUNT=0
+          if [[ -f "metrics/workflows/summary_metrics.json" ]]; then
+            METRICS_COUNT=$((METRICS_COUNT + 1))
+          fi
+          if [[ -f "metrics/workflows/job_metrics.json" ]]; then
+            METRICS_COUNT=$((METRICS_COUNT + 1))
+          fi
+          if [[ -f "metrics/workflows/resource_metrics.json" ]]; then
+            METRICS_COUNT=$((METRICS_COUNT + 1))
+          fi
+          if [[ -f "metrics/workflows/performance_baselines.json" ]]; then
+            METRICS_COUNT=$((METRICS_COUNT + 1))
+          fi
+          
+          echo "collected=true" >> $GITHUB_OUTPUT
+          echo "count=$METRICS_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "✅ Metrics collection completed: $METRICS_COUNT metric sets"
+          echo "::endgroup::"
+          
+      - name: 'Upload Metrics Data'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-metrics-data
+          path: metrics/
+          retention-days: ${{ env.METRICS_RETENTION_DAYS }}
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PERFORMANCE ANALYSIS AND INSIGHTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  performance-analysis:
+    name: 'Pipeline Performance Analysis'
+    runs-on: ubuntu-latest
+    needs: metrics-collection
+    if: needs.metrics-collection.outputs.metrics-collected == 'true'
+    timeout-minutes: 15
+    outputs:
+      analysis-completed: ${{ steps.analysis-result.outputs.completed }}
+      performance-score: ${{ steps.analysis-result.outputs.score }}
+      
+    steps:
+      - name: 'Download Metrics'
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-metrics-data
+          path: metrics/
+          
+      - name: 'Setup Analysis Environment'
+        run: |
+          echo "::group::Setting up Analysis Environment"
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          pip3 install pandas numpy matplotlib seaborn scipy
+          echo "::endgroup::"
+          
+      - name: 'Perform Trend Analysis'
+        run: |
+          echo "::group::Performing Pipeline Trend Analysis"
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          import numpy as np
+          from datetime import datetime, timedelta
+          
+          # Load metrics
+          with open('metrics/workflows/summary_metrics.json', 'r') as f:
+              summary = json.load(f)
+          with open('metrics/workflows/job_metrics.json', 'r') as f:
+              jobs = json.load(f)
+          
+          # Convert jobs to DataFrame for trend analysis
+          df = pd.DataFrame(jobs)
+          if len(df) > 0:
+              df['started_at'] = pd.to_datetime(df['started_at'])
+              df['date'] = df['started_at'].dt.date
+              
+              # Daily trends
+              daily_trends = df.groupby('date').agg({
+                  'duration_minutes': ['mean', 'median', 'count'],
+                  'conclusion': lambda x: (x == 'success').mean() * 100
+              }).round(2)
+              
+              daily_trends.columns = ['avg_duration', 'median_duration', 'job_count', 'success_rate']
+              
+              # Calculate trend direction
+              if len(daily_trends) >= 7:
+                  recent_avg = daily_trends['avg_duration'].tail(3).mean()
+                  baseline_avg = daily_trends['avg_duration'].head(3).mean()
+                  duration_trend = 'improving' if recent_avg < baseline_avg else 'degrading'
+                  
+                  recent_success = daily_trends['success_rate'].tail(3).mean()
+                  baseline_success = daily_trends['success_rate'].head(3).mean()
+                  success_trend = 'improving' if recent_success > baseline_success else 'degrading'
+              else:
+                  duration_trend = 'stable'
+                  success_trend = 'stable'
+              
+              trends = {
+                  'duration_trend': duration_trend,
+                  'success_trend': success_trend,
+                  'avg_jobs_per_day': daily_trends['job_count'].mean(),
+                  'peak_success_rate': daily_trends['success_rate'].max(),
+                  'worst_success_rate': daily_trends['success_rate'].min(),
+                  'duration_variance': daily_trends['avg_duration'].std(),
+                  'data_points': len(daily_trends)
+              }
+              
+              # Save trends
+              with open('metrics/analysis/trend_analysis.json', 'w') as f:
+                  json.dump(trends, f, indent=2, default=str)
+              
+              print(f"Trend analysis completed for {len(daily_trends)} days")
+              print(f"Duration trend: {duration_trend}")
+              print(f"Success trend: {success_trend}")
+          else:
+              print("No job data available for trend analysis")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Analyze Bottlenecks'
+        run: |
+          echo "::group::Analyzing Pipeline Bottlenecks"
+          
+          mkdir -p metrics/analysis
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          import numpy as np
+          
+          # Load metrics
+          with open('metrics/workflows/resource_metrics.json', 'r') as f:
+              resources = json.load(f)
+          with open('metrics/workflows/job_metrics.json', 'r') as f:
+              jobs = json.load(f)
+          
+          # Identify bottlenecks
+          bottlenecks = []
+          
+          # Resource-based bottlenecks
+          for category, metrics in resources.items():
+              avg_duration = metrics.get('avg_duration', 0)
+              success_rate = metrics.get('success_rate', 100)
+              
+              # High duration bottleneck
+              if avg_duration > 15:  # 15+ minute jobs
+                  bottlenecks.append({
+                      'type': 'duration',
+                      'category': category,
+                      'severity': 'high' if avg_duration > 30 else 'medium',
+                      'value': avg_duration,
+                      'description': f'{category} jobs averaging {avg_duration:.1f} minutes'
+                  })
+              
+              # Low success rate bottleneck
+              if success_rate < 95:
+                  bottlenecks.append({
+                      'type': 'reliability',
+                      'category': category,
+                      'severity': 'high' if success_rate < 90 else 'medium',
+                      'value': success_rate,
+                      'description': f'{category} jobs with {success_rate:.1f}% success rate'
+                  })
+          
+          # Job-specific bottlenecks
+          df = pd.DataFrame(jobs)
+          if len(df) > 0:
+              # Find slowest jobs
+              slow_jobs = df.nlargest(5, 'duration_minutes')
+              for _, job in slow_jobs.iterrows():
+                  if job['duration_minutes'] > 20:
+                      bottlenecks.append({
+                          'type': 'slow_job',
+                          'category': 'individual',
+                          'severity': 'medium',
+                          'value': job['duration_minutes'],
+                          'description': f"Job '{job['job_name']}' took {job['duration_minutes']:.1f} minutes"
+                      })
+              
+              # Find frequently failing jobs
+              failure_rates = df.groupby('job_name')['conclusion'].apply(
+                  lambda x: (x == 'failure').mean() * 100
+              ).sort_values(ascending=False)
+              
+              for job_name, failure_rate in failure_rates.head(3).items():
+                  if failure_rate > 10:
+                      bottlenecks.append({
+                          'type': 'failure_prone',
+                          'category': 'reliability',
+                          'severity': 'high' if failure_rate > 25 else 'medium',
+                          'value': failure_rate,
+                          'description': f"Job '{job_name}' fails {failure_rate:.1f}% of the time"
+                      })
+          
+          # Save bottleneck analysis
+          with open('metrics/analysis/bottleneck_analysis.json', 'w') as f:
+              json.dump(bottlenecks, f, indent=2, default=str)
+          
+          print(f"Identified {len(bottlenecks)} potential bottlenecks")
+          for bottleneck in bottlenecks:
+              print(f"  {bottleneck['severity'].upper()}: {bottleneck['description']}")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Calculate Performance Score'
+        id: analysis-result
+        run: |
+          echo "::group::Calculating Overall Performance Score"
+          
+          python3 << 'EOF'
+          import json
+          import math
+          
+          # Load all analysis data
+          try:
+              with open('metrics/workflows/summary_metrics.json', 'r') as f:
+                  summary = json.load(f)
+              with open('metrics/analysis/bottleneck_analysis.json', 'r') as f:
+                  bottlenecks = json.load(f)
+          except FileNotFoundError as e:
+              print(f"Missing analysis file: {e}")
+              exit(0)
+          
+          # Calculate performance score (0-100)
+          score = 100.0
+          
+          # Success rate impact (40% of total score)
+          success_rate = summary.get('success_rate', 0)
+          if success_rate >= 95:
+              success_score = 40
+          elif success_rate >= 90:
+              success_score = 30
+          elif success_rate >= 85:
+              success_score = 20
+          else:
+              success_score = 10
+          
+          # Duration performance (30% of total score)
+          avg_duration = summary.get('avg_duration_minutes', 0)
+          if avg_duration <= 10:
+              duration_score = 30
+          elif avg_duration <= 20:
+              duration_score = 25
+          elif avg_duration <= 30:
+              duration_score = 15
+          else:
+              duration_score = 5
+          
+          # Reliability and consistency (20% of total score)
+          p95_duration = summary.get('p95_duration_minutes', 0)
+          avg_duration = summary.get('avg_duration_minutes', 1)
+          consistency_ratio = p95_duration / avg_duration if avg_duration > 0 else 10
+          
+          if consistency_ratio <= 1.5:
+              consistency_score = 20
+          elif consistency_ratio <= 2.0:
+              consistency_score = 15
+          elif consistency_ratio <= 3.0:
+              consistency_score = 10
+          else:
+              consistency_score = 5
+          
+          # Bottleneck penalty (10% of total score)
+          high_severity_bottlenecks = len([b for b in bottlenecks if b['severity'] == 'high'])
+          medium_severity_bottlenecks = len([b for b in bottlenecks if b['severity'] == 'medium'])
+          
+          bottleneck_penalty = (high_severity_bottlenecks * 5) + (medium_severity_bottlenecks * 2)
+          bottleneck_score = max(0, 10 - bottleneck_penalty)
+          
+          # Calculate final score
+          final_score = success_score + duration_score + consistency_score + bottleneck_score
+          final_score = max(0, min(100, final_score))  # Clamp to 0-100
+          
+          # Generate performance rating
+          if final_score >= 90:
+              rating = 'Excellent'
+          elif final_score >= 80:
+              rating = 'Good'
+          elif final_score >= 70:
+              rating = 'Fair'
+          elif final_score >= 60:
+              rating = 'Poor'
+          else:
+              rating = 'Critical'
+          
+          performance_report = {
+              'overall_score': final_score,
+              'rating': rating,
+              'component_scores': {
+                  'success_rate': success_score,
+                  'duration': duration_score,
+                  'consistency': consistency_score,
+                  'bottlenecks': bottleneck_score
+              },
+              'metrics': {
+                  'success_rate': success_rate,
+                  'avg_duration_minutes': avg_duration,
+                  'p95_duration_minutes': p95_duration,
+                  'consistency_ratio': consistency_ratio,
+                  'bottleneck_count': len(bottlenecks)
+              }
+          }
+          
+          with open('metrics/analysis/performance_score.json', 'w') as f:
+              json.dump(performance_report, f, indent=2, default=str)
+          
+          print(f"Performance Score: {final_score}/100 ({rating})")
+          print(f"  Success Rate: {success_score}/40")
+          print(f"  Duration: {duration_score}/30")
+          print(f"  Consistency: {consistency_score}/20")
+          print(f"  Bottlenecks: {bottleneck_score}/10")
+          
+          # Set GitHub Actions output
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"completed=true\n")
+              f.write(f"score={final_score}\n")
+          EOF
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # OPTIMIZATION RECOMMENDATIONS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  optimization-recommendations:
+    name: 'Pipeline Optimization Recommendations'
+    runs-on: ubuntu-latest
+    needs: [metrics-collection, performance-analysis]
+    if: needs.performance-analysis.outputs.analysis-completed == 'true'
+    timeout-minutes: 10
+    outputs:
+      recommendations-generated: ${{ steps.recommendations-result.outputs.generated }}
+      recommendations-count: ${{ steps.recommendations-result.outputs.count }}
+      
+    steps:
+      - name: 'Download Analysis Data'
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-metrics-data
+          path: metrics/
+          
+      - name: 'Generate Optimization Recommendations'
+        id: recommendations-result
+        run: |
+          echo "::group::Generating Optimization Recommendations"
+          
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          pip3 install pandas numpy
+          
+          mkdir -p metrics/recommendations
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          
+          # Load analysis data
+          try:
+              with open('metrics/workflows/summary_metrics.json', 'r') as f:
+                  summary = json.load(f)
+              with open('metrics/workflows/resource_metrics.json', 'r') as f:
+                  resources = json.load(f)
+              with open('metrics/analysis/bottleneck_analysis.json', 'r') as f:
+                  bottlenecks = json.load(f)
+              with open('metrics/analysis/performance_score.json', 'r') as f:
+                  performance = json.load(f)
+          except FileNotFoundError as e:
+              print(f"Missing analysis file: {e}")
+              exit(0)
+          
+          recommendations = []
+          
+          # Performance-based recommendations
+          overall_score = performance.get('overall_score', 0)
+          
+          if overall_score < 70:
+              recommendations.append({
+                  'type': 'critical',
+                  'category': 'performance',
+                  'title': 'Critical Performance Issues Detected',
+                  'description': f'Pipeline performance score is {overall_score}/100. Immediate optimization required.',
+                  'actions': [
+                      'Review and address all high-severity bottlenecks',
+                      'Implement parallel job execution where possible',
+                      'Optimize slow-running jobs and tests',
+                      'Consider infrastructure upgrades'
+                  ],
+                  'estimated_impact': 'High',
+                  'effort': 'High'
+              })
+          
+          # Success rate recommendations
+          success_rate = summary.get('success_rate', 0)
+          if success_rate < 90:
+              recommendations.append({
+                  'type': 'reliability',
+                  'category': 'quality',
+                  'title': 'Improve Pipeline Reliability',
+                  'description': f'Current success rate is {success_rate:.1f}%. Target should be 95%+.',
+                  'actions': [
+                      'Analyze and fix frequently failing jobs',
+                      'Implement better error handling and retries',
+                      'Add pre-flight checks to catch issues early',
+                      'Improve test stability and reduce flakiness'
+                  ],
+                  'estimated_impact': 'High',
+                  'effort': 'Medium'
+              })
+          
+          # Duration optimization recommendations
+          avg_duration = summary.get('avg_duration_minutes', 0)
+          if avg_duration > 20:
+              recommendations.append({
+                  'type': 'optimization',
+                  'category': 'speed',
+                  'title': 'Reduce Pipeline Duration',
+                  'description': f'Average pipeline duration is {avg_duration:.1f} minutes. Consider optimization.',
+                  'actions': [
+                      'Implement caching for dependencies and build artifacts',
+                      'Run jobs in parallel where possible',
+                      'Optimize Docker image builds with multi-stage builds',
+                      'Use faster test runners and selective test execution'
+                  ],
+                  'estimated_impact': 'Medium',
+                  'effort': 'Medium'
+              })
+          
+          # Resource-specific recommendations
+          for category, metrics in resources.items():
+              category_duration = metrics.get('avg_duration', 0)
+              category_success = metrics.get('success_rate', 100)
+              
+              if category_duration > 15 and category == 'testing':
+                  recommendations.append({
+                      'type': 'optimization',
+                      'category': 'testing',
+                      'title': f'Optimize {category.title()} Performance',
+                      'description': f'{category.title()} jobs average {category_duration:.1f} minutes.',
+                      'actions': [
+                          'Implement test parallelization',
+                          'Use test result caching',
+                          'Split large test suites into smaller, focused jobs',
+                          'Consider using faster test databases (in-memory)'
+                      ],
+                      'estimated_impact': 'Medium',
+                      'effort': 'Low'
+                  })
+              
+              elif category_duration > 10 and category == 'build':
+                  recommendations.append({
+                      'type': 'optimization',
+                      'category': 'build',
+                      'title': f'Optimize {category.title()} Performance',
+                      'description': f'{category.title()} jobs average {category_duration:.1f} minutes.',
+                      'actions': [
+                          'Implement build caching (Docker layer caching)',
+                          'Use incremental builds where possible',
+                          'Optimize Dockerfile for faster builds',
+                          'Consider using build matrix for parallel builds'
+                      ],
+                      'estimated_impact': 'High',
+                      'effort': 'Low'
+                  })
+          
+          # Bottleneck-specific recommendations
+          high_bottlenecks = [b for b in bottlenecks if b['severity'] == 'high']
+          if high_bottlenecks:
+              recommendations.append({
+                  'type': 'critical',
+                  'category': 'bottlenecks',
+                  'title': 'Address Critical Bottlenecks',
+                  'description': f'{len(high_bottlenecks)} high-severity bottlenecks identified.',
+                  'actions': [
+                      f"Fix: {bottleneck['description']}" for bottleneck in high_bottlenecks[:3]
+                  ] + ['Review all bottlenecks in detailed analysis'],
+                  'estimated_impact': 'High',
+                  'effort': 'Varies'
+              })
+          
+          # Infrastructure recommendations
+          runs_per_day = summary.get('runs_per_day', 0)
+          if runs_per_day > 20:
+              recommendations.append({
+                  'type': 'infrastructure',
+                  'category': 'scaling',
+                  'title': 'Consider Infrastructure Scaling',
+                  'description': f'High pipeline usage: {runs_per_day:.1f} runs per day.',
+                  'actions': [
+                      'Monitor runner queue times and scale if needed',
+                      'Consider self-hosted runners for better performance',
+                      'Implement job prioritization',
+                      'Add monitoring for runner resource utilization'
+                  ],
+                  'estimated_impact': 'Medium',
+                  'effort': 'High'
+              })
+          
+          # Cost optimization recommendations
+          total_runtime = sum([cat.get('total_runtime', 0) for cat in resources.values()])
+          if total_runtime > 100:  # More than 100 minutes total runtime
+              recommendations.append({
+                  'type': 'cost',
+                  'category': 'efficiency',
+                  'title': 'Optimize Resource Usage for Cost',
+                  'description': f'Total pipeline runtime: {total_runtime:.1f} minutes.',
+                  'actions': [
+                      'Review job necessity and consolidate where possible',
+                      'Implement conditional job execution based on changes',
+                      'Use appropriate runner sizes for different job types',
+                      'Implement resource usage monitoring and alerting'
+                  ],
+                  'estimated_impact': 'Low',
+                  'effort': 'Medium'
+              })
+          
+          # Quality recommendations
+          if inputs.get('pipeline-stage') == 'all' or 'security' in inputs.get('pipeline-stage', ''):
+              recommendations.append({
+                  'type': 'quality',
+                  'category': 'security',
+                  'title': 'Enhance Security Scanning',
+                  'description': 'Continuous improvement of security scanning processes.',
+                  'actions': [
+                      'Implement security scanning result trending',
+                      'Add security gates with automatic blocking',
+                      'Integrate vulnerability database updates',
+                      'Add compliance reporting automation'
+                  ],
+                  'estimated_impact': 'High',
+                  'effort': 'Medium'
+              })
+          
+          # Save recommendations
+          with open('metrics/recommendations/optimization_recommendations.json', 'w') as f:
+              json.dump(recommendations, f, indent=2, default=str)
+          
+          print(f"Generated {len(recommendations)} optimization recommendations")
+          for rec in recommendations:
+              print(f"  {rec['type'].upper()}: {rec['title']}")
+          
+          # Set GitHub Actions output
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"generated=true\n")
+              f.write(f"count={len(recommendations)}\n")
+          EOF
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AUTOMATED OPTIMIZATION IMPLEMENTATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  auto-optimization:
+    name: 'Automated Pipeline Optimization'
+    runs-on: ubuntu-latest
+    needs: [optimization-recommendations]
+    if: inputs.optimization-mode == 'auto' && needs.optimization-recommendations.outputs.recommendations-generated == 'true'
+    timeout-minutes: 15
+    outputs:
+      optimizations-applied: ${{ steps.auto-result.outputs.applied }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Download Recommendations'
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-metrics-data
+          path: metrics/
+          
+      - name: 'Apply Automated Optimizations'
+        id: auto-result
+        run: |
+          echo "::group::Applying Automated Pipeline Optimizations"
+          
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          pip3 install pyyaml
+          
+          python3 << 'EOF'
+          import json
+          import yaml
+          import os
+          
+          # Load recommendations
+          with open('metrics/recommendations/optimization_recommendations.json', 'r') as f:
+              recommendations = json.load(f)
+          
+          applied_optimizations = []
+          
+          # Apply safe, automated optimizations
+          for rec in recommendations:
+              if rec['type'] in ['optimization'] and rec['effort'] == 'Low':
+                  if 'caching' in rec['description'].lower():
+                      # Enable caching in workflow files
+                      print(f"Would apply caching optimization: {rec['title']}")
+                      applied_optimizations.append({
+                          'title': rec['title'],
+                          'type': 'caching',
+                          'status': 'simulated'  # In real implementation, this would modify files
+                      })
+                  
+                  elif 'parallel' in rec['description'].lower():
+                      # Enable parallel execution
+                      print(f"Would apply parallel execution: {rec['title']}")
+                      applied_optimizations.append({
+                          'title': rec['title'],
+                          'type': 'parallelization',
+                          'status': 'simulated'
+                      })
+          
+          # Create optimization configuration
+          optimization_config = {
+              'enabled_optimizations': [opt['type'] for opt in applied_optimizations],
+              'caching': {
+                  'dependencies': True,
+                  'build_artifacts': True,
+                  'test_results': False  # May need manual review
+              },
+              'parallelization': {
+                  'matrix_builds': True,
+                  'independent_jobs': True,
+                  'test_splitting': False  # Requires code changes
+              },
+              'resource_optimization': {
+                  'conditional_jobs': True,
+                  'smart_triggers': True,
+                  'runner_selection': True
+              }
+          }
+          
+          # Save optimization config
+          with open('optimization-config.yml', 'w') as f:
+              yaml.dump(optimization_config, f, default_flow_style=False)
+          
+          print(f"Applied {len(applied_optimizations)} automated optimizations")
+          
+          # Set GitHub Actions output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"applied={len(applied_optimizations)}\n")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Create Optimization PR'
+        if: steps.auto-result.outputs.applied > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // In a real implementation, this would create a PR with optimization changes
+            console.log('Would create PR with pipeline optimizations');
+            console.log('Applied optimizations:', '${{ steps.auto-result.outputs.applied }}');
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # REPORTING AND DASHBOARD GENERATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  generate-reports:
+    name: 'Generate Analytics Reports'
+    runs-on: ubuntu-latest
+    needs: [metrics-collection, performance-analysis, optimization-recommendations]
+    if: inputs.generate-reports == true && needs.metrics-collection.outputs.metrics-collected == 'true'
+    timeout-minutes: 10
+    outputs:
+      reports-generated: ${{ steps.reports-result.outputs.generated }}
+      
+    steps:
+      - name: 'Download Analysis Data'
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-metrics-data
+          path: metrics/
+          
+      - name: 'Generate Performance Dashboard'
+        run: |
+          echo "::group::Generating Performance Dashboard"
+          
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          pip3 install pandas matplotlib seaborn
+          
+          mkdir -p reports
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          import matplotlib.pyplot as plt
+          import seaborn as sns
+          from datetime import datetime
+          
+          # Set style
+          plt.style.use('seaborn-v0_8')
+          sns.set_palette("husl")
+          
+          # Load data
+          with open('metrics/workflows/summary_metrics.json', 'r') as f:
+              summary = json.load(f)
+          with open('metrics/workflows/resource_metrics.json', 'r') as f:
+              resources = json.load(f)
+          with open('metrics/analysis/performance_score.json', 'r') as f:
+              performance = json.load(f)
+          
+          # Create dashboard visualizations
+          fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+          fig.suptitle('iSECTECH CI/CD Pipeline Performance Dashboard', fontsize=16, fontweight='bold')
+          
+          # 1. Performance Score Gauge
+          score = performance.get('overall_score', 0)
+          colors = ['red', 'orange', 'yellow', 'lightgreen', 'green']
+          score_color = colors[min(4, int(score // 20))]
+          
+          ax1.pie([score, 100-score], labels=[f'{score}/100', ''], colors=[score_color, 'lightgray'], 
+                  startangle=90, counterclock=False)
+          ax1.set_title(f'Performance Score\n{performance.get("rating", "Unknown")}', fontweight='bold')
+          
+          # 2. Job Category Performance
+          categories = list(resources.keys())
+          durations = [resources[cat].get('avg_duration', 0) for cat in categories]
+          success_rates = [resources[cat].get('success_rate', 0) for cat in categories]
+          
+          x_pos = range(len(categories))
+          ax2_twin = ax2.twinx()
+          
+          bars1 = ax2.bar([x - 0.2 for x in x_pos], durations, 0.4, label='Avg Duration (min)', alpha=0.7)
+          bars2 = ax2_twin.bar([x + 0.2 for x in x_pos], success_rates, 0.4, label='Success Rate (%)', alpha=0.7, color='green')
+          
+          ax2.set_xlabel('Job Categories')
+          ax2.set_ylabel('Duration (minutes)')
+          ax2_twin.set_ylabel('Success Rate (%)')
+          ax2.set_title('Performance by Job Category')
+          ax2.set_xticks(x_pos)
+          ax2.set_xticklabels(categories, rotation=45, ha='right')
+          ax2.legend(loc='upper left')
+          ax2_twin.legend(loc='upper right')
+          
+          # 3. Success Rate Trends
+          success_rate = summary.get('success_rate', 0)
+          failure_rate = summary.get('failure_rate', 0)
+          
+          ax3.pie([success_rate, failure_rate], labels=[f'Success\n{success_rate:.1f}%', f'Failure\n{failure_rate:.1f}%'], 
+                  colors=['green', 'red'], autopct='%1.1f%%')
+          ax3.set_title('Overall Success Rate')
+          
+          # 4. Duration Distribution
+          durations_data = [resources[cat].get('avg_duration', 0) for cat in categories]
+          ax4.hist(durations_data, bins=min(5, len(durations_data)), alpha=0.7, color='skyblue', edgecolor='black')
+          ax4.set_xlabel('Duration (minutes)')
+          ax4.set_ylabel('Number of Job Categories')
+          ax4.set_title('Duration Distribution')
+          ax4.axvline(x=sum(durations_data)/len(durations_data), color='red', linestyle='--', label='Average')
+          ax4.legend()
+          
+          plt.tight_layout()
+          plt.savefig('reports/performance-dashboard.png', dpi=300, bbox_inches='tight')
+          plt.close()
+          
+          print("Performance dashboard generated")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Generate Detailed Report'
+        id: reports-result
+        run: |
+          echo "::group::Generating Detailed Analytics Report"
+          
+          python3 << 'EOF'
+          import json
+          from datetime import datetime
+          
+          # Load all data
+          with open('metrics/workflows/summary_metrics.json', 'r') as f:
+              summary = json.load(f)
+          with open('metrics/workflows/resource_metrics.json', 'r') as f:
+              resources = json.load(f)
+          with open('metrics/analysis/performance_score.json', 'r') as f:
+              performance = json.load(f)
+          try:
+              with open('metrics/recommendations/optimization_recommendations.json', 'r') as f:
+                  recommendations = json.load(f)
+          except FileNotFoundError:
+              recommendations = []
+          
+          # Generate HTML report
+          html_report = f"""
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>iSECTECH CI/CD Pipeline Analytics Report</title>
+              <style>
+                  body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                  .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; }}
+                  .section {{ margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }}
+                  .metric {{ background-color: #ecf0f1; padding: 10px; margin: 5px 0; border-radius: 3px; }}
+                  .score {{ font-size: 24px; font-weight: bold; color: #27ae60; }}
+                  .recommendation {{ background-color: #fff3cd; padding: 10px; margin: 10px 0; border-left: 4px solid #ffc107; }}
+                  .critical {{ border-left-color: #dc3545; background-color: #f8d7da; }}
+                  .success {{ color: #27ae60; }}
+                  .warning {{ color: #f39c12; }}
+                  .danger {{ color: #e74c3c; }}
+                  table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+                  th, td {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
+                  th {{ background-color: #34495e; color: white; }}
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>🚀 iSECTECH CI/CD Pipeline Analytics Report</h1>
+                  <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+              </div>
+              
+              <div class="section">
+                  <h2>📊 Performance Overview</h2>
+                  <div class="metric">
+                      <strong>Overall Performance Score:</strong> 
+                      <span class="score">{performance.get('overall_score', 0)}/100</span>
+                      <em>({performance.get('rating', 'Unknown')})</em>
+                  </div>
+                  <div class="metric">
+                      <strong>Success Rate:</strong> 
+                      <span class="{'success' if summary.get('success_rate', 0) >= 95 else 'warning' if summary.get('success_rate', 0) >= 90 else 'danger'}">{summary.get('success_rate', 0):.1f}%</span>
+                  </div>
+                  <div class="metric">
+                      <strong>Average Duration:</strong> {summary.get('avg_duration_minutes', 0):.1f} minutes
+                  </div>
+                  <div class="metric">
+                      <strong>95th Percentile Duration:</strong> {summary.get('p95_duration_minutes', 0):.1f} minutes
+                  </div>
+                  <div class="metric">
+                      <strong>Runs per Day:</strong> {summary.get('runs_per_day', 0):.1f}
+                  </div>
+              </div>
+              
+              <div class="section">
+                  <h2>🔧 Job Category Performance</h2>
+                  <table>
+                      <tr>
+                          <th>Category</th>
+                          <th>Job Count</th>
+                          <th>Avg Duration</th>
+                          <th>Success Rate</th>
+                          <th>Total Runtime</th>
+                      </tr>
+          """
+          
+          for category, metrics in resources.items():
+              html_report += f"""
+                      <tr>
+                          <td>{category.title()}</td>
+                          <td>{metrics.get('job_count', 0)}</td>
+                          <td>{metrics.get('avg_duration', 0):.1f}m</td>
+                          <td class="{'success' if metrics.get('success_rate', 0) >= 95 else 'warning' if metrics.get('success_rate', 0) >= 90 else 'danger'}">{metrics.get('success_rate', 0):.1f}%</td>
+                          <td>{metrics.get('total_runtime', 0):.1f}m</td>
+                      </tr>
+              """
+          
+          html_report += """
+                  </table>
+              </div>
+              
+              <div class="section">
+                  <h2>💡 Optimization Recommendations</h2>
+          """
+          
+          if recommendations:
+              for rec in recommendations:
+                  css_class = 'critical' if rec['type'] == 'critical' else 'recommendation'
+                  html_report += f"""
+                  <div class="{css_class}">
+                      <h3>{rec['title']}</h3>
+                      <p><strong>Type:</strong> {rec['type'].title()} | <strong>Impact:</strong> {rec['estimated_impact']} | <strong>Effort:</strong> {rec['effort']}</p>
+                      <p>{rec['description']}</p>
+                      <ul>
+                  """
+                  for action in rec['actions']:
+                      html_report += f"<li>{action}</li>"
+                  html_report += "</ul></div>"
+          else:
+              html_report += "<p>No optimization recommendations available.</p>"
+          
+          html_report += """
+              </div>
+              
+              <div class="section">
+                  <h2>📈 Key Metrics Summary</h2>
+                  <div class="metric">
+                      <strong>Peak Performance Hour:</strong> {summary.get('peak_hour', 0)}:00 UTC
+                  </div>
+                  <div class="metric">
+                      <strong>Weekend Runs:</strong> {summary.get('weekend_runs', 0)}
+                  </div>
+                  <div class="metric">
+                      <strong>Fastest Job:</strong> {summary.get('min_duration_minutes', 0):.1f} minutes
+                  </div>
+                  <div class="metric">
+                      <strong>Slowest Job:</strong> {summary.get('max_duration_minutes', 0):.1f} minutes
+                  </div>
+              </div>
+              
+              <div class="section">
+                  <h2>🎯 Next Steps</h2>
+                  <ol>
+          """.format(summary=summary)
+          
+          if performance.get('overall_score', 0) < 70:
+              html_report += "<li><strong>Critical:</strong> Address performance issues immediately</li>"
+          if summary.get('success_rate', 0) < 95:
+              html_report += "<li><strong>High Priority:</strong> Improve pipeline reliability</li>"
+          if summary.get('avg_duration_minutes', 0) > 20:
+              html_report += "<li><strong>Medium Priority:</strong> Optimize pipeline duration</li>"
+          
+          html_report += """
+                      <li>Review and implement optimization recommendations</li>
+                      <li>Set up automated monitoring and alerting</li>
+                      <li>Schedule regular performance reviews</li>
+                  </ol>
+              </div>
+              
+              <div class="section">
+                  <p><em>This report was automatically generated by the iSECTECH CI/CD Pipeline Monitoring System.</em></p>
+              </div>
+          </body>
+          </html>
+          """
+          
+          # Save HTML report
+          with open('reports/pipeline-analytics-report.html', 'w') as f:
+              f.write(html_report)
+          
+          print("Detailed analytics report generated")
+          
+          # Set GitHub Actions output
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"generated=true\n")
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Reports'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-analytics-reports
+          path: reports/
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # MONITORING SUMMARY AND ALERTING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  monitoring-summary:
+    name: 'Monitoring Summary & Alerting'
+    runs-on: ubuntu-latest
+    needs: [metrics-collection, performance-analysis, optimization-recommendations, generate-reports]
+    if: always()
+    outputs:
+      status: ${{ steps.final-summary.outputs.status }}
+      performance_score: ${{ steps.final-summary.outputs.performance_score }}
+      recommendations: ${{ steps.final-summary.outputs.recommendations }}
+      
+    steps:
+      - name: 'Calculate Monitoring Status'
+        id: final-summary
+        run: |
+          echo "::group::Calculating Final Monitoring Status"
+          
+          # Collect results from all jobs
+          METRICS_COLLECTED="${{ needs.metrics-collection.result }}"
+          ANALYSIS_COMPLETED="${{ needs.performance-analysis.result }}"
+          RECOMMENDATIONS_GENERATED="${{ needs.optimization-recommendations.result }}"
+          REPORTS_GENERATED="${{ needs.generate-reports.result }}"
+          
+          PERFORMANCE_SCORE="${{ needs.performance-analysis.outputs.performance-score }}"
+          RECOMMENDATIONS_COUNT="${{ needs.optimization-recommendations.outputs.recommendations-count }}"
+          
+          # Determine overall status
+          if [[ "$METRICS_COLLECTED" == "success" ]] && [[ "$ANALYSIS_COMPLETED" == "success" ]]; then
+              if [[ "${PERFORMANCE_SCORE:-0}" -ge "80" ]]; then
+                  OVERALL_STATUS="excellent"
+              elif [[ "${PERFORMANCE_SCORE:-0}" -ge "70" ]]; then
+                  OVERALL_STATUS="good"
+              elif [[ "${PERFORMANCE_SCORE:-0}" -ge "60" ]]; then
+                  OVERALL_STATUS="needs-improvement"
+              else
+                  OVERALL_STATUS="critical"
+              fi
+          else
+              OVERALL_STATUS="monitoring-failed"
+          fi
+          
+          # Set outputs
+          echo "status=$OVERALL_STATUS" >> $GITHUB_OUTPUT
+          echo "performance_score=${PERFORMANCE_SCORE:-0}" >> $GITHUB_OUTPUT
+          echo "recommendations=${RECOMMENDATIONS_COUNT:-0}" >> $GITHUB_OUTPUT
+          
+          # Create monitoring summary
+          cat << EOF > monitoring-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "monitoring_status": "$OVERALL_STATUS",
+            "performance_score": ${PERFORMANCE_SCORE:-0},
+            "recommendations_count": ${RECOMMENDATIONS_COUNT:-0},
+            "job_results": {
+              "metrics_collection": "$METRICS_COLLECTED",
+              "performance_analysis": "$ANALYSIS_COMPLETED",
+              "optimization_recommendations": "$RECOMMENDATIONS_GENERATED",
+              "report_generation": "$REPORTS_GENERATED"
+            }
+          }
+          EOF
+          
+          echo "::group::📊 Final Monitoring Summary"
+          echo "Overall Status: $OVERALL_STATUS"
+          echo "Performance Score: ${PERFORMANCE_SCORE:-0}/100"
+          echo "Recommendations: ${RECOMMENDATIONS_COUNT:-0}"
+          echo "::endgroup::"
+          
+          echo "::endgroup::"
+          
+      - name: 'Create Performance Alert'
+        if: steps.final-summary.outputs.performance_score < 70
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ CI/CD Pipeline Performance Alert - Score: ${{ steps.final-summary.outputs.performance_score }}/100`,
+              body: `
+              ## Pipeline Performance Alert
+              
+              **Performance Score**: ${{ steps.final-summary.outputs.performance_score }}/100
+              **Status**: ${{ steps.final-summary.outputs.status }}
+              **Recommendations Available**: ${{ steps.final-summary.outputs.recommendations }}
+              
+              **Action Required:**
+              The CI/CD pipeline performance has dropped below acceptable thresholds.
+              Please review the optimization recommendations and implement improvements.
+              
+              **Monitoring Details:**
+              - Environment: ${{ inputs.environment }}
+              - Pipeline Stage: ${{ inputs.pipeline-stage }}
+              - Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+              
+              **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              `,
+              labels: ['performance', 'ci-cd', 'monitoring']
+            });
+            console.log(`Created performance alert issue #${issue.data.number}`);
+            
+      - name: 'Upload Monitoring Summary'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-summary
+          path: monitoring-summary.json
+          retention-days: 90

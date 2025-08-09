@@ -1,0 +1,363 @@
+# Kong Emergency Security Configuration
+# CRITICAL SECURITY PATCH - Phase 1 Emergency Remediation
+#
+# This configuration implements immediate security fixes for the confirmed
+# Kong Admin API vulnerability (CVSS 9.6) that allows platform-wide
+# administrative system takeover.
+#
+# BUSINESS IMPACT: Prevents unauthorized access to API gateway administration
+# DEPLOYMENT: Emergency deployment within 16 hours
+
+_format_version: "3.0"
+_transform: true
+
+# CRITICAL: Kong Admin API Security Configuration
+admin_listen:
+  - "127.0.0.1:8001 ssl"
+  - "0.0.0.0:8001 ssl"  # Only with client cert authentication
+
+# CRITICAL: SSL/TLS Configuration for Admin API
+admin_ssl_cert: "/etc/kong/certs/admin-api.crt"
+admin_ssl_cert_key: "/etc/kong/certs/admin-api.key"
+admin_ssl_cert_csr_default: "/etc/kong/certs/admin-api.csr"
+
+# CRITICAL: Client Certificate Authentication (mTLS)
+client_ssl: true
+client_ssl_cert_default: "/etc/kong/certs/client-ca.crt"
+
+# CRITICAL: Trusted IP Addresses (Emergency Allowlist)
+trusted_ips:
+  - "127.0.0.1"
+  - "10.0.0.0/8"
+  - "192.168.0.0/16"
+
+# CRITICAL: Security Headers
+headers:
+  - "X-Content-Type-Options: nosniff"
+  - "X-Frame-Options: DENY"
+  - "X-XSS-Protection: 1; mode=block"
+  - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+  - "Content-Security-Policy: default-src 'none'"
+  - "Referrer-Policy: no-referrer"
+  - "X-Kong-Admin-Security: EMERGENCY_HARDENING_ACTIVE"
+
+# CRITICAL: Nginx Directives for Admin API Security
+nginx_admin_directives:
+  - "limit_req_zone $binary_remote_addr zone=admin_api:10m rate=20r/m"
+  - "limit_req zone=admin_api burst=10 nodelay"
+  - "limit_conn_zone $binary_remote_addr zone=admin_conn:10m"
+  - "limit_conn admin_conn 2"
+  - "access_log /var/log/kong/admin_access.log combined"
+  - "error_log /var/log/kong/admin_error.log warn"
+
+# CRITICAL: Database Security
+cassandra_ssl: true
+cassandra_ssl_verify: true
+pg_ssl: true
+pg_ssl_verify: true
+
+# CRITICAL: Additional Security Settings
+nginx_worker_processes: "auto"
+nginx_daemon: "off"
+anonymous_reports: false
+log_level: "warn"
+
+# CRITICAL: Plugin Security
+plugins: "bundled,emergency-admin-security"
+lua_ssl_trusted_certificate: "/etc/ssl/certs/ca-certificates.crt"
+
+# CRITICAL: Admin API Access and Error Logging
+admin_acc_logs: "/var/log/kong/admin_access.log"
+admin_error_log: "/var/log/kong/admin_error.log"
+
+# Emergency Security Plugins Configuration
+plugins:
+  # Admin API Request Termination (Emergency Block)
+  - name: request-termination
+    config:
+      status_code: 403
+      message: "Admin API access restricted - Emergency security lockdown active"
+    protocols:
+      - http
+      - https
+    enabled: true
+    tags:
+      - isectech
+      - admin-security
+      - emergency
+
+  # Admin API Rate Limiting
+  - name: rate-limiting
+    config:
+      minute: 20
+      policy: cluster
+      hide_client_headers: false
+      fault_tolerant: true
+    protocols:
+      - http
+      - https
+    enabled: true
+    tags:
+      - isectech
+      - admin-rate-limit
+      - emergency
+
+  # Admin API IP Restriction
+  - name: ip-restriction
+    config:
+      allow:
+        - "127.0.0.1"
+        - "10.0.0.0/8"
+        - "192.168.0.0/16"
+      deny: []
+    protocols:
+      - http
+      - https
+    enabled: true
+    tags:
+      - isectech
+      - admin-ip-restriction
+      - emergency
+
+  # Admin API mTLS Authentication
+  - name: mtls-auth
+    config:
+      ca_certificates:
+        - "/etc/kong/certs/client-ca.crt"
+      skip_consumer_lookup: false
+      anonymous: null
+      revocation_check_mode: "IGNORE_CA_ERROR"
+    protocols:
+      - https
+    enabled: true
+    tags:
+      - isectech
+      - admin-mtls
+      - emergency
+
+# iSECTECH Services Configuration (secure defaults)
+services:
+  - name: "isectech-asset-discovery"
+    protocol: "https"
+    host: "asset-discovery.isectech.internal"
+    port: 443
+    path: "/api/v1"
+    connect_timeout: 30000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - isectech
+      - asset-discovery
+      - production
+    tls_verify: true
+    enabled: true
+
+  - name: "isectech-threat-detection"
+    protocol: "https"
+    host: "threat-detection.isectech.internal"
+    port: 443
+    path: "/api/v1"
+    connect_timeout: 30000
+    write_timeout: 120000
+    read_timeout: 120000
+    retries: 2
+    tags:
+      - isectech
+      - threat-detection
+      - ml
+      - production
+    tls_verify: true
+    enabled: true
+
+  - name: "isectech-vulnerability-management"
+    protocol: "https"
+    host: "vulnerability-mgmt.isectech.internal"
+    port: 443
+    path: "/api/v1"
+    connect_timeout: 30000
+    write_timeout: 90000
+    read_timeout: 90000
+    retries: 3
+    tags:
+      - isectech
+      - vulnerability-management
+      - production
+    tls_verify: true
+    enabled: true
+
+  - name: "isectech-incident-response"
+    protocol: "https"
+    host: "incident-response.isectech.internal"
+    port: 443
+    path: "/api/v1"
+    connect_timeout: 30000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 5
+    tags:
+      - isectech
+      - incident-response
+      - critical
+      - production
+    tls_verify: true
+    enabled: true
+
+  - name: "isectech-compliance-automation"
+    protocol: "https"
+    host: "compliance.isectech.internal"
+    port: 443
+    path: "/api/v1"
+    connect_timeout: 30000
+    write_timeout: 180000
+    read_timeout: 180000
+    retries: 3
+    tags:
+      - isectech
+      - compliance
+      - reporting
+      - production
+    tls_verify: true
+    enabled: true
+
+# Routes Configuration (secure routing)
+routes:
+  - name: "isectech-asset-discovery-scan"
+    service:
+      name: "isectech-asset-discovery"
+    protocols:
+      - https
+    methods:
+      - POST
+    paths:
+      - "/api/v1/assets/scan"
+    strip_path: false
+    preserve_host: false
+    tags:
+      - isectech
+      - asset-discovery
+      - scan
+
+  - name: "isectech-threat-detection-analyze"
+    service:
+      name: "isectech-threat-detection"
+    protocols:
+      - https
+    methods:
+      - POST
+    paths:
+      - "/api/v1/threats/analyze"
+    strip_path: false
+    preserve_host: false
+    tags:
+      - isectech
+      - threat-detection
+      - analyze
+
+  - name: "isectech-compliance-reports"
+    service:
+      name: "isectech-compliance-automation"
+    protocols:
+      - https
+    methods:
+      - GET
+      - POST
+    paths:
+      - "/api/v1/compliance/reports"
+    strip_path: false
+    preserve_host: false
+    tags:
+      - isectech
+      - compliance
+      - reports
+
+# Upstreams Configuration (high availability)
+upstreams:
+  - name: "isectech-asset-discovery-upstream"
+    algorithm: "round-robin"
+    slots: 10000
+    healthchecks:
+      active:
+        type: "https"
+        timeout: 5
+        concurrency: 10
+        http_path: "/health"
+        https_verify_certificate: true
+        healthy:
+          interval: 30
+          http_statuses: [200]
+          successes: 2
+        unhealthy:
+          interval: 10
+          http_statuses: [429, 500, 502, 503, 504]
+          http_failures: 3
+          tcp_failures: 3
+          timeouts: 3
+    tags:
+      - isectech
+      - asset-discovery
+      - upstream
+
+  - name: "isectech-threat-detection-upstream"
+    algorithm: "least-connections"
+    slots: 10000
+    healthchecks:
+      active:
+        type: "https"
+        timeout: 10
+        concurrency: 5
+        http_path: "/health"
+        https_verify_certificate: true
+        healthy:
+          interval: 60
+          http_statuses: [200]
+          successes: 2
+        unhealthy:
+          interval: 30
+          http_statuses: [429, 500, 502, 503, 504]
+          http_failures: 2
+          tcp_failures: 2
+          timeouts: 2
+    tags:
+      - isectech
+      - threat-detection
+      - ml
+      - upstream
+
+# Targets Configuration (backend instances)
+targets:
+  - target: "asset-discovery-1.us-central1.isectech.internal:443"
+    weight: 100
+    upstream:
+      name: "isectech-asset-discovery-upstream"
+    tags:
+      - isectech
+      - asset-discovery
+      - target
+
+  - target: "threat-detection-1.us-central1.isectech.internal:443"
+    weight: 100
+    upstream:
+      name: "isectech-threat-detection-upstream"
+    tags:
+      - isectech
+      - threat-detection
+      - target
+
+# Security Event Logging
+nginx_http_directives:
+  - "log_format security_log '$remote_addr - $remote_user [$time_local] "
+    "\"$request\" $status $body_bytes_sent "
+    "\"$http_referer\" \"$http_user_agent\" "
+    "\"$ssl_client_cert\" \"$ssl_client_verify\" "
+    "security_level=EMERGENCY_HARDENING'"
+  - "access_log /var/log/kong/security.log security_log"
+
+# Emergency Contact Information (for incident response)
+# In production, this would be loaded from secure environment variables
+environment:
+  KONG_ADMIN_SECURITY_LEVEL: "EMERGENCY_HARDENING_ACTIVE"
+  KONG_EMERGENCY_CONTACT: "security@isectech.com"
+  KONG_INCIDENT_ESCALATION: "soc@isectech.com"
+  KONG_SECURITY_MONITORING: "enabled"
+  KONG_VULNERABILITY_STATUS: "CVSS_9.6_BLOCKED"

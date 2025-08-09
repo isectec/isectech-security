@@ -1,0 +1,14 @@
+# PgBouncer User Authentication File
+# Format: "username" "password_hash"
+
+# Application pool users
+"isectech_pool" "scram-sha-256$4096:dGVzdHNhbHQ=$QzU2MUNPV2xKRnZmQk1xMDBTcmk4NUR2dnVUVVZLakZ6OFJ0UXNrOWtPMD0=$U2lJUnlxUThpZU5CU1FmV1JTbDR5c1A1R1A0VjNKMUx2MEVZaWNiRzNuND0="
+
+"isectech_analytics_pool" "scram-sha-256$4096:dGVzdHNhbHQ=$QzU2NUNPV2xKRnZmQk1xMDBTcmk4NUR2dnVUVVZLakZ6OFJ0UXNrOWtPMD0=$U2lJUnlxUThpZU5CU1FmV1JTbDR5c1A1R1A0VjNKMUx2MEVZaWNiRzNuND0="
+
+"isectech_test_pool" "scram-sha-256$4096:dGVzdHNhbHQ=$QzU2NUNPV2xKRnZmQk1xMDBTcmk4NUR2dnVUVVZLakZ6OFJ0UXNrOWtPMD0=$U2lJUnlxUThpZU5CU1FmV1JTbDR5c1A1R1A0VjNKMUx2MEVZaWNiRzNuND0="
+
+# Administrative users
+"pgbouncer_admin" "scram-sha-256$4096:YWRtaW5zYWx0$QWRtaW5IYXNoZWRQYXNzd29yZEZvclBnQm91bmNlckFkbWlu=$QWRtaW5IYXNoZWRQYXNzd29yZEZvclBnQm91bmNlckFkbWlu="
+
+"pgbouncer_stats" "scram-sha-256$4096:c3RhdHNzYWx0$U3RhdHNIYXNoZWRQYXNzd29yZEZvclBnQm91bmNlclN0YXRz=$U3RhdHNIYXNoZWRQYXNzd29yZEZvclBnQm91bmNlclN0YXRz="

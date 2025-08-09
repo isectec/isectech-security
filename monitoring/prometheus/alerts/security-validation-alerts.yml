@@ -1,0 +1,528 @@
+# Security Validation Results Alerting Rules
+#
+# Comprehensive Prometheus alerting rules for security validation results management
+# Tasks 90.11-90.12: Centralized Test Results and Automated Remediation Tracking
+
+groups:
+  - name: security_validation_test_alerts
+    interval: 1m
+    rules:
+      # Test Execution Failures
+      - alert: SecurityTestExecutionFailureHigh
+        expr: |
+          (
+            rate(security_test_executions_total{status="failed"}[1h]) /
+            rate(security_test_executions_total[1h])
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "High security test execution failure rate"
+          description: "{{ $value | humanizePercentage }} of {{ $labels.test_type }} tests failing in {{ $labels.environment }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/security-test-failures"
+
+      - alert: SecurityTestExecutionFailureCritical
+        expr: |
+          (
+            rate(security_test_executions_total{status="failed"}[30m]) /
+            rate(security_test_executions_total[30m])
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+          page: "true"
+        annotations:
+          summary: "Critical security test execution failure rate"
+          description: "{{ $value | humanizePercentage }} of {{ $labels.test_type }} tests failing - investigation needed"
+          runbook_url: "https://docs.isectech.internal/runbooks/security-test-failures-critical"
+
+      # Test Duration Anomalies
+      - alert: SecurityTestDurationAnomaly
+        expr: histogram_quantile(0.95, rate(security_test_duration_seconds_bucket[30m])) > 7200
+        for: 10m
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Unusually long security test duration"
+          description: "P95 {{ $labels.test_type }} test duration is {{ $value | humanizeDuration }} (threshold: 2h)"
+          runbook_url: "https://docs.isectech.internal/runbooks/security-test-duration"
+
+      # No Tests Running
+      - alert: SecurityTestsNotRunning
+        expr: rate(security_test_executions_total[4h]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "No security tests executed recently"
+          description: "No {{ $labels.test_type }} tests have been executed in {{ $labels.environment }} for 4+ hours"
+          runbook_url: "https://docs.isectech.internal/runbooks/security-tests-not-running"
+
+  - name: security_findings_alerts
+    interval: 1m
+    rules:
+      # Critical Findings
+      - alert: SecurityCriticalFindingsDetected
+        expr: increase(security_findings_by_severity_total{severity="critical",status="open"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+          page: "true"
+        annotations:
+          summary: "Critical security findings detected"
+          description: "{{ $value }} new critical severity findings in {{ $labels.framework }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/critical-security-findings"
+
+      # High Volume of Findings
+      - alert: SecurityFindingsVolumeHigh
+        expr: rate(security_findings_total[1h]) > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "High volume of security findings"
+          description: "{{ $value }} findings/hour detected in {{ $labels.environment }} ({{ $labels.test_type }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/high-findings-volume"
+
+      # Aging Findings
+      - alert: SecurityFindingsAging
+        expr: |
+          count by (severity) (
+            security_findings_age_days > 30
+            and on() security_findings_by_severity_total{status="open"} > 0
+          ) > 10
+        for: 1h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Security findings aging beyond acceptable timeframe"
+          description: "{{ $value }} {{ $labels.severity }} findings are older than 30 days"
+          runbook_url: "https://docs.isectech.internal/runbooks/aging-security-findings"
+
+      - alert: SecurityCriticalFindingsAging
+        expr: |
+          count(
+            security_findings_age_days{severity="critical"} > 7
+            and on() security_findings_by_severity_total{severity="critical",status="open"} > 0
+          ) > 0
+        for: 30m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+          page: "true"
+        annotations:
+          summary: "Critical security findings aging beyond SLA"
+          description: "{{ $value }} critical findings are older than 7 days - SLA breach"
+          runbook_url: "https://docs.isectech.internal/runbooks/critical-findings-aging"
+
+      # Finding Categories Spike
+      - alert: SecurityFindingsCategorySpike
+        expr: |
+          (
+            rate(security_findings_by_category_total[1h]) /
+            rate(security_findings_by_category_total[24h] offset 24h)
+          ) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Spike in security findings for specific category"
+          description: "{{ $labels.category }}/{{ $labels.subcategory }} findings are {{ $value }}x higher than normal"
+          runbook_url: "https://docs.isectech.internal/runbooks/findings-category-spike"
+
+  - name: remediation_tracking_alerts
+    interval: 1m
+    rules:
+      # Remediation SLA Breaches
+      - alert: RemediationSLABreachCritical
+        expr: |
+          count by (priority) (
+            security_remediation_backlog{age_category="stale",priority="immediate"} > 0
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+          page: "true"
+        annotations:
+          summary: "Critical remediation SLA breach"
+          description: "{{ $value }} immediate priority remediation actions are stale (>7 days)"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-sla-breach-critical"
+
+      - alert: RemediationSLABreachHigh
+        expr: |
+          sum by (priority) (security_remediation_backlog{age_category="stale"}) > 5
+        for: 30m
+        labels:
+          severity: high
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Multiple remediation SLA breaches"
+          description: "{{ $value }} {{ $labels.priority }} priority remediation actions are stale"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-sla-breach"
+
+      # High Remediation Backlog
+      - alert: RemediationBacklogHigh
+        expr: sum(security_remediation_backlog) > 500
+        for: 1h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "High remediation backlog"
+          description: "{{ $value }} pending remediation actions across all teams (threshold: 500)"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-backlog-high"
+
+      - alert: RemediationBacklogCritical
+        expr: sum(security_remediation_backlog{priority=~"immediate|urgent"}) > 100
+        for: 30m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Critical remediation backlog"
+          description: "{{ $value }} high-priority remediation actions pending (threshold: 100)"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-backlog-critical"
+
+      # Low Remediation Success Rate
+      - alert: RemediationSuccessRateLow
+        expr: security_remediation_success_rate < 0.8
+        for: 24h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Low remediation success rate"
+          description: "{{ $labels.team }} remediation success rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-success-rate"
+
+      # Long Remediation Duration
+      - alert: RemediationDurationLong
+        expr: |
+          histogram_quantile(0.95, 
+            rate(security_remediation_duration_hours_bucket[24h])
+          ) > 168
+        for: 6h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Long remediation duration detected"
+          description: "P95 {{ $labels.action_type }} remediation duration is {{ $value }}h (threshold: 1 week)"
+          runbook_url: "https://docs.isectech.internal/runbooks/remediation-duration"
+
+      # Team Remediation Performance
+      - alert: TeamRemediationPerformanceLow
+        expr: |
+          (
+            rate(security_remediation_actions_total{status="completed"}[7d]) /
+            rate(security_remediation_actions_total[7d])
+          ) < 0.6
+        for: 24h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Team remediation performance below target"
+          description: "{{ $labels.team }} completing {{ $value | humanizePercentage }} of assigned remediations (target: 60%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/team-remediation-performance"
+
+  - name: compliance_monitoring_alerts
+    interval: 5m
+    rules:
+      # Compliance Score Degradation
+      - alert: ComplianceScoreDegradation
+        expr: |
+          (
+            security_compliance_score - 
+            security_compliance_score offset 7d
+          ) < -5
+        for: 1h
+        labels:
+          severity: warning
+          component: security_validation
+          team: compliance_security
+        annotations:
+          summary: "Compliance score degradation detected"
+          description: "{{ $labels.framework }} compliance score dropped by {{ $value }}% in {{ $labels.environment }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/compliance-score-degradation"
+
+      - alert: ComplianceScoreCritical
+        expr: security_compliance_score < 70
+        for: 30m
+        labels:
+          severity: critical
+          component: security_validation
+          team: compliance_security
+          page: "true"
+        annotations:
+          summary: "Critical compliance score"
+          description: "{{ $labels.framework }} compliance score is {{ $value }}% in {{ $labels.environment }} (threshold: 70%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/compliance-score-critical"
+
+      # Framework-Specific Compliance
+      - alert: FrameworkComplianceLow
+        expr: security_framework_compliance_percentage < 85
+        for: 2h
+        labels:
+          severity: warning
+          component: security_validation
+          team: compliance_security
+        annotations:
+          summary: "Framework compliance below target"
+          description: "{{ $labels.framework }} {{ $labels.control_family }} compliance is {{ $value }}% (target: 85%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/framework-compliance-low"
+
+      # Control Effectiveness
+      - alert: SecurityControlEffectivenessLow
+        expr: security_control_effectiveness < 80
+        for: 1h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Security control effectiveness degraded"
+          description: "Control {{ $labels.control_id }} ({{ $labels.control_type }}) effectiveness is {{ $value }}% in {{ $labels.environment }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/control-effectiveness"
+
+      - alert: SecurityControlEffectivenessCritical
+        expr: security_control_effectiveness < 60
+        for: 30m
+        labels:
+          severity: critical
+          component: security_validation
+          team: security_engineering
+        annotations:
+          summary: "Critical security control effectiveness"
+          description: "Control {{ $labels.control_id }} effectiveness is {{ $value }}% - control may be failing"
+          runbook_url: "https://docs.isectech.internal/runbooks/control-effectiveness-critical"
+
+  - name: system_health_alerts
+    interval: 30s
+    rules:
+      # Processing Performance
+      - alert: SecurityValidationProcessingSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(security_validation_processing_duration_seconds_bucket[10m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "Slow security validation processing"
+          description: "P95 {{ $labels.operation_type }} processing time is {{ $value }}s (threshold: 30s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-processing-slow"
+
+      # System Health
+      - alert: SecurityValidationSystemHealthDegraded
+        expr: security_validation_system_health < 80
+        for: 5m
+        labels:
+          severity: warning
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "Security validation system health degraded"
+          description: "{{ $labels.component }} health score is {{ $value }}/100 (threshold: 80)"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-system-health"
+
+      - alert: SecurityValidationSystemHealthCritical
+        expr: security_validation_system_health < 50
+        for: 2m
+        labels:
+          severity: critical
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "Critical security validation system health"
+          description: "{{ $labels.component }} health score is {{ $value }}/100 (critical threshold: 50)"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-system-health-critical"
+
+      # Processing Queue Backlog
+      - alert: SecurityValidationQueueBacklog
+        expr: security_validation_queue_depth > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "Security validation processing queue backlog"
+          description: "Processing queue depth is {{ $value }} (threshold: 1000)"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-queue-backlog"
+
+  - name: integration_alerts
+    interval: 1m
+    rules:
+      # Integration Failures
+      - alert: SecurityValidationIntegrationFailures
+        expr: rate(security_validation_integration_failures_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "Security validation integration failures"
+          description: "{{ $value }} failures/minute with {{ $labels.integration_type }} integration"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-integration-failures"
+
+      # JIRA Integration Issues
+      - alert: SecurityValidationJIRAIntegrationDown
+        expr: |
+          (
+            rate(security_validation_jira_requests_total{status="success"}[10m]) /
+            rate(security_validation_jira_requests_total[10m])
+          ) < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: security_validation
+          team: platform_engineering
+        annotations:
+          summary: "JIRA integration issues detected"
+          description: "JIRA integration success rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/jira-integration-issues"
+
+  - name: security_validation_sla_alerts
+    interval: 5m
+    rules:
+      # Overall SLA Compliance
+      - alert: SecurityValidationSLABreach
+        expr: |
+          (
+            sum(rate(security_remediation_actions_total{status="completed"}[7d])) /
+            sum(rate(security_remediation_actions_total[7d]))
+          ) < 0.95
+        for: 6h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+          sla: "remediation_completion"
+        annotations:
+          summary: "Security validation SLA breach"
+          description: "Overall remediation completion rate is {{ $value | humanizePercentage }} (SLA: 95%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/validation-sla-breach"
+
+      # Critical Finding Response Time
+      - alert: CriticalFindingResponseTimeSLA
+        expr: |
+          histogram_quantile(0.95,
+            rate(security_remediation_duration_hours_bucket{priority="immediate"}[7d])
+          ) > 24
+        for: 12h
+        labels:
+          severity: high
+          component: security_validation
+          team: security_engineering
+          sla: "critical_response_time"
+        annotations:
+          summary: "Critical finding response time SLA breach"
+          description: "P95 critical finding response time is {{ $value }}h (SLA: 24h)"
+          runbook_url: "https://docs.isectech.internal/runbooks/critical-response-sla"
+
+      # Test Execution SLA
+      - alert: SecurityTestExecutionSLA
+        expr: |
+          (
+            rate(security_test_executions_total{status="passed"}[24h]) /
+            rate(security_test_executions_total[24h])
+          ) < 0.9
+        for: 4h
+        labels:
+          severity: warning
+          component: security_validation
+          team: security_engineering
+          sla: "test_success_rate"
+        annotations:
+          summary: "Security test execution SLA breach"
+          description: "Test success rate is {{ $value | humanizePercentage }} for {{ $labels.test_type }} (SLA: 90%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/test-execution-sla"
+
+  - name: security_validation_recording_rules
+    interval: 1m
+    rules:
+      # Recording rules for efficient dashboard queries
+      - record: security_validation:test_success_rate_24h
+        expr: |
+          rate(security_test_executions_total{status="passed"}[24h]) /
+          rate(security_test_executions_total[24h])
+
+      - record: security_validation:findings_rate_1h
+        expr: rate(security_findings_total[1h])
+
+      - record: security_validation:remediation_completion_rate_7d
+        expr: |
+          rate(security_remediation_actions_total{status="completed"}[7d]) /
+          rate(security_remediation_actions_total[7d])
+
+      - record: security_validation:compliance_score_avg
+        expr: avg(security_compliance_score) by (framework, environment)
+
+      - record: security_validation:critical_findings_open
+        expr: security_findings_by_severity_total{severity="critical",status="open"}
+
+      - record: security_validation:high_findings_open
+        expr: security_findings_by_severity_total{severity="high",status="open"}
+
+      - record: security_validation:remediation_backlog_critical
+        expr: sum(security_remediation_backlog{priority=~"immediate|urgent"})
+
+      - record: security_validation:sla_compliance_score
+        expr: |
+          (
+            security_validation:remediation_completion_rate_7d * 0.4 +
+            security_validation:test_success_rate_24h * 0.3 +
+            (1 - (security_validation:critical_findings_open / (security_validation:critical_findings_open + 1))) * 0.3
+          ) * 100
+
+      - record: security_validation:team_performance_score
+        expr: |
+          avg by (team) (
+            rate(security_remediation_actions_total{status="completed"}[7d]) /
+            rate(security_remediation_actions_total[7d])
+          ) * 100
+
+      - record: security_validation:finding_resolution_time_p95
+        expr: |
+          histogram_quantile(0.95,
+            rate(security_remediation_duration_hours_bucket[7d])
+          )
+
+      - record: security_validation:system_effectiveness_score
+        expr: |
+          (
+            security_validation:test_success_rate_24h * 0.3 +
+            security_validation:remediation_completion_rate_7d * 0.4 +
+            (avg(security_control_effectiveness) / 100) * 0.3
+          ) * 100

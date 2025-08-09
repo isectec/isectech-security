@@ -1,0 +1,384 @@
+# iSECTECH Alertmanager Configuration
+# Production-grade alert management and routing system
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBAL CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+global:
+  # SMTP configuration for email alerts
+  smtp_smarthost: 'smtp.isectech.com:587'
+  smtp_from: 'alerts@isectech.com'
+  smtp_auth_username: 'alerts@isectech.com'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+  
+  # HTTP config for webhook integrations
+  http_config:
+    tls_config:
+      insecure_skip_verify: false
+    follow_redirects: true
+  
+  # Slack API URL
+  slack_api_url: '${SLACK_API_URL}'
+  
+  # PagerDuty integration URL
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+  
+  # Resolve timeout
+  resolve_timeout: 5m
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ROUTE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+route:
+  # Default receiver for all alerts
+  receiver: 'default-notifications'
+  
+  # Grouping settings
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  
+  # Route tree for different alert types
+  routes:
+    # Critical infrastructure alerts
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      group_interval: 5s
+      repeat_interval: 5m
+      routes:
+        # Database critical alerts
+        - match:
+            category: database
+          receiver: 'database-critical'
+          continue: true
+        
+        # Security critical alerts
+        - match:
+            category: security
+          receiver: 'security-critical'
+          continue: true
+        
+        # Infrastructure critical alerts
+        - match:
+            team: infrastructure
+          receiver: 'infrastructure-critical'
+          continue: true
+    
+    # Warning level alerts
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+      routes:
+        # Performance warnings
+        - match:
+            category: performance
+          receiver: 'performance-team'
+        
+        # Security warnings
+        - match:
+            category: security
+          receiver: 'security-team'
+        
+        # Application warnings
+        - match_re:
+            service: ^(frontend|backend|ai).*
+          receiver: 'application-team'
+    
+    # Information level alerts
+    - match:
+        severity: info
+      receiver: 'info-notifications'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+    
+    # Business alerts
+    - match:
+        category: business
+      receiver: 'business-team'
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 4h
+    
+    # Maintenance alerts
+    - match:
+        alertname: MaintenanceMode
+      receiver: 'maintenance-notifications'
+      group_wait: 0s
+      repeat_interval: 30m
+    
+    # Silence test alerts in development
+    - match:
+        environment: development
+      receiver: 'dev-notifications'
+      group_wait: 5m
+      repeat_interval: 6h
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INHIBIT RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+inhibit_rules:
+  # Inhibit warning alerts when critical alerts are firing
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname', 'cluster', 'service']
+  
+  # Inhibit individual service alerts when entire cluster is down
+  - source_match:
+      alertname: NodeDown
+    target_match_re:
+      alertname: ^(HighCPU|HighMemory|DiskSpaceLow).*
+    equal: ['instance']
+  
+  # Inhibit application alerts when database is down
+  - source_match:
+      alertname: PostgreSQLDown
+    target_match_re:
+      alertname: ^(APIError|SlowResponse).*
+    equal: ['cluster']
+  
+  # Inhibit redundant network alerts
+  - source_match:
+      alertname: NetworkPartition
+    target_match:
+      alertname: HighNetworkTraffic
+    equal: ['instance']
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RECEIVERS CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+receivers:
+  # Default receiver
+  - name: 'default-notifications'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-general'
+        title: '🚨 Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Service:* {{ .Labels.service }}
+          *Environment:* {{ .Labels.environment }}
+          {{ end }}
+        send_resolved: true
+    
+    email_configs:
+      - to: 'ops-team@isectech.com'
+        subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          {{ end }}
+
+  # Critical alerts receiver
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ROUTING_KEY_CRITICAL}'
+        description: '{{ .GroupLabels.alertname }}: {{ .Annotations.summary }}'
+        severity: 'critical'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          environment: '{{ .GroupLabels.environment }}'
+          service: '{{ .GroupLabels.service }}'
+        links:
+          - href: '{{ .GeneratorURL }}'
+            text: 'View in Prometheus'
+          - href: 'https://grafana.isectech.com'
+            text: 'View in Grafana'
+    
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-critical'
+        title: '🔥 CRITICAL: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+        text: |
+          <!channel>
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          *Grafana:* https://grafana.isectech.com
+          {{ end }}
+        send_resolved: true
+    
+    email_configs:
+      - to: 'critical-alerts@isectech.com, cto@isectech.com'
+        subject: '🔥 CRITICAL ALERT: {{ .GroupLabels.alertname }}'
+        body: |
+          CRITICAL ALERT TRIGGERED
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Environment: {{ .Labels.environment }}
+          Service: {{ .Labels.service }}
+          Runbook: {{ .Annotations.runbook_url }}
+          
+          Prometheus: {{ .GeneratorURL }}
+          Grafana: https://grafana.isectech.com
+          {{ end }}
+
+  # Database critical alerts
+  - name: 'database-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ROUTING_KEY_DATABASE}'
+        description: 'Database Critical: {{ .Annotations.summary }}'
+        severity: 'critical'
+        component: 'database'
+    
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-database'
+        title: '💾 DATABASE CRITICAL: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+        text: |
+          <!here> Database team - immediate attention required!
+          {{ range .Alerts }}
+          *Issue:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Database:* {{ .Labels.datname }}
+          *Instance:* {{ .Labels.instance }}
+          {{ end }}
+
+  # Security critical alerts
+  - name: 'security-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ROUTING_KEY_SECURITY}'
+        description: 'Security Incident: {{ .Annotations.summary }}'
+        severity: 'critical'
+        component: 'security'
+    
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-security'
+        title: '🛡️ SECURITY ALERT: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+        text: |
+          <!channel> Security team - potential security incident!
+          {{ range .Alerts }}
+          *Incident:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Source:* {{ .Labels.source_ip }}
+          *Event Type:* {{ .Labels.event_type }}
+          {{ end }}
+    
+    webhook_configs:
+      - url: 'https://api.isectech.com/webhooks/security-alert'
+        send_resolved: true
+        http_config:
+          bearer_token: '${SECURITY_WEBHOOK_TOKEN}'
+
+  # Infrastructure critical alerts
+  - name: 'infrastructure-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ROUTING_KEY_INFRA}'
+        description: 'Infrastructure Critical: {{ .Annotations.summary }}'
+        severity: 'critical'
+        component: 'infrastructure'
+    
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-infrastructure'
+        title: '🏗️ INFRASTRUCTURE CRITICAL: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+
+  # Warning alerts receiver
+  - name: 'warning-alerts'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-warnings'
+        title: '⚠️ Warning: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Service:* {{ .Labels.service }}
+          {{ end }}
+        send_resolved: true
+
+  # Performance team alerts
+  - name: 'performance-team'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#team-performance'
+        title: '📊 Performance Issue: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # Security team alerts
+  - name: 'security-team'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#team-security'
+        title: '🔍 Security Warning: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # Application team alerts
+  - name: 'application-team'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#team-application'
+        title: '💻 Application Warning: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # Business team alerts
+  - name: 'business-team'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#team-business'
+        title: '📈 Business Alert: {{ .GroupLabels.alertname }}'
+        color: 'good'
+    
+    email_configs:
+      - to: 'business-team@isectech.com'
+        subject: 'Business Alert: {{ .GroupLabels.alertname }}'
+
+  # Info notifications
+  - name: 'info-notifications'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-info'
+        title: 'ℹ️ Info: {{ .GroupLabels.alertname }}'
+        color: 'good'
+
+  # Maintenance notifications
+  - name: 'maintenance-notifications'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-maintenance'
+        title: '🔧 Maintenance: {{ .GroupLabels.alertname }}'
+        color: '#439FE0'
+
+  # Development notifications
+  - name: 'dev-notifications'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts-dev'
+        title: '🧪 Dev Alert: {{ .GroupLabels.alertname }}'
+        color: '#808080'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEMPLATES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

@@ -1,0 +1,825 @@
+# Security Context Constraints for iSECTECH Containers
+# Comprehensive security contexts for all pods and containers
+# Implements Pod Security Standards restricted profile requirements
+# Updated: 2025-01-08 - Enhanced with OPA Gatekeeper policies and compliance automation
+
+---
+# Default Pod Security Context Template
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: default-pod-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: security-context-constraints
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+data:
+  restricted-pod-security-context.yaml: |
+    # Pod Security Context for Restricted Profile
+    securityContext:
+      # Run as non-root user
+      runAsNonRoot: true
+      runAsUser: 65534  # nobody user
+      runAsGroup: 65534  # nobody group
+      # Set filesystem group
+      fsGroup: 65534
+      fsGroupChangePolicy: "OnRootMismatch"
+      # Use default seccomp profile
+      seccompProfile:
+        type: RuntimeDefault
+      # Supplemental groups
+      supplementalGroups: []
+      # Disable privilege escalation
+      allowPrivilegeEscalation: false
+    
+  baseline-pod-security-context.yaml: |
+    # Pod Security Context for Baseline Profile
+    securityContext:
+      # Run as non-root user (recommended but not enforced)
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      # Set filesystem group
+      fsGroup: 1000
+      fsGroupChangePolicy: "OnRootMismatch"
+      # Use default seccomp profile
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# Default Container Security Context Template
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: default-container-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: security-context-constraints
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+data:
+  restricted-container-security-context.yaml: |
+    # Container Security Context for Restricted Profile
+    securityContext:
+      # Prevent privilege escalation
+      allowPrivilegeEscalation: false
+      # Drop all capabilities
+      capabilities:
+        drop:
+        - ALL
+      # Read-only root filesystem
+      readOnlyRootFilesystem: true
+      # Run as non-root
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      # Use default seccomp profile
+      seccompProfile:
+        type: RuntimeDefault
+    
+  baseline-container-security-context.yaml: |
+    # Container Security Context for Baseline Profile
+    securityContext:
+      # Prevent privilege escalation
+      allowPrivilegeEscalation: false
+      # Drop all capabilities and only add what's needed
+      capabilities:
+        drop:
+        - ALL
+        add: [] # Add specific capabilities as needed
+      # Use default seccomp profile
+      seccompProfile:
+        type: RuntimeDefault
+      # Run as non-root (recommended)
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+
+---
+# Security Context Validation Webhook Configuration
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionWebhook
+metadata:
+  name: security-context-validator
+  labels:
+    app.kubernetes.io/name: security-context-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+webhooks:
+- name: security-context-validator.isectech.com
+  clientConfig:
+    service:
+      name: security-context-validator
+      namespace: security
+      path: "/validate"
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: ["apps"]
+    apiVersions: ["v1"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: ["batch"]
+    apiVersions: ["v1", "v1beta1"]
+    resources: ["jobs", "cronjobs"]
+  admissionReviewVersions: ["v1", "v1beta1"]
+  failurePolicy: Fail
+
+---
+# Example Deployment with Restricted Security Context
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-context-example
+  namespace: pss-test
+  labels:
+    app: security-context-example
+    security.isectech.com/example: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: security-context-example
+  template:
+    metadata:
+      labels:
+        app: security-context-example
+    spec:
+      # Pod Security Context - Restricted Profile
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
+        supplementalGroups: []
+      containers:
+      - name: app
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 8080
+        # Container Security Context - Restricted Profile
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        # Volume mounts for read-only filesystem
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: var-cache-nginx
+          mountPath: /var/cache/nginx
+        - name: var-run
+          mountPath: /var/run
+        - name: nginx-conf
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: var-cache-nginx
+        emptyDir: {}
+      - name: var-run
+        emptyDir: {}
+      - name: nginx-conf
+        configMap:
+          name: nginx-config
+
+---
+# Nginx configuration for non-root user
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: pss-test
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    
+    error_log /var/log/nginx/error.log notice;
+    pid /var/run/nginx.pid;
+    
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+        
+        access_log /var/log/nginx/access.log main;
+        
+        sendfile on;
+        tcp_nopush on;
+        keepalive_timeout 65;
+        types_hash_max_size 4096;
+        
+        server {
+            listen 8080;
+            server_name _;
+            
+            location / {
+                root /usr/share/nginx/html;
+                index index.html;
+            }
+            
+            error_page 500 502 503 504 /50x.html;
+            location = /50x.html {
+                root /usr/share/nginx/html;
+            }
+        }
+    }
+
+---
+# Service for the example deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-context-example
+  namespace: pss-test
+spec:
+  selector:
+    app: security-context-example
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+# Security Context Compliance Scanner Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: security-context-compliance-scan
+  namespace: security
+  labels:
+    app.kubernetes.io/name: security-context-scanner
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: security-context-scanner
+        app.kubernetes.io/component: security
+    spec:
+      serviceAccountName: pod-security-validator
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: scanner
+        image: bitnami/kubectl:1.28
+        command: ["/bin/bash"]
+        args: ["/scripts/scan-security-contexts.sh"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: scan-script
+          mountPath: /scripts
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: scan-script
+        configMap:
+          name: security-context-scan-script
+          defaultMode: 0755
+      - name: tmp
+        emptyDir: {}
+
+---
+# ConfigMap with security context scanning script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-context-scan-script
+  namespace: security
+  labels:
+    app.kubernetes.io/name: security-context-scanner
+    app.kubernetes.io/component: security
+data:
+  scan-security-contexts.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    
+    echo "========================================"
+    echo "Security Context Compliance Scanner"
+    echo "========================================"
+    
+    # Function to check pod security context
+    check_pod_security_context() {
+        local namespace=$1
+        local pod=$2
+        
+        echo "Checking pod security context: $namespace/$pod"
+        
+        # Check runAsNonRoot
+        run_as_non_root=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath='{.spec.securityContext.runAsNonRoot}' 2>/dev/null || echo "false")
+        if [ "$run_as_non_root" != "true" ]; then
+            echo "  ❌ runAsNonRoot not set to true"
+        else
+            echo "  ✓ runAsNonRoot: $run_as_non_root"
+        fi
+        
+        # Check seccompProfile
+        seccomp=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath='{.spec.securityContext.seccompProfile.type}' 2>/dev/null || echo "none")
+        if [ "$seccomp" != "RuntimeDefault" ]; then
+            echo "  ❌ seccompProfile not set to RuntimeDefault"
+        else
+            echo "  ✓ seccompProfile: $seccomp"
+        fi
+        
+        # Check fsGroup
+        fs_group=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath='{.spec.securityContext.fsGroup}' 2>/dev/null || echo "none")
+        if [ "$fs_group" = "none" ] || [ -z "$fs_group" ]; then
+            echo "  ⚠ fsGroup not set"
+        else
+            echo "  ✓ fsGroup: $fs_group"
+        fi
+        
+        echo ""
+    }
+    
+    # Function to check container security context
+    check_container_security_context() {
+        local namespace=$1
+        local pod=$2
+        local container=$3
+        
+        echo "Checking container security context: $namespace/$pod/$container"
+        
+        # Check allowPrivilegeEscalation
+        allow_priv_esc=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath="{.spec.containers[?(@.name=='$container')].securityContext.allowPrivilegeEscalation}" 2>/dev/null || echo "true")
+        if [ "$allow_priv_esc" != "false" ]; then
+            echo "  ❌ allowPrivilegeEscalation not set to false"
+        else
+            echo "  ✓ allowPrivilegeEscalation: $allow_priv_esc"
+        fi
+        
+        # Check capabilities
+        capabilities=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath="{.spec.containers[?(@.name=='$container')].securityContext.capabilities.drop}" 2>/dev/null || echo "[]")
+        if [[ "$capabilities" != *"ALL"* ]]; then
+            echo "  ❌ ALL capabilities not dropped"
+        else
+            echo "  ✓ All capabilities dropped"
+        fi
+        
+        # Check readOnlyRootFilesystem
+        readonly_fs=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath="{.spec.containers[?(@.name=='$container')].securityContext.readOnlyRootFilesystem}" 2>/dev/null || echo "false")
+        if [ "$readonly_fs" != "true" ]; then
+            echo "  ⚠ readOnlyRootFilesystem not set to true"
+        else
+            echo "  ✓ readOnlyRootFilesystem: $readonly_fs"
+        fi
+        
+        # Check runAsNonRoot
+        container_run_as_non_root=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath="{.spec.containers[?(@.name=='$container')].securityContext.runAsNonRoot}" 2>/dev/null || echo "false")
+        if [ "$container_run_as_non_root" != "true" ]; then
+            echo "  ❌ Container runAsNonRoot not set to true"
+        else
+            echo "  ✓ Container runAsNonRoot: $container_run_as_non_root"
+        fi
+        
+        echo ""
+    }
+    
+    # Get all namespaces except system ones
+    namespaces=$(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -E '^(isectech-|production|staging|development|pss-test)' || echo "")
+    
+    if [ -z "$namespaces" ]; then
+        echo "No application namespaces found to scan"
+        exit 0
+    fi
+    
+    # Scan each namespace
+    for namespace in $namespaces; do
+        echo "Scanning namespace: $namespace"
+        
+        # Get all pods in namespace
+        pods=$(kubectl get pods -n "$namespace" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+        
+        if [ -z "$pods" ]; then
+            echo "  No pods found in namespace $namespace"
+            echo ""
+            continue
+        fi
+        
+        for pod in $pods; do
+            # Check pod security context
+            check_pod_security_context "$namespace" "$pod"
+            
+            # Get containers in pod
+            containers=$(kubectl get pod "$pod" -n "$namespace" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || echo "")
+            
+            for container in $containers; do
+                check_container_security_context "$namespace" "$pod" "$container"
+            done
+        done
+    done
+    
+    echo "Security context compliance scan completed"
+
+---
+# OPA Gatekeeper ConstraintTemplate for enforcing security contexts
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiresecuritycontext
+  labels:
+    app.kubernetes.io/name: gatekeeper-security-constraints
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireSecurityContext
+      validation:
+        type: object
+        properties:
+          runAsNonRoot:
+            type: boolean
+            description: "Requires containers to run as non-root user"
+          readOnlyRootFilesystem:
+            type: boolean
+            description: "Requires containers to have read-only root filesystem"
+          allowPrivilegeEscalation:
+            type: boolean
+            description: "Controls allowPrivilegeEscalation setting"
+          requiredDropCapabilities:
+            type: array
+            description: "List of capabilities that must be dropped"
+            items:
+              type: string
+          forbiddenCapabilities:
+            type: array
+            description: "List of capabilities that are forbidden"
+            items:
+              type: string
+          seccompProfile:
+            type: object
+            description: "Required seccomp profile"
+            properties:
+              type:
+                type: string
+                enum: ["RuntimeDefault", "Localhost", "Unconfined"]
+          exemptImages:
+            type: array
+            description: "List of images that are exempt from this policy"
+            items:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiresecuritycontext
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.securityContext
+          msg := sprintf("Container %v is missing securityContext", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.runAsNonRoot == true
+          not container.securityContext.runAsNonRoot == true
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must set runAsNonRoot to true", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.readOnlyRootFilesystem == true
+          not container.securityContext.readOnlyRootFilesystem == true
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must set readOnlyRootFilesystem to true", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.allowPrivilegeEscalation == false
+          not container.securityContext.allowPrivilegeEscalation == false
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must set allowPrivilegeEscalation to false", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          required := input.parameters.requiredDropCapabilities[_]
+          not required in container.securityContext.capabilities.drop
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must drop capability %v", [container.name, required])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          forbidden := input.parameters.forbiddenCapabilities[_]
+          forbidden in container.securityContext.capabilities.add
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must not add forbidden capability %v", [container.name, forbidden])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.seccompProfile
+          not container.securityContext.seccompProfile.type == input.parameters.seccompProfile.type
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must use seccomp profile type %v", [container.name, input.parameters.seccompProfile.type])
+        }
+
+        # Pod-level security context checks
+        violation[{"msg": msg}] {
+          input.parameters.runAsNonRoot == true
+          not input.review.object.spec.securityContext.runAsNonRoot == true
+          not is_exempt_pod()
+          msg := "Pod must set runAsNonRoot to true in securityContext"
+        }
+
+        violation[{"msg": msg}] {
+          input.parameters.seccompProfile
+          not input.review.object.spec.securityContext.seccompProfile.type == input.parameters.seccompProfile.type
+          not is_exempt_pod()
+          msg := sprintf("Pod must use seccomp profile type %v", [input.parameters.seccompProfile.type])
+        }
+
+        # Check for privileged containers
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.securityContext.privileged == true
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must not run in privileged mode", [container.name])
+        }
+
+        # Helper functions
+        is_exempt_image(image) {
+          exempt_image := input.parameters.exemptImages[_]
+          startswith(image, exempt_image)
+        }
+
+        is_exempt_pod() {
+          input.review.object.metadata.annotations["security.isectech.com/exempt"] == "true"
+        }
+
+---
+# Gatekeeper Constraint for production workloads (restricted profile)
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireSecurityContext
+metadata:
+  name: security-context-restricted
+  labels:
+    app.kubernetes.io/name: gatekeeper-security-constraints
+    security.isectech.com/profile: restricted
+spec:
+  match:
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "DaemonSet", "StatefulSet", "ReplicaSet"]
+    - apiGroups: ["batch"]
+      kinds: ["Job", "CronJob"]
+    excludedNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - local-path-storage
+    - gatekeeper-system
+    namespaceSelector:
+      matchLabels:
+        security.isectech.com/profile: restricted
+  parameters:
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    requiredDropCapabilities: ["ALL"]
+    forbiddenCapabilities: ["SYS_ADMIN", "SYS_RESOURCE", "SYS_PTRACE", "NET_ADMIN", "NET_RAW"]
+    seccompProfile:
+      type: RuntimeDefault
+    exemptImages: []
+
+---
+# Gatekeeper Constraint for baseline workloads
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireSecurityContext
+metadata:
+  name: security-context-baseline
+  labels:
+    app.kubernetes.io/name: gatekeeper-security-constraints
+    security.isectech.com/profile: baseline
+spec:
+  match:
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "DaemonSet", "StatefulSet", "ReplicaSet"]
+    - apiGroups: ["batch"]
+      kinds: ["Job", "CronJob"]
+    excludedNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - local-path-storage
+    - gatekeeper-system
+    namespaceSelector:
+      matchLabels:
+        security.isectech.com/profile: baseline
+  parameters:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    requiredDropCapabilities: ["ALL"]
+    forbiddenCapabilities: ["SYS_ADMIN", "SYS_RESOURCE", "NET_ADMIN"]
+    seccompProfile:
+      type: RuntimeDefault
+    exemptImages:
+    - "timberio/vector"  # SIEM agents may need special privileges
+    - "docker.elastic.co/beats/filebeat"
+
+---
+# Special constraint for security monitoring tools (more permissive)
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireSecurityContext
+metadata:
+  name: security-context-monitoring
+  labels:
+    app.kubernetes.io/name: gatekeeper-security-constraints
+    security.isectech.com/profile: monitoring
+spec:
+  match:
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "DaemonSet", "StatefulSet", "ReplicaSet"]
+    namespaceSelector:
+      matchLabels:
+        security.isectech.com/tier: security
+  parameters:
+    runAsNonRoot: false  # Allow root for security monitoring
+    allowPrivilegeEscalation: true  # May need for kernel access
+    forbiddenCapabilities: []  # More permissive for security tools
+    seccompProfile:
+      type: RuntimeDefault
+    exemptImages:
+    - "timberio/vector"
+    - "docker.elastic.co/beats/filebeat"
+    - "falcosecurity/falco"
+
+---
+# ConstraintTemplate for resource limits enforcement
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequireresourcelimits
+  labels:
+    app.kubernetes.io/name: gatekeeper-resource-constraints
+    security.isectech.com/component: resource-limits
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireResourceLimits
+      validation:
+        type: object
+        properties:
+          requiresCPU:
+            type: boolean
+          requiresMemory:
+            type: boolean
+          maxCPU:
+            type: string
+          maxMemory:
+            type: string
+          exemptImages:
+            type: array
+            items:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequireresourcelimits
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.requiresCPU == true
+          not container.resources.limits.cpu
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must specify CPU limits", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.requiresMemory == true
+          not container.resources.limits.memory
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must specify memory limits", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.requiresCPU == true
+          not container.resources.requests.cpu
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must specify CPU requests", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          input.parameters.requiresMemory == true
+          not container.resources.requests.memory
+          not is_exempt_image(container.image)
+          msg := sprintf("Container %v must specify memory requests", [container.name])
+        }
+
+        is_exempt_image(image) {
+          exempt_image := input.parameters.exemptImages[_]
+          startswith(image, exempt_image)
+        }
+
+---
+# Resource limits constraint for all workloads
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireResourceLimits
+metadata:
+  name: require-resource-limits
+  labels:
+    app.kubernetes.io/name: gatekeeper-resource-constraints
+spec:
+  match:
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "DaemonSet", "StatefulSet", "ReplicaSet"]
+    - apiGroups: ["batch"]
+      kinds: ["Job", "CronJob"]
+    excludedNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - gatekeeper-system
+  parameters:
+    requiresCPU: true
+    requiresMemory: true
+    exemptImages: []

@@ -1,0 +1,495 @@
+# Deception Technology Alerting Rules
+#
+# Comprehensive Prometheus alerting rules for deception technology monitoring
+# Tasks 87.6-87.7: Attacker Interaction Analysis and SIEM Integration
+
+groups:
+  - name: deception_honeypot_alerts
+    interval: 30s
+    rules:
+      # High Interaction Volume Alerts
+      - alert: DeceptionHighInteractionVolume
+        expr: rate(deception_honeypot_interactions_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "High volume of deception interactions detected"
+          description: "Deception assets experiencing {{ $value }} interactions/minute from {{ $labels.source_country }} (threshold: 10/min)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-high-volume"
+          dashboard_url: "https://grafana.isectech.internal/d/deception/deception-dashboard"
+
+      - alert: DeceptionCriticalInteractionVolume
+        expr: rate(deception_honeypot_interactions_total[5m]) > 50
+        for: 1m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "Critical volume of deception interactions"
+          description: "Deception assets experiencing {{ $value }} interactions/minute (critical threshold: 50/min) - possible coordinated attack"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-critical-volume"
+
+      # Long Duration Attacks
+      - alert: DeceptionLongDurationInteraction
+        expr: histogram_quantile(0.95, rate(deception_interaction_duration_seconds_bucket[10m])) > 1800
+        for: 5m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Long duration deception interaction detected"
+          description: "P95 interaction duration is {{ $value }}s (threshold: 30min) - indicates persistent attacker"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-long-duration"
+
+      # Advanced Techniques Detection
+      - alert: DeceptionAdvancedTechniques
+        expr: rate(deception_attack_techniques_total{technique=~"T1055|T1003|T1134|T1068"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Advanced attack techniques detected on deception assets"
+          description: "MITRE technique {{ $labels.technique }} observed on {{ $labels.asset_type }} ({{ $labels.tactic }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-advanced-techniques"
+          mitre_technique: "{{ $labels.technique }}"
+          mitre_tactic: "{{ $labels.tactic }}"
+
+      # Multiple Tactic Attack
+      - alert: DeceptionMultiTacticAttack
+        expr: |
+          count by (source_country) (
+            count by (source_country, tactic) (
+              increase(deception_attack_tactics_total[10m]) > 0
+            )
+          ) >= 3
+        for: 5m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Multi-tactic attack campaign detected"
+          description: "Attacker from {{ $labels.source_country }} using {{ $value }} different tactics - sophisticated attack"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-multi-tactic"
+
+  - name: deception_attacker_behavior_alerts
+    interval: 1m
+    rules:
+      # New Sophisticated Attackers
+      - alert: DeceptionSophisticatedAttacker
+        expr: deception_unique_attackers{sophistication_level="advanced"} > 0
+        for: 0m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Sophisticated attacker detected on deception assets"
+          description: "{{ $value }} advanced sophistication attackers detected in {{ $labels.time_window }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-sophisticated-attacker"
+
+      # High Command Execution Rate
+      - alert: DeceptionHighCommandExecution
+        expr: rate(deception_commands_executed_total[5m]) > 20
+        for: 3m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "High command execution rate on deception assets"
+          description: "Commands being executed at {{ $value }}/minute rate (category: {{ $labels.command_category }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-high-commands"
+
+      # Credential Harvesting Attempt
+      - alert: DeceptionCredentialHarvesting
+        expr: rate(deception_credentials_attempted_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Credential harvesting attempt detected"
+          description: "{{ $value }} credential attempts/minute on {{ $labels.asset_type }} (success: {{ $labels.success }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-credential-harvesting"
+
+      # File Access Pattern
+      - alert: DeceptionSensitiveFileAccess
+        expr: rate(deception_files_accessed_total{file_type=~"config|document"}[5m]) > 10
+        for: 3m
+        labels:
+          severity: medium
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Sensitive file access pattern detected"
+          description: "{{ $value }} {{ $labels.file_type }} files accessed/minute on {{ $labels.asset_type }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-file-access"
+
+  - name: deception_canary_token_alerts
+    interval: 30s
+    rules:
+      # Canary Token Triggered
+      - alert: DeceptionCanaryTokenTriggered
+        expr: increase(deception_canary_token_triggers_total[1m]) > 0
+        for: 0m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "Canary token triggered - immediate attention required"
+          description: "{{ $labels.token_type }} token triggered from {{ $labels.source_country }} at {{ $labels.trigger_location }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-canary-token"
+          token_type: "{{ $labels.token_type }}"
+          trigger_location: "{{ $labels.trigger_location }}"
+
+      # Multiple Token Triggers
+      - alert: DeceptionMultipleCanaryTokens
+        expr: |
+          count by (source_country) (
+            increase(deception_canary_token_triggers_total[10m]) > 0
+          ) >= 3
+        for: 1m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "Multiple canary tokens triggered by same source"
+          description: "{{ $value }} different canary tokens triggered from {{ $labels.source_country }} - coordinated attack"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-multiple-tokens"
+
+      # Slow Token Response
+      - alert: DeceptionSlowTokenResponse
+        expr: histogram_quantile(0.95, rate(deception_token_response_duration_seconds_bucket[5m])) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Slow canary token response time"
+          description: "P95 token response time is {{ $value }}s (threshold: 10s) for {{ $labels.token_type }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-slow-response"
+
+  - name: deception_threat_intelligence_alerts
+    interval: 1m
+    rules:
+      # Known Bad Actor
+      - alert: DeceptionKnownBadActor
+        expr: increase(deception_known_bad_actors_total[1m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "Known bad actor detected on deception assets"
+          description: "Known {{ $labels.actor_type }} detected (source: {{ $labels.reputation_source }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-known-bad-actor"
+
+      # High Threat Intel Matches
+      - alert: DeceptionHighThreatIntelMatches
+        expr: rate(deception_threat_intel_matches_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "High rate of threat intelligence matches"
+          description: "{{ $value }} threat intel matches/minute from {{ $labels.provider }} ({{ $labels.confidence_level }} confidence)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-threat-intel"
+
+      # Geographic Anomaly
+      - alert: DeceptionGeographicAnomaly
+        expr: |
+          count by (country) (
+            rate(deception_geolocation_hits_total{risk_level="high"}[1h]) > 0
+          ) >= 5
+        for: 10m
+        labels:
+          severity: medium
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Geographic anomaly in deception interactions"
+          description: "High-risk interactions from {{ $value }} different countries in {{ $labels.country }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-geo-anomaly"
+
+  - name: deception_system_health_alerts
+    interval: 30s
+    rules:
+      # System Health Degraded
+      - alert: DeceptionSystemHealthDegraded
+        expr: deception_system_health_score < 80
+        for: 5m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Deception system health degraded"
+          description: "{{ $labels.component }} health score is {{ $value }}/100 (threshold: 80)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-health-degraded"
+
+      - alert: DeceptionSystemHealthCritical
+        expr: deception_system_health_score < 50
+        for: 2m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Critical deception system health"
+          description: "{{ $labels.component }} health score is {{ $value }}/100 (critical threshold: 50)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-health-critical"
+
+      # Alert Forwarding Failures
+      - alert: DeceptionAlertForwardingFailures
+        expr: rate(deception_alert_forwarding_failures_total[5m]) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Deception alert forwarding failures"
+          description: "{{ $value }} alert forwarding failures/minute to {{ $labels.destination }} ({{ $labels.error_type }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-forwarding-failures"
+
+      - alert: DeceptionAlertForwardingFailuresCritical
+        expr: |
+          (
+            rate(deception_alert_forwarding_failures_total[5m]) /
+            (rate(deception_alert_forwarding_success_total[5m]) + rate(deception_alert_forwarding_failures_total[5m]))
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Critical deception alert forwarding failure rate"
+          description: "{{ $value | humanizePercentage }} of alerts failing to forward to {{ $labels.destination }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-forwarding-critical"
+
+      # False Positive Rate
+      - alert: DeceptionHighFalsePositiveRate
+        expr: deception_false_positive_rate > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "High false positive rate in deception alerts"
+          description: "False positive rate is {{ $value | humanizePercentage }} for {{ $labels.alert_type }} in {{ $labels.time_period }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-false-positives"
+
+  - name: deception_correlation_alerts
+    interval: 1m
+    rules:
+      # Correlation Success Rate Low
+      - alert: DeceptionLowCorrelationSuccess
+        expr: |
+          (
+            rate(deception_correlation_success_total[10m]) /
+            rate(deception_honeypot_interactions_total[10m])
+          ) < 0.7
+        for: 5m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Low correlation success rate"
+          description: "Only {{ $value | humanizePercentage }} of interactions being successfully correlated ({{ $labels.correlation_type }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-correlation"
+
+      # Slow Behavior Analysis
+      - alert: DeceptionSlowBehaviorAnalysis
+        expr: histogram_quantile(0.95, rate(deception_behavior_analysis_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Slow behavior analysis performance"
+          description: "P95 {{ $labels.analysis_type }} analysis time is {{ $value }}s (threshold: 2s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-analysis-slow"
+
+  - name: deception_campaign_detection_alerts
+    interval: 1m
+    rules:
+      # Attack Campaign Detected
+      - alert: DeceptionAttackCampaignDetected
+        expr: |
+          (
+            count by (source_country) (
+              increase(deception_honeypot_interactions_total[30m]) > 0
+            ) >= 5
+          ) and (
+            count by (source_country) (
+              increase(deception_attack_techniques_total[30m]) > 0
+            ) >= 3
+          )
+        for: 0m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "Coordinated attack campaign detected"
+          description: "Campaign detected from {{ $labels.source_country }}: multiple assets ({{ $value }}) and techniques"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-campaign"
+
+      # APT-like Behavior
+      - alert: DeceptionAPTBehavior
+        expr: |
+          (
+            histogram_quantile(0.50, rate(deception_interaction_duration_seconds_bucket[1h])) > 300
+          ) and (
+            rate(deception_commands_executed_total{command_category="discovery"}[1h]) > 0.1
+          ) and (
+            rate(deception_files_accessed_total{file_type="config"}[1h]) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: critical
+          component: deception_technology
+          team: security_operations
+          page: "true"
+        annotations:
+          summary: "APT-like behavior detected on deception assets"
+          description: "Long-duration interactions with reconnaissance and data collection patterns"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-apt-behavior"
+
+      # Automated Attack Detection
+      - alert: DeceptionAutomatedAttack
+        expr: |
+          (
+            rate(deception_honeypot_interactions_total[5m]) > 20
+          ) and (
+            histogram_quantile(0.95, rate(deception_interaction_duration_seconds_bucket[5m])) < 5
+          )
+        for: 3m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+        annotations:
+          summary: "Automated attack detected"
+          description: "High-frequency, short-duration interactions indicating automated scanning/exploitation"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-automated-attack"
+
+  - name: deception_recording_rules
+    interval: 30s
+    rules:
+      # Recording rules for efficient queries
+      - record: deception:interaction_rate_5m
+        expr: rate(deception_honeypot_interactions_total[5m])
+
+      - record: deception:interaction_rate_1h
+        expr: rate(deception_honeypot_interactions_total[1h])
+
+      - record: deception:unique_attackers_24h
+        expr: deception_unique_attackers{time_window="24h"}
+
+      - record: deception:attack_diversity_score
+        expr: |
+          count by (source_country) (
+            count by (source_country, technique) (
+              increase(deception_attack_techniques_total[1h]) > 0
+            )
+          )
+
+      - record: deception:geographic_threat_score
+        expr: |
+          sum by (country) (
+            rate(deception_geolocation_hits_total{risk_level="high"}[1h]) * 10 +
+            rate(deception_geolocation_hits_total{risk_level="medium"}[1h]) * 5 +
+            rate(deception_geolocation_hits_total{risk_level="low"}[1h]) * 1
+          )
+
+      - record: deception:system_effectiveness_score
+        expr: |
+          (
+            rate(deception_correlation_success_total[1h]) /
+            rate(deception_honeypot_interactions_total[1h])
+          ) * 100
+
+      - record: deception:alert_quality_score
+        expr: |
+          (
+            1 - deception_false_positive_rate
+          ) * 100
+
+      - record: deception:threat_intel_enrichment_rate
+        expr: |
+          rate(deception_threat_intel_matches_total[1h]) /
+          rate(deception_honeypot_interactions_total[1h])
+
+  - name: deception_sla_alerts
+    interval: 1m
+    rules:
+      # SLA-based alerting
+      - alert: DeceptionDetectionSLABreach
+        expr: |
+          histogram_quantile(0.95, rate(deception_behavior_analysis_duration_seconds_bucket[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+          sla: "detection_time"
+        annotations:
+          summary: "Deception detection SLA breach"
+          description: "P95 detection time is {{ $value }}s (SLA: 5s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-sla-detection"
+
+      - alert: DeceptionForwardingSLABreach
+        expr: |
+          histogram_quantile(0.95, rate(deception_token_response_duration_seconds_bucket[10m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: deception_technology
+          team: security_operations
+          sla: "forwarding_time"
+        annotations:
+          summary: "Deception alert forwarding SLA breach"
+          description: "P95 alert forwarding time is {{ $value }}s (SLA: 30s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-sla-forwarding"
+
+      - alert: DeceptionAvailabilitySLABreach
+        expr: |
+          (
+            rate(deception_alert_forwarding_success_total[1h]) /
+            (rate(deception_alert_forwarding_success_total[1h]) + rate(deception_alert_forwarding_failures_total[1h]))
+          ) < 0.995
+        for: 30m
+        labels:
+          severity: high
+          component: deception_technology
+          team: security_operations
+          sla: "availability"
+        annotations:
+          summary: "Deception system availability SLA breach"
+          description: "System availability is {{ $value | humanizePercentage }} (SLA: 99.5%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/deception-sla-availability"

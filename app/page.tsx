@@ -1,103 +1,196 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import React from 'react';
+import { redirect } from 'next/navigation';
+import { Box, Typography, Card, CardContent, Grid, Chip, Alert } from '@mui/material';
+import { Security as SecurityIcon, Shield as ShieldIcon } from '@mui/icons-material';
+import { AppLayout } from './components/layout/app-layout';
+import { useAuthStore } from './lib/store';
+
+export default function HomePage() {
+  const auth = useAuthStore();
+
+  // Redirect to login if not authenticated
+  if (!auth.isAuthenticated) {
+    redirect('/login');
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <AppLayout>
+      <Box>
+        {/* Page Header */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 600 }}>
+            Welcome to iSECTECH Protect
+          </Typography>
+          <Typography variant="body1" color="text.secondary" gutterBottom>
+            Your cybersecurity command center is ready. Navigate using the sidebar to access all security features.
+          </Typography>
+          
+          {auth.user && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Chip
+                icon={<SecurityIcon />}
+                label={`Clearance: ${auth.securityClearance}`}
+                color="primary"
+                variant="outlined"
+              />
+              <Chip
+                icon={<ShieldIcon />}
+                label={`Role: ${auth.user.role.replace('_', ' ')}`}
+                color="secondary"
+                variant="outlined"
+              />
+            </Box>
+          )}
+        </Box>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        {/* Status Cards */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom color="primary">
+                  System Status
+                </Typography>
+                <Typography variant="h4" color="success.main">
+                  Operational
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  All systems functioning normally
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Security Level
+                </Typography>
+                <Typography variant="h4" color="warning.main">
+                  Elevated
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Enhanced monitoring active
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Active Alerts
+                </Typography>
+                <Typography variant="h4" color="error.main">
+                  24
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Requires immediate attention
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Compliance Score
+                </Typography>
+                <Typography variant="h4" color="info.main">
+                  87%
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Meeting regulatory standards
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Information Alert */}
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            <strong>Development Notice:</strong> This is the iSECTECH Protect cybersecurity dashboard. 
+            The full dashboard with real-time threat monitoring, analytics, and security controls is currently being built.
+          </Typography>
+        </Alert>
+
+        {/* Quick Access Cards */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Security Dashboard
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Real-time security monitoring, threat detection, and incident response dashboard 
+                  with advanced analytics and MITRE ATT&CK framework integration.
+                </Typography>
+                <Typography variant="body2" color="primary">
+                  → Navigate to Security Center in the sidebar
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Asset Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Comprehensive asset inventory, vulnerability management, and network discovery 
+                  with automated security assessment capabilities.
+                </Typography>
+                <Typography variant="body2" color="primary">
+                  → Navigate to Asset Management in the sidebar
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Compliance Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Automated compliance monitoring for NIST, ISO 27001, SOC2, PCI DSS, and other 
+                  regulatory frameworks with continuous assessment.
+                </Typography>
+                <Typography variant="body2" color="primary">
+                  → Navigate to Compliance in the sidebar
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Security Analytics
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Advanced security analytics, behavioral analysis, and predictive threat modeling 
+                  with machine learning-powered insights.
+                </Typography>
+                <Typography variant="body2" color="primary">
+                  → Navigate to Analytics & Reports in the sidebar
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    </AppLayout>
   );
 }

@@ -1,0 +1,386 @@
+# Istio DestinationRule Resources for iSECTECH Zero Trust Architecture
+# Configure TLS settings and traffic policies for all service-to-service communication
+
+---
+# DestinationRule for Kong Gateway service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: kong-gateway
+  namespace: isectech-api-gateway
+spec:
+  host: kong-proxy.isectech-api-gateway.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 100
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+        idleTimeout: 60s
+    loadBalancer:
+      simple: LEAST_CONN
+    circuitBreaker:
+      consecutiveGatewayErrors: 5
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  portLevelSettings:
+  - port:
+      number: 8000
+    tls:
+      mode: ISTIO_MUTUAL
+  - port:
+      number: 8443
+    tls:
+      mode: ISTIO_MUTUAL
+
+---
+# DestinationRule for PostgreSQL database
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: postgres-db
+  namespace: isectech-data
+spec:
+  host: kong-postgres.isectech-data.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+          probes: 9
+    loadBalancer:
+      simple: LEAST_CONN
+
+---
+# DestinationRule for Redis cache
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: redis-cache
+  namespace: isectech-data
+spec:
+  host: redis.isectech-data.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+        tcpKeepalive:
+          time: 600s
+          interval: 60s
+          probes: 3
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+---
+# DestinationRule for Elasticsearch
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: elasticsearch
+  namespace: isectech-data
+spec:
+  host: elasticsearch.isectech-data.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 25
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 5
+        maxRetries: 3
+        idleTimeout: 90s
+    loadBalancer:
+      simple: ROUND_ROBIN
+    circuitBreaker:
+      consecutiveGatewayErrors: 3
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 30
+
+---
+# DestinationRule for Authentication Service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: auth-service
+  namespace: isectech-services
+spec:
+  host: auth-service.isectech-services.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 100
+        maxRequestsPerConnection: 10
+        maxRetries: 2
+        idleTimeout: 30s
+    loadBalancer:
+      simple: ROUND_ROBIN
+    circuitBreaker:
+      consecutiveGatewayErrors: 5
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 15s
+      maxEjectionPercent: 50
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL
+  - name: v2
+    labels:
+      version: v2
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL
+
+---
+# DestinationRule for Security Agent Service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: security-agent
+  namespace: isectech-services
+spec:
+  host: security-agent.isectech-services.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 25
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 5
+        maxRetries: 3
+        idleTimeout: 60s
+    loadBalancer:
+      simple: LEAST_CONN
+
+---
+# DestinationRule for Threat Detection Service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: threat-detection
+  namespace: isectech-services
+spec:
+  host: threat-detection.isectech-services.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 75
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 35
+        http2MaxRequests: 75
+        maxRequestsPerConnection: 8
+        maxRetries: 2
+        idleTimeout: 45s
+    loadBalancer:
+      simple: RANDOM
+
+---
+# DestinationRule for AI/ML Services
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: ai-ml-services
+  namespace: isectech-ai
+spec:
+  host: "*.isectech-ai.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 25
+        connectTimeout: 15s
+      http:
+        http1MaxPendingRequests: 15
+        http2MaxRequests: 30
+        maxRequestsPerConnection: 3
+        maxRetries: 1
+        idleTimeout: 120s
+    loadBalancer:
+      simple: LEAST_CONN
+    circuitBreaker:
+      consecutiveGatewayErrors: 3
+      consecutive5xxErrors: 3
+      interval: 60s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 20
+
+---
+# DestinationRule for Frontend applications
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: frontend-apps
+  namespace: isectech-frontend
+spec:
+  host: "*.isectech-frontend.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 100
+        maxRequestsPerConnection: 10
+        maxRetries: 2
+        idleTimeout: 30s
+    loadBalancer:
+      simple: ROUND_ROBIN
+    circuitBreaker:
+      consecutiveGatewayErrors: 5
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 15s
+      maxEjectionPercent: 40
+
+---
+# DestinationRule for Monitoring services (allow communication from all namespaces)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: monitoring-services
+  namespace: monitoring
+spec:
+  host: "*.monitoring.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 25
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 5
+        maxRetries: 3
+        idleTimeout: 60s
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+---
+# DestinationRule for external services (egress traffic)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: external-services
+  namespace: istio-system
+spec:
+  host: "*.external"
+  trafficPolicy:
+    tls:
+      mode: SIMPLE  # Use simple TLS for external services
+      sni: "*.external"
+      caCertificates: /etc/ssl/certs/ca-certificates.crt
+    connectionPool:
+      tcp:
+        maxConnections: 10
+        connectTimeout: 30s
+      http:
+        http1MaxPendingRequests: 5
+        http2MaxRequests: 10
+        maxRequestsPerConnection: 2
+        maxRetries: 1
+        idleTimeout: 60s
+
+---
+# DestinationRule for production workloads (extra strict)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: production-workloads
+  namespace: production
+spec:
+  host: "*.production.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      minProtocolVersion: TLSV1_3  # Enforce TLS 1.3
+    connectionPool:
+      tcp:
+        maxConnections: 25
+        connectTimeout: 5s
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+          probes: 9
+      http:
+        http1MaxPendingRequests: 10
+        http2MaxRequests: 20
+        maxRequestsPerConnection: 5
+        maxRetries: 1
+        idleTimeout: 30s
+    loadBalancer:
+      simple: LEAST_CONN
+    circuitBreaker:
+      consecutiveGatewayErrors: 2
+      consecutive5xxErrors: 2
+      interval: 15s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 25
+
+---
+# DestinationRule for staging environments
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: staging-workloads
+  namespace: staging
+spec:
+  host: "*.staging.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 25
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 8
+        maxRetries: 3
+        idleTimeout: 60s
+    loadBalancer:
+      simple: ROUND_ROBIN

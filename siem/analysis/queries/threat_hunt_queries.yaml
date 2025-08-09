@@ -1,0 +1,752 @@
+# iSECTECH SIEM Threat Hunt Query Library
+# Production-grade threat hunting queries and detection rules
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Threat Hunt Query Library"
+last_updated: "2024-01-15T10:30:00Z"
+
+# MITRE ATT&CK Technique-Based Queries
+mitre_attack_queries:
+  # T1003 - OS Credential Dumping
+  credential_dumping:
+    query_id: "TH-T1003-001"
+    name: "Credential Dumping Detection"
+    description: "Detect potential credential dumping activities"
+    mitre_technique: "T1003"
+    mitre_tactic: "Credential Access"
+    severity: "high"
+    confidence: 0.8
+    query_type: "elasticsearch"
+    data_sources: ["windows_security", "sysmon", "powershell"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Security-Auditing"}},
+                    {"term": {"event.id": "4648"}},
+                    {"terms": {"process.name": ["mimikatz.exe", "procdump.exe", "comsvcs.dll"]}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+                    {"term": {"event.id": "1"}},
+                    {"terms": {"process.command_line": ["*sekurlsa*", "*lsadump*", "*kerberos*", "*wdigest*"]}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-PowerShell"}},
+                    {"term": {"event.id": "4104"}},
+                    {"wildcard": {"powershell.command.value": "*Invoke-Mimikatz*"}}
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "hosts": {
+            "terms": {"field": "host.name", "size": 100}
+          },
+          "users": {
+            "terms": {"field": "user.name", "size": 100}
+          }
+        }
+      }
+    indicators:
+      - "mimikatz usage"
+      - "lsass process access"
+      - "credential dumping tools"
+    response_actions:
+      - "Isolate affected hosts"
+      - "Reset compromised credentials"
+      - "Review access logs"
+
+  # T1055 - Process Injection
+  process_injection:
+    query_id: "TH-T1055-001"
+    name: "Process Injection Detection"
+    description: "Detect process injection techniques"
+    mitre_technique: "T1055"
+    mitre_tactic: "Defense Evasion"
+    severity: "high"
+    confidence: 0.75
+    query_type: "elasticsearch"
+    data_sources: ["sysmon", "windows_security"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+                    {"term": {"event.id": "8"}},
+                    {"exists": {"field": "process.target.name"}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+                    {"term": {"event.id": "10"}},
+                    {"terms": {"process.granted_access": ["0x1F0FFF", "0x1F1FFF", "0x143A", "0x1438"]}}
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "source_processes": {
+            "terms": {"field": "process.name", "size": 50}
+          },
+          "target_processes": {
+            "terms": {"field": "process.target.name", "size": 50}
+          }
+        }
+      }
+    indicators:
+      - "cross-process memory access"
+      - "process hollowing"
+      - "dll injection"
+    response_actions:
+      - "Analyze injecting process"
+      - "Collect memory dump"
+      - "Review process tree"
+
+  # T1027 - Obfuscated Files or Information
+  obfuscation_detection:
+    query_id: "TH-T1027-001"
+    name: "Obfuscation Detection"
+    description: "Detect obfuscated files and commands"
+    mitre_technique: "T1027"
+    mitre_tactic: "Defense Evasion"
+    severity: "medium"
+    confidence: 0.7
+    query_type: "elasticsearch"
+    data_sources: ["powershell", "sysmon", "proxy_logs"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-PowerShell"}},
+                    {"wildcard": {"powershell.command.value": "*-encodedcommand*"}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+                    {"term": {"event.id": "1"}},
+                    {"regexp": {"process.command_line": ".*[A-Za-z0-9+/]{50,}={0,2}.*"}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"exists": {"field": "url.original"}},
+                    {"regexp": {"url.original": ".*[A-Za-z0-9+/]{100,}={0,2}.*"}}
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    indicators:
+      - "base64 encoded commands"
+      - "obfuscated scripts"
+      - "encrypted payloads"
+    response_actions:
+      - "Decode and analyze payload"
+      - "Review command history"
+      - "Check for persistence"
+
+# Behavioral Analysis Queries
+behavioral_queries:
+  # Lateral Movement Detection
+  lateral_movement:
+    query_id: "TH-BEH-001"
+    name: "Lateral Movement Pattern Detection"
+    description: "Detect lateral movement patterns across network"
+    severity: "high"
+    confidence: 0.85
+    query_type: "elasticsearch"
+    data_sources: ["windows_security", "network_logs", "authentication"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-1h"}}},
+              {"term": {"event.category": "authentication"}},
+              {"term": {"event.outcome": "success"}}
+            ]
+          }
+        },
+        "aggs": {
+          "users": {
+            "terms": {"field": "user.name", "size": 100},
+            "aggs": {
+              "unique_hosts": {
+                "cardinality": {"field": "host.name"}
+              },
+              "hosts": {
+                "terms": {"field": "host.name", "size": 50}
+              }
+            }
+          }
+        }
+      }
+    thresholds:
+      unique_hosts_per_user: 5
+      time_window: "1h"
+    indicators:
+      - "multiple host access"
+      - "rapid authentication"
+      - "unusual access patterns"
+    response_actions:
+      - "Monitor user activity"
+      - "Review authentication logs"
+      - "Check privilege escalation"
+
+  # Data Exfiltration Detection
+  data_exfiltration:
+    query_id: "TH-BEH-002"
+    name: "Data Exfiltration Detection"
+    description: "Detect potential data exfiltration activities"
+    severity: "critical"
+    confidence: 0.9
+    query_type: "elasticsearch"
+    data_sources: ["network_logs", "proxy_logs", "file_access"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-1h"}}},
+              {"terms": {"network.direction": ["outbound", "egress"]}},
+              {"range": {"network.bytes": {"gte": 1048576}}}
+            ],
+            "should": [
+              {"terms": {"destination.domain": ["mega.io", "dropbox.com", "drive.google.com", "onedrive.com"]}},
+              {"wildcard": {"url.original": "*upload*"}},
+              {"terms": {"file.extension": ["zip", "rar", "7z", "tar.gz"]}}
+            ]
+          }
+        },
+        "aggs": {
+          "users": {
+            "terms": {"field": "user.name", "size": 50},
+            "aggs": {
+              "total_bytes": {
+                "sum": {"field": "network.bytes"}
+              }
+            }
+          },
+          "destinations": {
+            "terms": {"field": "destination.domain", "size": 50}
+          }
+        }
+      }
+    thresholds:
+      bytes_threshold: 1048576  # 1MB
+      time_window: "1h"
+    indicators:
+      - "large data transfers"
+      - "cloud storage uploads"
+      - "compressed file transfers"
+    response_actions:
+      - "Block suspicious transfers"
+      - "Analyze transferred files"
+      - "Interview user"
+
+  # Privilege Escalation Detection
+  privilege_escalation:
+    query_id: "TH-BEH-003"
+    name: "Privilege Escalation Detection"
+    description: "Detect privilege escalation attempts"
+    severity: "high"
+    confidence: 0.8
+    query_type: "elasticsearch"
+    data_sources: ["windows_security", "sysmon", "linux_audit"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Security-Auditing"}},
+                    {"terms": {"event.id": ["4672", "4624", "4648"]}},
+                    {"exists": {"field": "user.privileges"}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+                    {"term": {"event.id": "1"}},
+                    {"wildcard": {"process.command_line": "*runas*"}}
+                  ]
+                }
+              },
+              {
+                "bool": {
+                  "must": [
+                    {"term": {"event.dataset": "linux.audit"}},
+                    {"terms": {"event.action": ["sudo", "su", "setuid"]}}
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    indicators:
+      - "privilege token assignment"
+      - "runas command usage"
+      - "sudo escalation"
+    response_actions:
+      - "Review privilege changes"
+      - "Validate business justification"
+      - "Monitor privileged activity"
+
+# Advanced Persistent Threat (APT) Queries
+apt_queries:
+  # APT29 Indicators
+  apt29_cozy_bear:
+    query_id: "TH-APT-029"
+    name: "APT29 (Cozy Bear) Indicators"
+    description: "Detect APT29/Cozy Bear TTPs"
+    apt_group: "APT29"
+    severity: "critical"
+    confidence: 0.95
+    query_type: "elasticsearch"
+    data_sources: ["windows_security", "sysmon", "powershell", "dns"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "terms": {
+                  "process.name": [
+                    "rundll32.exe",
+                    "regsvr32.exe",
+                    "mshta.exe",
+                    "cscript.exe"
+                  ]
+                }
+              },
+              {
+                "wildcard": {
+                  "process.command_line": "*WellMess*"
+                }
+              },
+              {
+                "terms": {
+                  "dns.question.name": [
+                    "*.azureedge.net",
+                    "*.amazonaws.com",
+                    "*.cloudfront.net"
+                  ]
+                }
+              },
+              {
+                "wildcard": {
+                  "powershell.command.value": "*Invoke-PSImage*"
+                }
+              }
+            ]
+          }
+        }
+      }
+    iocs:
+      - "WellMess backdoor"
+      - "Cloud service abuse"
+      - "Steganography tools"
+    response_actions:
+      - "Immediate containment"
+      - "Threat intelligence correlation"
+      - "IOC hunting"
+
+  # APT1 Indicators
+  apt1_comment_crew:
+    query_id: "TH-APT-001"
+    name: "APT1 (Comment Crew) Indicators"
+    description: "Detect APT1/Comment Crew TTPs"
+    apt_group: "APT1"
+    severity: "critical"
+    confidence: 0.9
+    query_type: "elasticsearch"
+    data_sources: ["network_logs", "dns", "file_creation"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "wildcard": {
+                  "file.name": "*BACKDOOR*"
+                }
+              },
+              {
+                "terms": {
+                  "dns.question.name": [
+                    "*.no-ip.org",
+                    "*.3322.org",
+                    "*.dyndns.org"
+                  ]
+                }
+              },
+              {
+                "terms": {
+                  "destination.port": [8080, 443, 80, 53]
+                }
+              }
+            ]
+          }
+        }
+      }
+    iocs:
+      - "Dynamic DNS usage"
+      - "Backdoor naming patterns"
+      - "C2 communication ports"
+
+# Anomaly Detection Queries
+anomaly_queries:
+  # Unusual Process Execution
+  unusual_process_execution:
+    query_id: "TH-ANOM-001"
+    name: "Unusual Process Execution"
+    description: "Detect unusual process execution patterns"
+    severity: "medium"
+    confidence: 0.7
+    query_type: "elasticsearch"
+    data_sources: ["sysmon", "windows_security"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"term": {"event.provider": "Microsoft-Windows-Sysmon"}},
+              {"term": {"event.id": "1"}},
+              {"range": {"@timestamp": {"gte": "now-24h"}}}
+            ]
+          }
+        },
+        "aggs": {
+          "processes": {
+            "terms": {"field": "process.name", "size": 1000},
+            "aggs": {
+              "execution_count": {
+                "value_count": {"field": "@timestamp"}
+              },
+              "unique_hosts": {
+                "cardinality": {"field": "host.name"}
+              },
+              "unique_users": {
+                "cardinality": {"field": "user.name"}
+              }
+            }
+          }
+        }
+      }
+    analysis_logic: |
+      # Flag processes with:
+      # - Less than 5 executions in 24h
+      # - Only on 1-2 hosts
+      # - By single user
+      # - Not in whitelist
+    whitelist:
+      - "explorer.exe"
+      - "chrome.exe"
+      - "firefox.exe"
+      - "outlook.exe"
+
+  # Off-Hours Activity
+  off_hours_activity:
+    query_id: "TH-ANOM-002"
+    name: "Off-Hours Activity Detection"
+    description: "Detect suspicious activity during off-hours"
+    severity: "medium"
+    confidence: 0.6
+    query_type: "elasticsearch"
+    data_sources: ["authentication", "file_access", "network"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {
+                "range": {
+                  "@timestamp": {
+                    "gte": "now-1d"
+                  }
+                }
+              },
+              {
+                "script": {
+                  "script": {
+                    "source": "def hour = doc['@timestamp'].value.getHour(); hour < 6 || hour > 22"
+                  }
+                }
+              }
+            ],
+            "should": [
+              {"term": {"event.category": "authentication"}},
+              {"term": {"event.category": "file"}},
+              {"term": {"event.category": "network"}}
+            ]
+          }
+        },
+        "aggs": {
+          "users": {
+            "terms": {"field": "user.name", "size": 100}
+          },
+          "activity_by_hour": {
+            "date_histogram": {
+              "field": "@timestamp",
+              "interval": "hour"
+            }
+          }
+        }
+      }
+    business_hours:
+      start: "06:00"
+      end: "22:00"
+      timezone: "America/New_York"
+
+# Network-Based Queries
+network_queries:
+  # DNS Tunneling Detection
+  dns_tunneling:
+    query_id: "TH-NET-001"
+    name: "DNS Tunneling Detection"
+    description: "Detect DNS tunneling activities"
+    severity: "high"
+    confidence: 0.8
+    query_type: "elasticsearch"
+    data_sources: ["dns"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"term": {"event.category": "dns"}},
+              {"range": {"@timestamp": {"gte": "now-1h"}}}
+            ],
+            "should": [
+              {"range": {"dns.question.name.length": {"gte": 50}}},
+              {"wildcard": {"dns.question.name": "*-*-*-*-*"}},
+              {"regexp": {"dns.question.name": ".*[0-9a-f]{32,}.*"}}
+            ]
+          }
+        },
+        "aggs": {
+          "domains": {
+            "terms": {"field": "dns.question.registered_domain", "size": 100},
+            "aggs": {
+              "query_count": {
+                "value_count": {"field": "@timestamp"}
+              },
+              "avg_length": {
+                "avg": {"field": "dns.question.name.length"}
+              }
+            }
+          }
+        }
+      }
+    thresholds:
+      min_query_length: 50
+      min_queries_per_domain: 100
+      time_window: "1h"
+
+  # DGA Domain Detection
+  dga_domains:
+    query_id: "TH-NET-002"
+    name: "DGA Domain Detection"
+    description: "Detect algorithmically generated domains"
+    severity: "high"
+    confidence: 0.75
+    query_type: "elasticsearch"
+    data_sources: ["dns", "proxy"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"terms": {"event.category": ["dns", "web"]}},
+              {"exists": {"field": "dns.question.name"}},
+              {"range": {"@timestamp": {"gte": "now-1h"}}}
+            ],
+            "should": [
+              {"regexp": {"dns.question.name": ".*[bcdfghjklmnpqrstvwxyz]{6,}.*"}},
+              {"wildcard": {"dns.question.name": "*[0-9]*[0-9]*[0-9]*"}},
+              {"range": {"dns.question.name.length": {"gte": 15, "lte": 30}}}
+            ]
+          }
+        }
+      }
+    entropy_threshold: 4.5
+    consonant_ratio_threshold: 0.7
+
+# File and Registry Queries
+file_registry_queries:
+  # Suspicious File Creation
+  suspicious_file_creation:
+    query_id: "TH-FILE-001"
+    name: "Suspicious File Creation"
+    description: "Detect suspicious file creation activities"
+    severity: "medium"
+    confidence: 0.7
+    query_type: "elasticsearch"
+    data_sources: ["sysmon", "file_events"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"term": {"event.category": "file"}},
+              {"term": {"event.action": "creation"}},
+              {"range": {"@timestamp": {"gte": "now-1h"}}}
+            ],
+            "should": [
+              {"terms": {"file.extension": ["exe", "scr", "pif", "bat", "cmd", "com"]}},
+              {"wildcard": {"file.path": "*\\temp\\*"}},
+              {"wildcard": {"file.path": "*\\appdata\\*"}},
+              {"wildcard": {"file.name": "*.tmp.exe"}},
+              {"regexp": {"file.name": "[a-f0-9]{8,32}\\.(exe|dll)"}}
+            ]
+          }
+        }
+      }
+    suspicious_locations:
+      - "\\temp\\"
+      - "\\appdata\\local\\temp\\"
+      - "\\users\\public\\"
+      - "\\programdata\\"
+
+  # Registry Persistence
+  registry_persistence:
+    query_id: "TH-REG-001"
+    name: "Registry Persistence Detection"
+    description: "Detect registry-based persistence mechanisms"
+    severity: "high"
+    confidence: 0.85
+    query_type: "elasticsearch"
+    data_sources: ["sysmon", "windows_registry"]
+    query_text: |
+      GET /logs-*/_search
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"term": {"event.category": "registry"}},
+              {"terms": {"event.action": ["creation", "modification"]}}
+            ],
+            "should": [
+              {"wildcard": {"registry.key": "*\\CurrentVersion\\Run*"}},
+              {"wildcard": {"registry.key": "*\\CurrentVersion\\RunOnce*"}},
+              {"wildcard": {"registry.key": "*\\CurrentVersion\\RunServices*"}},
+              {"wildcard": {"registry.key": "*\\Winlogon\\Shell*"}},
+              {"wildcard": {"registry.key": "*\\Winlogon\\Userinit*"}},
+              {"wildcard": {"registry.key": "*\\Image File Execution Options*"}}
+            ]
+          }
+        }
+      }
+    persistence_keys:
+      - "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      - "HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      - "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+
+# Query Categories and Metadata
+query_categories:
+  mitre_attack:
+    description: "Queries based on MITRE ATT&CK framework"
+    total_queries: 3
+    confidence_range: [0.7, 0.9]
+    
+  behavioral:
+    description: "Behavioral analysis and pattern detection"
+    total_queries: 3
+    confidence_range: [0.6, 0.9]
+    
+  apt:
+    description: "Advanced Persistent Threat indicators"
+    total_queries: 2
+    confidence_range: [0.9, 0.95]
+    
+  anomaly:
+    description: "Anomaly detection and baseline deviation"
+    total_queries: 2
+    confidence_range: [0.6, 0.7]
+    
+  network:
+    description: "Network-based threat hunting"
+    total_queries: 2
+    confidence_range: [0.75, 0.8]
+    
+  file_registry:
+    description: "File system and registry analysis"
+    total_queries: 2
+    confidence_range: [0.7, 0.85]
+
+# Query Execution Guidelines
+execution_guidelines:
+  performance:
+    max_execution_time: "30m"
+    max_results: 100000
+    recommended_time_range: "24h"
+    
+  scheduling:
+    critical_queries_frequency: "15m"
+    high_priority_frequency: "1h"
+    medium_priority_frequency: "4h"
+    low_priority_frequency: "24h"
+    
+  alerting:
+    auto_alert_threshold: 0.8
+    manual_review_threshold: 0.6
+    false_positive_learning: true
+    
+  validation:
+    require_analyst_review: true
+    evidence_collection: true
+    timeline_correlation: true

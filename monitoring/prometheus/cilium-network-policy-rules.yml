@@ -1,0 +1,20 @@
+groups:
+  - name: cilium-network-policy
+    rules:
+      - alert: CiliumL7DeniedSpike
+        expr: rate(cilium_policy_l7_denied_total[5m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of L7 policy denies"
+          description: ">5 denies/sec over 10m. Investigate recent policy changes."
+      - alert: CiliumDropsSpike
+        expr: rate(cilium_drop_count[5m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High packet drop rate"
+          description: "Cilium drop count high. Possible egress/ingress policy errors."
+

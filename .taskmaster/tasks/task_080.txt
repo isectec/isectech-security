@@ -1,0 +1,77 @@
+# Task ID: 80
+# Title: Implement Tenant-Aware RBAC Schema in PostgreSQL
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Design and implement a PostgreSQL-based tenant-aware RBAC schema with hierarchical permissions and row-level security for tenant isolation.
+# Details:
+1. Design PostgreSQL schema for tenant-aware RBAC
+2. Implement Row-Level Security (RLS) policies for tenant isolation
+3. Create hierarchical role structure with inheritance
+4. Develop permission management stored procedures
+5. Implement audit logging for all permission changes
+6. Set up database functions for permission checking
+7. Create indexes for optimized permission lookups
+8. Implement tenant boundary enforcement logic
+
+PostgreSQL schema example:
+```sql
+-- Tenants table
+CREATE TABLE tenants (
+    tenant_id UUID PRIMARY KEY,
+    tenant_name TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Roles table with hierarchy
+CREATE TABLE roles (
+    role_id UUID PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(tenant_id),
+    role_name TEXT NOT NULL,
+    parent_role_id UUID REFERENCES roles(role_id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Permissions table
+CREATE TABLE permissions (
+    permission_id UUID PRIMARY KEY,
+    permission_name TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    action TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Role permissions mapping
+CREATE TABLE role_permissions (
+    role_id UUID REFERENCES roles(role_id),
+    permission_id UUID REFERENCES permissions(permission_id),
+    granted_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (role_id, permission_id)
+);
+
+-- User roles mapping
+CREATE TABLE user_roles (
+    user_id UUID,
+    role_id UUID REFERENCES roles(role_id),
+    tenant_id UUID REFERENCES tenants(tenant_id),
+    granted_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, role_id, tenant_id)
+);
+
+-- Row-Level Security policy
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON tenants
+    USING (tenant_id = current_setting('app.current_tenant_id')::UUID);
+```
+
+Implement using PostgreSQL 15+ with proper indexing and connection pooling using PgBouncer.
+
+# Test Strategy:
+1. Test tenant isolation with multiple tenant data
+2. Verify hierarchical permission inheritance
+3. Test cross-tenant access prevention
+4. Validate permission checking performance
+5. Test role assignment and revocation
+6. Verify audit logging of permission changes
+7. Test concurrent permission operations
+8. Validate integration with API authorization

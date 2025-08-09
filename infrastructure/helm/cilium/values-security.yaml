@@ -1,0 +1,26 @@
+encryption:
+  enabled: true
+  type: wireguard
+
+hubble:
+  enabled: true
+  metrics:
+    enabled:
+      - dns:query;ignoreAAAA
+      - drop
+      - tcp
+      - flow
+      - http
+
+policyEnforcementMode: default
+endpointRoutes:
+  enabled: true
+
+operator:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+
+kubeProxyReplacement: strict
+
+

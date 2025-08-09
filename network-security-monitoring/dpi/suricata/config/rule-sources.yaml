@@ -1,0 +1,284 @@
+# iSECTECH Suricata Rule Sources Configuration
+# Production-grade threat signature management
+
+sources:
+  # Emerging Threats Open Rules
+  - name: emerging_threats_open
+    url: https://rules.emergingthreats.net/open/suricata/emerging.rules.tar.gz
+    format: suricata
+    priority: 2
+    enabled: true
+    auth_required: false
+    update_frequency: 3600  # 1 hour
+    description: "Community-driven open source rules"
+    categories:
+      - malware
+      - botcc
+      - trojan
+      - compromised
+      - drop
+      - dshield
+      - emerging-exploit
+      - emerging-malware
+      - emerging-trojan
+      - emerging-worm
+      - emerging-scan
+      - emerging-dos
+
+  # Emerging Threats Pro (if license available)
+  - name: emerging_threats_pro
+    url: https://rules.emergingthreats.net/pro/suricata/etpro.rules.tar.gz
+    format: suricata
+    priority: 1
+    enabled: false  # Enable when license is available
+    auth_required: true
+    api_key: "${ET_PRO_LICENSE}"
+    update_frequency: 1800  # 30 minutes
+    description: "Commercial Emerging Threats Pro rules"
+
+  # Suricata Update Community Rules
+  - name: suricata_update_community
+    url: https://www.openinfosecfoundation.org/rules/index.yaml
+    format: suricata_update
+    priority: 3
+    enabled: true
+    auth_required: false
+    update_frequency: 7200  # 2 hours
+    description: "Suricata Update community ruleset index"
+
+  # Abuse.ch SSL Blacklist
+  - name: abuse_ch_sslbl
+    url: https://sslbl.abuse.ch/blacklist/sslblacklist.rules
+    format: suricata
+    priority: 2
+    enabled: true
+    auth_required: false
+    update_frequency: 1800  # 30 minutes
+    description: "SSL blacklist from Abuse.ch"
+    categories:
+      - botcc
+      - malware
+
+  # Abuse.ch Feodo Tracker
+  - name: abuse_ch_feodo
+    url: https://feodotracker.abuse.ch/downloads/feodotracker.rules
+    format: suricata
+    priority: 2
+    enabled: true
+    auth_required: false
+    update_frequency: 1800  # 30 minutes
+    description: "Feodo Tracker botnet C&C rules"
+    categories:
+      - botcc
+      - trojan
+
+  # URLhaus Malware URLs
+  - name: abuse_ch_urlhaus
+    url: https://urlhaus.abuse.ch/downloads/urlhaus.rules
+    format: suricata
+    priority: 2
+    enabled: true
+    auth_required: false
+    update_frequency: 3600  # 1 hour
+    description: "URLhaus malware URL rules"
+    categories:
+      - malware
+
+  # OISF Trafficid Rules
+  - name: oisf_trafficid
+    url: https://www.openinfosecfoundation.org/trafficid/trafficid.rules
+    format: suricata
+    priority: 4
+    enabled: true
+    auth_required: false
+    update_frequency: 86400  # 24 hours
+    description: "OISF Traffic ID rules for protocol identification"
+    categories:
+      - trafficid
+
+  # Custom iSECTECH Rules (highest priority)
+  - name: isectech_custom
+    url: file:///etc/nsm/rules/isectech-custom.rules
+    format: suricata
+    priority: 0  # Highest priority
+    enabled: true
+    auth_required: false
+    update_frequency: 300  # 5 minutes
+    description: "Custom iSECTECH signature rules"
+    categories:
+      - custom
+      - lateral_movement
+      - data_exfiltration
+      - c2_communication
+      - apt
+
+  # Threat Intelligence Generated Rules
+  - name: threat_intel_generated
+    url: file:///var/lib/nsm/rules/threat-intel-generated.rules
+    format: suricata
+    priority: 1
+    enabled: true
+    auth_required: false
+    update_frequency: 600  # 10 minutes
+    description: "Auto-generated rules from threat intelligence feeds"
+    categories:
+      - threat_intel
+      - reputation
+
+  # YARA Rules Converted to Suricata
+  - name: yara_converted
+    url: file:///var/lib/nsm/rules/yara-converted.rules
+    format: suricata
+    priority: 2
+    enabled: true
+    auth_required: false
+    update_frequency: 3600  # 1 hour
+    description: "YARA rules converted to Suricata format"
+    categories:
+      - malware
+      - apt
+
+  # Industry-Specific Rules
+  - name: industrial_security
+    url: https://github.com/digitalbond/Quickdraw-Suricata/archive/master.tar.gz
+    format: suricata
+    priority: 3
+    enabled: true
+    auth_required: false
+    update_frequency: 86400  # 24 hours
+    description: "Industrial control system security rules"
+    categories:
+      - scada
+      - ics
+      - modbus
+      - dnp3
+
+  # Financial Services Rules (if applicable)
+  - name: financial_sector
+    url: file:///etc/nsm/rules/financial-sector.rules
+    format: suricata
+    priority: 2
+    enabled: false  # Enable for financial sector deployments
+    auth_required: false
+    update_frequency: 3600  # 1 hour
+    description: "Financial sector specific threat rules"
+    categories:
+      - financial
+      - payment_card
+
+# Global rule management settings
+settings:
+  # Rule validation settings
+  validation:
+    strict_mode: true
+    check_syntax: true
+    check_performance: true
+    max_cpu_threshold: 1000  # microseconds
+    
+  # Performance optimization
+  optimization:
+    enable_fast_pattern: true
+    optimize_content_matches: true
+    reorder_rules_by_priority: true
+    merge_duplicate_content: true
+    
+  # Rule deployment
+  deployment:
+    test_before_deploy: true
+    backup_before_update: true
+    max_backup_retention: 10
+    rollback_on_failure: true
+    
+  # Monitoring
+  monitoring:
+    track_rule_performance: true
+    alert_on_high_cpu_usage: true
+    alert_on_high_false_positive_rate: true
+    performance_threshold: 30.0  # Performance score threshold
+    
+  # Threat intelligence integration
+  threat_intelligence:
+    enable_auto_generation: true
+    indicator_sources:
+      - misp
+      - taxii
+      - stix
+    generation_frequency: 600  # 10 minutes
+    confidence_threshold: 75
+    
+  # Rule categories and priorities
+  categories:
+    critical:
+      - apt
+      - c2_communication
+      - data_exfiltration
+      - lateral_movement
+    high:
+      - malware
+      - trojan
+      - botcc
+      - exploit
+    medium:
+      - scan
+      - policy
+      - suspicious
+    low:
+      - info
+      - trafficid
+      
+  # Custom rule templates
+  templates:
+    ip_reputation: |
+      alert ip any any -> {ip} any (msg:"iSECTECH: Connection to known malicious IP {ip}"; 
+      reference:url,{source}; classtype:trojan-activity; sid:{sid}; rev:1; 
+      metadata:policy balanced-ips drop, policy security-ips alert;)
+      
+    domain_reputation: |
+      alert dns any any -> any 53 (msg:"iSECTECH: DNS query to known malicious domain {domain}"; 
+      dns.query; content:"{domain}"; nocase; reference:url,{source}; 
+      classtype:trojan-activity; sid:{sid}; rev:1; 
+      metadata:policy balanced-ips drop, policy security-ips alert;)
+      
+    file_hash: |
+      alert http any any -> any any (msg:"iSECTECH: Download of known malicious file {hash_type}: {hash}"; 
+      file.{hash_type}; content:"{hash}"; reference:url,{source}; 
+      classtype:trojan-activity; sid:{sid}; rev:1; 
+      metadata:policy balanced-ips drop, policy security-ips alert;)
+
+# API endpoints for external integration
+api:
+  endpoints:
+    rule_status: "http://localhost:8080/api/v1/rules/status"
+    performance_metrics: "http://localhost:8080/api/v1/rules/performance"
+    threat_intel: "http://localhost:8080/api/v1/threat-intelligence"
+    
+  authentication:
+    method: "bearer_token"
+    token_file: "/etc/nsm/api_token"
+    
+# Notification settings
+notifications:
+  channels:
+    - type: "webhook"
+      url: "http://localhost:8080/api/v1/webhooks/rule-updates"
+      events:
+        - rule_update_success
+        - rule_update_failure
+        - rule_validation_failure
+        - performance_degradation
+        
+    - type: "syslog"
+      facility: "local0"
+      severity: "info"
+      events:
+        - rule_update_success
+        - rule_update_failure
+        
+    - type: "email"
+      smtp_server: "smtp.isectech.local"
+      recipients:
+        - "security-team@isectech.local"
+        - "operations@isectech.local"
+      events:
+        - rule_validation_failure
+        - performance_degradation

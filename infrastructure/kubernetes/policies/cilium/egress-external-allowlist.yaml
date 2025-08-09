@@ -1,0 +1,19 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-egress-external-services
+  namespace: isectech-services
+spec:
+  endpointSelector: {}
+  egress:
+    - toFQDNs:
+        - matchName: time.google.com
+        - matchName: api.sendgrid.com
+        - matchName: *.googleapis.com
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+
+

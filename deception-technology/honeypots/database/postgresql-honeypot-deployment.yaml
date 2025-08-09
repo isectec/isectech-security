@@ -1,0 +1,503 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-honeypot
+  namespace: deception
+  labels:
+    app: postgresql-honeypot
+    honeypot-type: database
+    database-type: postgresql
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: postgresql-honeypot
+  template:
+    metadata:
+      labels:
+        app: postgresql-honeypot
+        honeypot-type: database
+        database-type: postgresql
+      annotations:
+        security.isectech.com/purpose: "postgresql-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: postgresql-honeypot
+        image: isectech/postgresql-honeypot:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5432
+          name: postgresql
+          protocol: TCP
+        - containerPort: 9187
+          name: metrics
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "postgresql"
+        - name: POSTGRES_USER
+          value: "isectech_admin"
+        - name: POSTGRES_DB
+          value: "isectech_security"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: postgres.password
+        - name: PGDATA
+          value: "/var/lib/postgresql/data"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: HONEYPOT_SCHEMAS
+          value: |
+            customers,security_events,user_management,threat_intelligence,compliance_audit,backup_metadata
+        - name: FAKE_DATA_CONFIG
+          value: |
+            {
+              "customers": {
+                "record_count": 15000,
+                "sensitive_fields": ["email", "phone", "ssn_hash"],
+                "data_classification": "PII"
+              },
+              "security_events": {
+                "record_count": 50000,
+                "time_range": "30d",
+                "event_types": ["login", "data_access", "admin_action"]
+              },
+              "user_management": {
+                "record_count": 500,
+                "admin_accounts": 12,
+                "service_accounts": 8
+              }
+            }
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 999
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql
+          readOnly: true
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      - name: postgres-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        ports:
+        - containerPort: 9187
+          name: metrics
+        env:
+        - name: DATA_SOURCE_NAME
+          value: "postgresql://isectech_admin:$(POSTGRES_PASSWORD)@localhost:5432/isectech_security?sslmode=disable"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: postgres.password
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: postgres-data
+        emptyDir: {}
+      - name: postgres-config
+        configMap:
+          name: postgresql-honeypot-config
+      - name: init-scripts
+        configMap:
+          name: postgresql-honeypot-init
+          defaultMode: 0755
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - postgresql-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql-honeypot-service
+  namespace: deception
+  labels:
+    app: postgresql-honeypot
+    service-type: honeypot
+    database-type: postgresql
+spec:
+  selector:
+    app: postgresql-honeypot
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  - name: metrics
+    port: 9187
+    targetPort: 9187
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-honeypot-config
+  namespace: deception
+  labels:
+    app: postgresql-honeypot
+data:
+  postgresql.conf: |
+    # PostgreSQL configuration for honeypot
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 100
+    shared_buffers = 128MB
+    dynamic_shared_memory_type = posix
+    
+    # Logging for security monitoring
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = '/var/log/postgresql'
+    log_filename = 'postgresql-%Y-%m-%d.log'
+    log_truncate_on_rotation = off
+    log_rotation_age = 1d
+    log_rotation_size = 10MB
+    log_min_messages = warning
+    log_min_error_statement = error
+    log_min_duration_statement = -1
+    log_checkpoints = on
+    log_connections = on
+    log_disconnections = on
+    log_lock_waits = on
+    log_statement = 'all'
+    log_temp_files = 10MB
+    log_timezone = 'UTC'
+    
+    # Security settings
+    ssl = off
+    password_encryption = md5
+  pg_hba.conf: |
+    # PostgreSQL Client Authentication Configuration File
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+    
+    # "local" is for Unix domain socket connections only
+    local   all             all                                     trust
+    
+    # IPv4 local connections:
+    host    all             all             127.0.0.1/32            trust
+    host    all             all             0.0.0.0/0               md5
+    
+    # IPv6 local connections:
+    host    all             all             ::1/128                 trust
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-honeypot-init
+  namespace: deception
+  labels:
+    app: postgresql-honeypot
+data:
+  01-create-schemas.sql: |
+    -- Create realistic schemas for isectech honeypot
+    CREATE SCHEMA IF NOT EXISTS customers;
+    CREATE SCHEMA IF NOT EXISTS security_events;
+    CREATE SCHEMA IF NOT EXISTS user_management;
+    CREATE SCHEMA IF NOT EXISTS threat_intelligence;
+    CREATE SCHEMA IF NOT EXISTS compliance_audit;
+    CREATE SCHEMA IF NOT EXISTS backup_metadata;
+    
+  02-create-tables.sql: |
+    -- Customers schema
+    CREATE TABLE customers.profiles (
+        customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_name VARCHAR(255) NOT NULL,
+        domain VARCHAR(255) UNIQUE NOT NULL,
+        contact_email VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        industry VARCHAR(100),
+        employee_count INTEGER,
+        contract_value DECIMAL(12,2),
+        onboarding_date TIMESTAMP DEFAULT NOW(),
+        status VARCHAR(50) DEFAULT 'active',
+        tier VARCHAR(50) DEFAULT 'enterprise',
+        api_key_hash VARCHAR(256),
+        encryption_key_id VARCHAR(100),
+        data_retention_days INTEGER DEFAULT 365,
+        compliance_requirements TEXT[],
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    CREATE TABLE customers.billing_info (
+        billing_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_id UUID REFERENCES customers.profiles(customer_id),
+        billing_email VARCHAR(255),
+        payment_method VARCHAR(50),
+        last_payment_date TIMESTAMP,
+        next_payment_date TIMESTAMP,
+        monthly_cost DECIMAL(10,2),
+        payment_status VARCHAR(50) DEFAULT 'current',
+        credit_card_last4 VARCHAR(4),
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    -- Security Events schema  
+    CREATE TABLE security_events.alerts (
+        alert_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_id UUID,
+        alert_type VARCHAR(100) NOT NULL,
+        severity VARCHAR(20) NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        source_ip INET,
+        destination_ip INET,
+        user_agent TEXT,
+        threat_score DECIMAL(5,2),
+        confidence_level DECIMAL(3,2),
+        mitre_technique VARCHAR(20),
+        affected_assets TEXT[],
+        indicators_of_compromise JSONB,
+        response_actions TEXT[],
+        status VARCHAR(50) DEFAULT 'open',
+        assigned_analyst VARCHAR(255),
+        resolution_notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        resolved_at TIMESTAMP
+    );
+    
+    CREATE TABLE security_events.incident_timeline (
+        timeline_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        alert_id UUID REFERENCES security_events.alerts(alert_id),
+        event_timestamp TIMESTAMP NOT NULL,
+        event_type VARCHAR(100),
+        event_description TEXT,
+        event_data JSONB,
+        analyst_notes TEXT,
+        automated_response BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    -- User Management schema
+    CREATE TABLE user_management.users (
+        user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_id UUID,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(256),
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        role VARCHAR(50) NOT NULL,
+        permissions TEXT[],
+        mfa_enabled BOOLEAN DEFAULT false,
+        mfa_secret VARCHAR(256),
+        last_login TIMESTAMP,
+        login_attempts INTEGER DEFAULT 0,
+        account_locked BOOLEAN DEFAULT false,
+        lockout_until TIMESTAMP,
+        password_changed_at TIMESTAMP,
+        session_token_hash VARCHAR(256),
+        api_key_hash VARCHAR(256),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        deactivated_at TIMESTAMP
+    );
+    
+    CREATE TABLE user_management.admin_accounts (
+        admin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES user_management.users(user_id),
+        admin_level VARCHAR(50) NOT NULL,
+        granted_by UUID,
+        granted_at TIMESTAMP DEFAULT NOW(),
+        access_scope TEXT[],
+        emergency_access BOOLEAN DEFAULT false,
+        requires_approval BOOLEAN DEFAULT true,
+        last_privilege_check TIMESTAMP,
+        privilege_escalation_alerts INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    -- Threat Intelligence schema
+    CREATE TABLE threat_intelligence.indicators (
+        indicator_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ioc_type VARCHAR(50) NOT NULL,
+        ioc_value TEXT NOT NULL,
+        threat_actor VARCHAR(255),
+        campaign_name VARCHAR(255),
+        confidence_score DECIMAL(3,2),
+        severity VARCHAR(20),
+        first_seen TIMESTAMP DEFAULT NOW(),
+        last_seen TIMESTAMP DEFAULT NOW(),
+        source VARCHAR(255),
+        tags TEXT[],
+        tlp_marking VARCHAR(20) DEFAULT 'TLP:WHITE',
+        mitre_techniques TEXT[],
+        kill_chain_phases TEXT[],
+        malware_families TEXT[],
+        context_data JSONB,
+        expiration_date TIMESTAMP,
+        is_active BOOLEAN DEFAULT true,
+        false_positive BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    -- Compliance Audit schema
+    CREATE TABLE compliance_audit.frameworks (
+        framework_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_id UUID,
+        framework_name VARCHAR(100) NOT NULL,
+        version VARCHAR(20),
+        implementation_status VARCHAR(50),
+        compliance_score DECIMAL(5,2),
+        last_assessment_date TIMESTAMP,
+        next_assessment_date TIMESTAMP,
+        assessor_name VARCHAR(255),
+        findings_count INTEGER DEFAULT 0,
+        exceptions_count INTEGER DEFAULT 0,
+        remediation_deadline TIMESTAMP,
+        certification_status VARCHAR(50),
+        evidence_location TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+    
+    -- Backup Metadata schema
+    CREATE TABLE backup_metadata.backup_jobs (
+        backup_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_id UUID,
+        backup_type VARCHAR(50) NOT NULL,
+        source_system VARCHAR(255),
+        backup_size_gb DECIMAL(12,2),
+        compression_ratio DECIMAL(5,2),
+        encryption_key_id VARCHAR(100),
+        backup_location TEXT,
+        retention_policy VARCHAR(100),
+        backup_status VARCHAR(50),
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        verification_status VARCHAR(50),
+        recovery_tested_at TIMESTAMP,
+        checksum_md5 VARCHAR(32),
+        checksum_sha256 VARCHAR(64),
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+    
+  03-insert-fake-data.sql: |
+    -- Insert realistic fake data for customers
+    INSERT INTO customers.profiles (company_name, domain, contact_email, phone, industry, employee_count, contract_value, tier, api_key_hash) VALUES
+    ('SecureFinance Corp', 'securefinance.com', 'security@securefinance.com', '+1-555-0101', 'Financial Services', 2500, 125000.00, 'enterprise', 'sk_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4'),
+    ('HealthTech Solutions', 'healthtech-sol.com', 'admin@healthtech-sol.com', '+1-555-0102', 'Healthcare', 800, 75000.00, 'enterprise', 'sk_live_b2c3d4e5f6g7h8i9j0k1l2m3n4o5'),
+    ('EduGuard Institute', 'eduguard.edu', 'it@eduguard.edu', '+1-555-0103', 'Education', 1200, 45000.00, 'business', 'sk_live_c3d4e5f6g7h8i9j0k1l2m3n4o5p6'),
+    ('RetailSecure Inc', 'retailsecure.net', 'security@retailsecure.net', '+1-555-0104', 'Retail', 5000, 200000.00, 'enterprise', 'sk_live_d4e5f6g7h8i9j0k1l2m3n4o5p6q7'),
+    ('ManufacturingShield LLC', 'mfgshield.com', 'cybersec@mfgshield.com', '+1-555-0105', 'Manufacturing', 3200, 150000.00, 'enterprise', 'sk_live_e5f6g7h8i9j0k1l2m3n4o5p6q7r8');
+    
+    -- Insert users for different customers
+    INSERT INTO user_management.users (customer_id, username, email, password_hash, first_name, last_name, role, permissions, mfa_enabled) 
+    SELECT 
+        p.customer_id,
+        'admin_' || substr(p.domain, 1, 8),
+        'admin@' || p.domain,
+        'pbkdf2_sha256$600000$fake_salt$fake_hash_for_honeypot',
+        'Security',
+        'Administrator', 
+        'admin',
+        ARRAY['read', 'write', 'admin', 'delete'],
+        true
+    FROM customers.profiles p;
+    
+    -- Insert security alerts
+    INSERT INTO security_events.alerts (customer_id, alert_type, severity, title, description, source_ip, threat_score, confidence_level, mitre_technique, status) 
+    SELECT 
+        p.customer_id,
+        'Suspicious Login',
+        'high',
+        'Multiple Failed Authentication Attempts',
+        'User attempted to login 15 times with invalid credentials from IP: ' || (random() * 255)::int || '.' || (random() * 255)::int || '.' || (random() * 255)::int || '.' || (random() * 255)::int,
+        (random() * 255)::int || '.' || (random() * 255)::int || '.' || (random() * 255)::int || '.' || (random() * 255)::int,
+        85.5 + random() * 14.5,
+        0.85 + random() * 0.14,
+        'T1110.003',
+        'investigating'
+    FROM customers.profiles p, generate_series(1, 3);
+    
+    -- Insert threat intelligence indicators
+    INSERT INTO threat_intelligence.indicators (ioc_type, ioc_value, threat_actor, confidence_score, severity, source, tags, mitre_techniques) VALUES
+    ('ip', '198.51.100.42', 'APT29', 0.95, 'high', 'Internal Intelligence', ARRAY['apt', 'espionage'], ARRAY['T1190', 'T1133']),
+    ('domain', 'suspicious-login-portal.net', 'FIN7', 0.87, 'medium', 'Threat Feed Alpha', ARRAY['phishing', 'credential-harvesting'], ARRAY['T1566.002']),
+    ('file_hash', 'd41d8cd98f00b204e9800998ecf8427e', 'Unknown', 0.72, 'medium', 'Malware Sandbox', ARRAY['malware', 'trojan'], ARRAY['T1059.001']),
+    ('url', 'http://malicious-api-endpoint.com/api/exfiltrate', 'Carbanak', 0.91, 'critical', 'Dark Web Monitor', ARRAY['data-exfiltration', 'api-abuse'], ARRAY['T1041']);
+    
+    -- Create indexes for performance
+    CREATE INDEX idx_customers_domain ON customers.profiles(domain);
+    CREATE INDEX idx_security_alerts_customer ON security_events.alerts(customer_id);
+    CREATE INDEX idx_security_alerts_severity ON security_events.alerts(severity);
+    CREATE INDEX idx_security_alerts_created ON security_events.alerts(created_at);
+    CREATE INDEX idx_users_customer ON user_management.users(customer_id);
+    CREATE INDEX idx_users_email ON user_management.users(email);
+    CREATE INDEX idx_threat_intel_type ON threat_intelligence.indicators(ioc_type);
+    CREATE INDEX idx_threat_intel_value ON threat_intelligence.indicators(ioc_value);

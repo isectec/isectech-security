@@ -1,0 +1,996 @@
+{
+  "version": "1.0",
+  "created_at": "2025-01-08T00:00:00Z",
+  "description": "Comprehensive API endpoint authorization matrix for iSECTECH platform",
+  "permission_namespaces": {
+    "auth": "Authentication and session management",
+    "tenants": "Tenant management and access control",
+    "assets": "Asset discovery and inventory management",
+    "threats": "Threat detection and incident response",
+    "vulnerabilities": "Vulnerability scanning and remediation", 
+    "compliance": "Compliance monitoring and audit trails",
+    "notifications": "Notification delivery and management",
+    "policy": "Policy engine and rule evaluation",
+    "analytics": "Performance and security analytics",
+    "billing": "Billing and subscription management",
+    "mobile": "Mobile notification services",
+    "system": "System administration and maintenance",
+    "security": "Security operations and monitoring",
+    "kong": "API gateway administration",
+    "traffic": "Traffic management and rate limiting",
+    "agents": "Security agent management",
+    "events": "Security event processing"
+  },
+  "endpoint_permissions": {
+    "frontend_api": {
+      "/api/auth/login": {
+        "POST": {
+          "permissions": ["auth:login"],
+          "tenant_context": "required_in_request",
+          "public": false,
+          "description": "User authentication with tenant context"
+        },
+        "OPTIONS": {
+          "permissions": [],
+          "tenant_context": "none",
+          "public": true,
+          "description": "CORS preflight"
+        }
+      },
+      "/api/auth/logout": {
+        "POST": {
+          "permissions": ["auth:logout"],
+          "tenant_context": "from_session",
+          "public": false,
+          "description": "Secure session cleanup"
+        },
+        "OPTIONS": {
+          "permissions": [],
+          "tenant_context": "none", 
+          "public": true,
+          "description": "CORS preflight"
+        }
+      },
+      "/api/auth/verify": {
+        "GET": {
+          "permissions": ["auth:verify"],
+          "tenant_context": "from_session",
+          "public": false,
+          "description": "Session validation"
+        },
+        "POST": {
+          "permissions": ["auth:verify"],
+          "additional_check": "resource_specific_permissions",
+          "tenant_context": "from_session",
+          "public": false,
+          "description": "Session validation with authorization check"
+        },
+        "OPTIONS": {
+          "permissions": [],
+          "tenant_context": "none",
+          "public": true,
+          "description": "CORS preflight"
+        }
+      },
+      "/api/tenants": {
+        "GET": {
+          "permissions": ["tenants:list"],
+          "tenant_context": "multi_tenant",
+          "public": false,
+          "description": "List accessible tenants"
+        },
+        "POST": {
+          "permissions": ["tenants:create"],
+          "tenant_context": "system_admin",
+          "public": false,
+          "description": "Create new tenant",
+          "requires_role": ["system_admin"]
+        }
+      },
+      "/api/tenants/{id}": {
+        "GET": {
+          "permissions": ["tenants:read"],
+          "tenant_context": "tenant_specific",
+          "public": false,
+          "description": "Get tenant details"
+        },
+        "PUT": {
+          "permissions": ["tenants:update"],
+          "tenant_context": "tenant_specific",
+          "public": false,
+          "description": "Update tenant"
+        },
+        "DELETE": {
+          "permissions": ["tenants:delete"],
+          "tenant_context": "tenant_specific",
+          "public": false,
+          "description": "Delete tenant",
+          "requires_role": ["system_admin"]
+        }
+      },
+      "/api/health": {
+        "GET": {
+          "permissions": [],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Application health check"
+        }
+      },
+      "/api/metrics": {
+        "GET": {
+          "permissions": ["metrics:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Application metrics"
+        }
+      },
+      "/api/notifications": {
+        "GET": {
+          "permissions": ["notifications:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List notifications"
+        },
+        "POST": {
+          "permissions": ["notifications:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create notification"
+        },
+        "PUT": {
+          "permissions": ["notifications:update"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Update notification"
+        },
+        "DELETE": {
+          "permissions": ["notifications:delete"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Delete notification"
+        }
+      },
+      "/api/notifications/subscribe": {
+        "POST": {
+          "permissions": ["notifications:subscribe"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Subscribe to notifications"
+        }
+      },
+      "/api/notifications/unsubscribe": {
+        "POST": {
+          "permissions": ["notifications:unsubscribe"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Unsubscribe from notifications"
+        }
+      },
+      "/api/notifications/preferences": {
+        "GET": {
+          "permissions": ["notifications:preferences:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get notification preferences"
+        },
+        "PUT": {
+          "permissions": ["notifications:preferences:update"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Update notification preferences"
+        }
+      },
+      "/api/notifications/templates": {
+        "GET": {
+          "permissions": ["notifications:templates:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List notification templates"
+        },
+        "POST": {
+          "permissions": ["notifications:templates:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create notification template"
+        }
+      },
+      "/api/notifications/templates/render": {
+        "POST": {
+          "permissions": ["notifications:templates:render"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Render notification template"
+        }
+      },
+      "/api/notifications/analytics": {
+        "GET": {
+          "permissions": ["notifications:analytics:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Notification analytics"
+        }
+      },
+      "/api/notifications/schedule": {
+        "GET": {
+          "permissions": ["notifications:schedule:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get scheduled notifications"
+        },
+        "POST": {
+          "permissions": ["notifications:schedule:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Schedule notification"
+        }
+      },
+      "/api/notifications/webhooks": {
+        "POST": {
+          "permissions": ["notifications:webhooks:manage"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Webhook management"
+        }
+      },
+      "/api/notifications/test": {
+        "POST": {
+          "permissions": ["notifications:test"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Test notification delivery"
+        }
+      },
+      "/api/trust-score": {
+        "GET": {
+          "permissions": ["trust-score:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get trust score"
+        },
+        "POST": {
+          "permissions": ["trust-score:update"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Update trust score"
+        }
+      },
+      "/api/trust-score/analytics": {
+        "GET": {
+          "permissions": ["trust-score:analytics:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Trust score analytics"
+        }
+      },
+      "/api/trust-score/websocket": {
+        "GET": {
+          "permissions": ["trust-score:websocket"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "WebSocket connection for real-time trust scores"
+        }
+      },
+      "/api/compliance/status": {
+        "GET": {
+          "permissions": ["compliance:status:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get compliance status"
+        }
+      },
+      "/api/compliance/violations": {
+        "GET": {
+          "permissions": ["compliance:violations:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List compliance violations"
+        },
+        "POST": {
+          "permissions": ["compliance:violations:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create violation record"
+        }
+      },
+      "/api/compliance/violations/{id}/resolve": {
+        "POST": {
+          "permissions": ["compliance:violations:resolve"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Resolve compliance violation"
+        }
+      },
+      "/api/compliance/audit-trail": {
+        "GET": {
+          "permissions": ["compliance:audit:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Access audit trail"
+        }
+      },
+      "/api/compliance/assessments": {
+        "GET": {
+          "permissions": ["compliance:assessments:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List compliance assessments"
+        },
+        "POST": {
+          "permissions": ["compliance:assessments:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create compliance assessment"
+        }
+      },
+      "/api/onboarding": {
+        "GET": {
+          "permissions": ["onboarding:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List onboarding flows"
+        },
+        "POST": {
+          "permissions": ["onboarding:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create onboarding flow"
+        }
+      },
+      "/api/onboarding/{id}": {
+        "GET": {
+          "permissions": ["onboarding:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get specific onboarding flow"
+        },
+        "PUT": {
+          "permissions": ["onboarding:update"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Update onboarding flow"
+        }
+      },
+      "/api/onboarding/analytics": {
+        "GET": {
+          "permissions": ["onboarding:analytics:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Onboarding analytics"
+        }
+      },
+      "/api/policy/evaluate": {
+        "POST": {
+          "permissions": ["policy:evaluate"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Evaluate policy decision",
+          "api_key_required": true
+        },
+        "GET": {
+          "permissions": ["policy:health"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Policy service health check"
+        }
+      },
+      "/api/policy/batch": {
+        "POST": {
+          "permissions": ["policy:evaluate:batch"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Batch policy evaluation",
+          "api_key_required": true
+        }
+      },
+      "/api/policy/logs": {
+        "GET": {
+          "permissions": ["policy:logs:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Access policy evaluation logs"
+        }
+      },
+      "/api/policy/admin/bundles": {
+        "GET": {
+          "permissions": ["policy:bundles:read"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "List policy bundles",
+          "requires_role": ["admin"]
+        },
+        "POST": {
+          "permissions": ["policy:bundles:create"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Create policy bundle",
+          "requires_role": ["admin"]
+        }
+      },
+      "/api/policy/admin/bundles/activate": {
+        "POST": {
+          "permissions": ["policy:bundles:activate"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Activate policy bundle",
+          "requires_role": ["admin"]
+        }
+      },
+      "/api/policy/admin/bundles/rollback": {
+        "POST": {
+          "permissions": ["policy:bundles:rollback"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Rollback policy bundle",
+          "requires_role": ["admin"]
+        }
+      },
+      "/api/analytics/performance": {
+        "GET": {
+          "permissions": ["analytics:performance:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Performance metrics"
+        },
+        "POST": {
+          "permissions": ["analytics:performance:write"],
+          "tenant_context": "tenant_scoped", 
+          "public": false,
+          "description": "Record performance data"
+        }
+      }
+    },
+    "backend_auth_service": {
+      "/health": {
+        "GET": {
+          "permissions": [],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Service health check"
+        }
+      },
+      "/metrics": {
+        "GET": {
+          "permissions": ["metrics:read"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Service metrics"
+        }
+      },
+      "/api/v1/auth/login": {
+        "POST": {
+          "permissions": ["auth:login"],
+          "tenant_context": "required_in_request",
+          "public": false,
+          "description": "User authentication"
+        }
+      },
+      "/api/v1/auth/mfa/verify": {
+        "POST": {
+          "permissions": ["auth:mfa:verify"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "MFA verification"
+        }
+      },
+      "/api/v1/auth/refresh": {
+        "POST": {
+          "permissions": ["auth:token:refresh"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Token refresh"
+        }
+      },
+      "/api/v1/auth/validate": {
+        "POST": {
+          "permissions": ["auth:session:validate"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Session validation"
+        }
+      },
+      "/api/v1/auth/password/reset": {
+        "POST": {
+          "permissions": ["auth:password:reset:request"],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Password reset request"
+        }
+      },
+      "/api/v1/auth/password/reset/complete": {
+        "POST": {
+          "permissions": ["auth:password:reset:complete"],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Complete password reset"
+        }
+      },
+      "/api/v1/auth/password/validate": {
+        "POST": {
+          "permissions": ["auth:password:validate"],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Password strength validation"
+        }
+      },
+      "/api/v1/auth/logout": {
+        "POST": {
+          "permissions": ["auth:logout"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "User logout"
+        }
+      },
+      "/api/v1/auth/profile": {
+        "GET": {
+          "permissions": ["auth:profile:read"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Get user profile"
+        }
+      },
+      "/api/v1/auth/sessions": {
+        "GET": {
+          "permissions": ["auth:sessions:read"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "List user sessions"
+        }
+      },
+      "/api/v1/auth/sessions/{session_id}": {
+        "DELETE": {
+          "permissions": ["auth:sessions:delete"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Terminate specific session"
+        }
+      },
+      "/api/v1/auth/password/change": {
+        "POST": {
+          "permissions": ["auth:password:change"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Change password"
+        }
+      },
+      "/api/v1/auth/mfa/devices": {
+        "GET": {
+          "permissions": ["auth:mfa:devices:read"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "List MFA devices"
+        }
+      },
+      "/api/v1/auth/mfa/enroll": {
+        "POST": {
+          "permissions": ["auth:mfa:devices:create"],
+          "tenant_context": "session_context",
+          "public": false,
+          "description": "Enroll MFA device"
+        }
+      },
+      "/api/v1/admin/users": {
+        "GET": {
+          "permissions": ["users:admin:list"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "List all users",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        },
+        "POST": {
+          "permissions": ["users:admin:create"],
+          "tenant_context": "cross_tenant", 
+          "public": false,
+          "description": "Create user",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/users/{user_id}": {
+        "GET": {
+          "permissions": ["users:admin:read"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Get user details",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        },
+        "PUT": {
+          "permissions": ["users:admin:update"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Update user",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        },
+        "DELETE": {
+          "permissions": ["users:admin:delete"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Delete user",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/users/{user_id}/lock": {
+        "POST": {
+          "permissions": ["users:admin:lock"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Lock user account",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/users/{user_id}/unlock": {
+        "POST": {
+          "permissions": ["users:admin:unlock"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Unlock user account",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/users/{user_id}/reset-mfa": {
+        "POST": {
+          "permissions": ["users:admin:mfa:reset"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Reset user MFA",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/sessions": {
+        "GET": {
+          "permissions": ["sessions:admin:list"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "List all sessions",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/sessions/{session_id}": {
+        "DELETE": {
+          "permissions": ["sessions:admin:delete"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Terminate any session",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/sessions/user/{user_id}": {
+        "DELETE": {
+          "permissions": ["sessions:admin:delete:user"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Terminate all user sessions",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/audit/events": {
+        "GET": {
+          "permissions": ["audit:admin:read"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Access audit events",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/audit/metrics": {
+        "GET": {
+          "permissions": ["audit:admin:metrics"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Audit metrics",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/system/health": {
+        "GET": {
+          "permissions": ["system:admin:health"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "System health status",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/admin/system/maintenance": {
+        "POST": {
+          "permissions": ["system:admin:maintenance"],
+          "tenant_context": "system_wide",
+          "public": false,
+          "description": "Trigger maintenance mode",
+          "requires_clearance": "secret",
+          "requires_role": ["admin"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/security/alerts": {
+        "GET": {
+          "permissions": ["security:alerts:read"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Security alerts",
+          "requires_clearance": "top_secret",
+          "requires_role": ["security_officer"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/security/threats": {
+        "GET": {
+          "permissions": ["security:threats:read"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Threat intelligence",
+          "requires_clearance": "top_secret",
+          "requires_role": ["security_officer"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/security/incidents": {
+        "POST": {
+          "permissions": ["security:incidents:create"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Create security incident",
+          "requires_clearance": "top_secret",
+          "requires_role": ["security_officer"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/security/audit/export": {
+        "GET": {
+          "permissions": ["security:audit:export"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Export audit logs",
+          "requires_clearance": "top_secret",
+          "requires_role": ["security_officer"],
+          "requires_mfa": true
+        }
+      },
+      "/api/v1/security/compliance/report": {
+        "GET": {
+          "permissions": ["security:compliance:report"],
+          "tenant_context": "cross_tenant",
+          "public": false,
+          "description": "Generate compliance report",
+          "requires_clearance": "top_secret",
+          "requires_role": ["security_officer"],
+          "requires_mfa": true
+        }
+      }
+    },
+    "backend_asset_discovery": {
+      "/health": {
+        "GET": {
+          "permissions": [],
+          "tenant_context": "none",
+          "public": true,
+          "description": "Service health check"
+        }
+      },
+      "/api/v1/discovery/start": {
+        "POST": {
+          "permissions": ["assets:discovery:start"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Start asset discovery operation"
+        }
+      },
+      "/api/v1/discovery/status/{requestId}": {
+        "GET": {
+          "permissions": ["assets:discovery:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get discovery status"
+        }
+      },
+      "/api/v1/discovery/cancel/{requestId}": {
+        "DELETE": {
+          "permissions": ["assets:discovery:cancel"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Cancel discovery operation"
+        }
+      },
+      "/api/v1/assets": {
+        "GET": {
+          "permissions": ["assets:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "List assets"
+        },
+        "POST": {
+          "permissions": ["assets:create"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Create asset"
+        }
+      },
+      "/api/v1/assets/{id}": {
+        "GET": {
+          "permissions": ["assets:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Get asset details"
+        },
+        "PUT": {
+          "permissions": ["assets:update"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Update asset"
+        },
+        "DELETE": {
+          "permissions": ["assets:delete"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Delete asset"
+        }
+      },
+      "/api/v1/assets/search": {
+        "GET": {
+          "permissions": ["assets:search"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Search assets"
+        }
+      },
+      "/api/v1/assets/aggregation": {
+        "GET": {
+          "permissions": ["assets:aggregation:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Asset aggregation statistics"
+        }
+      },
+      "/api/v1/assets/topology": {
+        "GET": {
+          "permissions": ["assets:topology:read"],
+          "tenant_context": "tenant_scoped",
+          "public": false,
+          "description": "Network topology"
+        }
+      },
+      "/api/v1/tenants/{tenantId}/assets": {
+        "GET": {
+          "permissions": ["assets:read"],
+          "tenant_context": "specific_tenant",
+          "public": false,
+          "description": "List tenant-specific assets"
+        }
+      },
+      "/api/v1/tenants/{tenantId}/assets/search": {
+        "GET": {
+          "permissions": ["assets:search"],
+          "tenant_context": "specific_tenant",
+          "public": false,
+          "description": "Search tenant-specific assets"
+        }
+      },
+      "/api/v1/tenants/{tenantId}/assets/aggregation": {
+        "GET": {
+          "permissions": ["assets:aggregation:read"],
+          "tenant_context": "specific_tenant",
+          "public": false,
+          "description": "Tenant asset aggregation"
+        }
+      },
+      "/api/v1/tenants/{tenantId}/assets/topology": {
+        "GET": {
+          "permissions": ["assets:topology:read"],
+          "tenant_context": "specific_tenant",
+          "public": false,
+          "description": "Tenant network topology"
+        }
+      }
+    }
+  },
+  "role_based_permissions": {
+    "public": {
+      "description": "No authentication required",
+      "permissions": []
+    },
+    "user": {
+      "description": "Authenticated user with basic access",
+      "permissions": [
+        "auth:verify", "auth:logout", "auth:profile:read", "auth:sessions:read", 
+        "auth:sessions:delete", "auth:password:change", "auth:mfa:devices:read",
+        "notifications:read", "notifications:subscribe", "notifications:unsubscribe",
+        "notifications:preferences:read", "notifications:preferences:update",
+        "trust-score:read", "compliance:status:read", "assets:read", "assets:search"
+      ]
+    },
+    "analyst": {
+      "description": "Security analyst with monitoring and analysis capabilities",
+      "inherits": ["user"],
+      "permissions": [
+        "analytics:performance:read", "compliance:violations:read", 
+        "compliance:audit:read", "assets:aggregation:read", "assets:topology:read",
+        "trust-score:analytics:read", "notifications:analytics:read",
+        "events:read", "threats:read"
+      ]
+    },
+    "administrator": {
+      "description": "Tenant administrator with management capabilities",
+      "inherits": ["analyst"],
+      "permissions": [
+        "notifications:create", "notifications:update", "notifications:delete",
+        "notifications:templates:create", "notifications:templates:read",
+        "notifications:schedule:create", "assets:create", "assets:update",
+        "compliance:violations:create", "compliance:violations:resolve",
+        "compliance:assessments:create", "onboarding:create", "onboarding:update",
+        "trust-score:update", "tenants:read", "tenants:update"
+      ]
+    },
+    "admin": {
+      "description": "System administrator with cross-tenant access",
+      "inherits": ["administrator"], 
+      "permissions": [
+        "users:admin:list", "users:admin:create", "users:admin:read",
+        "users:admin:update", "users:admin:delete", "users:admin:lock",
+        "users:admin:unlock", "users:admin:mfa:reset", "sessions:admin:list",
+        "sessions:admin:delete", "sessions:admin:delete:user", "audit:admin:read",
+        "audit:admin:metrics", "system:admin:health", "system:admin:maintenance",
+        "policy:bundles:read", "policy:bundles:create", "policy:bundles:activate",
+        "policy:bundles:rollback", "tenants:create", "tenants:delete"
+      ],
+      "requires_clearance": "secret",
+      "requires_mfa": true
+    },
+    "security_officer": {
+      "description": "Security officer with highest security access",
+      "inherits": ["admin"],
+      "permissions": [
+        "security:alerts:read", "security:threats:read", "security:incidents:create",
+        "security:audit:export", "security:compliance:report", "kong:admin:status"
+      ],
+      "requires_clearance": "top_secret",
+      "requires_mfa": true
+    }
+  },
+  "tenant_context_types": {
+    "none": "No tenant context required",
+    "tenant_scoped": "Must belong to the requesting tenant", 
+    "tenant_specific": "Tenant ID specified in URL path",
+    "specific_tenant": "Access to specific tenant in URL",
+    "multi_tenant": "User can access multiple tenants they belong to",
+    "cross_tenant": "Access across all tenants (admin/security only)",
+    "system_wide": "System-level access, no tenant filtering",
+    "required_in_request": "Tenant ID must be provided in request",
+    "from_session": "Tenant context extracted from user session",
+    "session_context": "Uses tenant context from authenticated session",
+    "system_admin": "System administrator level access"
+  },
+  "special_requirements": {
+    "api_key_required": "Requires valid API key for service-to-service communication",
+    "requires_mfa": "Multi-factor authentication required",
+    "requires_clearance": {
+      "secret": "Security clearance level: Secret", 
+      "top_secret": "Security clearance level: Top Secret"
+    },
+    "emergency_access": "Emergency access procedures required"
+  }
+}

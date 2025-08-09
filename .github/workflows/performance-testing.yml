@@ -1,0 +1,654 @@
+# Performance Testing CI/CD Workflow for iSECTECH
+# Automated load testing with regression detection and performance guardrails
+
+name: Performance Testing & Regression Detection
+
+on:
+  push:
+    branches: [ main, develop, staging ]
+    paths:
+      - 'src/**'
+      - 'backend/**' 
+      - 'api/**'
+      - 'app/**'
+      - 'performance-testing/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'backend/**'
+      - 'api/**'
+      - 'app/**'
+  schedule:
+    # Run comprehensive performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of performance test to run'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - stress
+          - spike
+          - comprehensive
+          - database-intensive
+      environment:
+        description: 'Target environment for testing'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      duration_minutes:
+        description: 'Test duration in minutes'
+        required: false
+        default: '15'
+
+env:
+  PERFORMANCE_THRESHOLD_P95: 1000  # milliseconds
+  PERFORMANCE_THRESHOLD_P99: 2000  # milliseconds
+  PERFORMANCE_THRESHOLD_ERROR_RATE: 2  # percentage
+  PERFORMANCE_THRESHOLD_THROUGHPUT: 100  # requests per second
+  REGRESSION_TOLERANCE: 15  # percentage degradation allowed
+  
+jobs:
+  # Pre-flight checks and environment setup
+  performance-pre-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      should-run-tests: ${{ steps.check-conditions.outputs.run-tests }}
+      test-type: ${{ steps.determine-test-type.outputs.test-type }}
+      environment: ${{ steps.determine-environment.outputs.environment }}
+      baseline-commit: ${{ steps.get-baseline.outputs.commit }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10  # Get recent commits for comparison
+
+      - name: Check test conditions
+        id: check-conditions
+        run: |
+          # Determine if performance tests should run
+          RUN_TESTS="false"
+          
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "Scheduled run - enabling comprehensive performance tests"
+            RUN_TESTS="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger - enabling performance tests"
+            RUN_TESTS="true"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "Main branch push - enabling regression tests"
+            RUN_TESTS="true"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Check if performance-critical files changed
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }})
+            if echo "$CHANGED_FILES" | grep -E "(backend|api|src|performance)" > /dev/null; then
+              echo "Performance-critical files changed - enabling tests"
+              RUN_TESTS="true"
+            fi
+          fi
+          
+          echo "run-tests=$RUN_TESTS" >> $GITHUB_OUTPUT
+
+      - name: Determine test type
+        id: determine-test-type
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TEST_TYPE="${{ github.event.inputs.test_type }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            TEST_TYPE="comprehensive"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TEST_TYPE="baseline"
+          else
+            TEST_TYPE="baseline"
+          fi
+          echo "test-type=$TEST_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Determine environment
+        id: determine-environment
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="staging"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENVIRONMENT="development"
+          else
+            ENVIRONMENT="development"
+          fi
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+
+      - name: Get baseline commit for comparison
+        id: get-baseline
+        run: |
+          # Find the last commit that passed performance tests
+          BASELINE_COMMIT=$(git log --format="%H" --grep="perf: baseline" -1 || echo "${{ github.sha }}")
+          echo "commit=$BASELINE_COMMIT" >> $GITHUB_OUTPUT
+
+  # Setup and validate test infrastructure
+  performance-infrastructure:
+    runs-on: ubuntu-latest
+    needs: performance-pre-checks
+    if: needs.performance-pre-checks.outputs.should-run-tests == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start performance testing infrastructure
+        run: |
+          # Start InfluxDB and Grafana for metrics collection
+          cd performance-testing/docker
+          docker-compose -f docker-compose.distributed.yml up -d influxdb grafana prometheus
+          
+          # Wait for services to be ready
+          timeout 60s bash -c 'until docker-compose -f docker-compose.distributed.yml exec -T influxdb influx -execute "SHOW DATABASES"; do sleep 2; done'
+
+      - name: Validate infrastructure
+        run: |
+          # Check all services are healthy
+          docker-compose -f performance-testing/docker/docker-compose.distributed.yml ps
+          
+          # Verify InfluxDB connectivity
+          curl -f http://localhost:8086/ping || exit 1
+          
+          # Verify Prometheus connectivity  
+          curl -f http://localhost:9090/-/healthy || exit 1
+
+      - name: Setup k6 and Artillery
+        run: |
+          # Install k6
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install k6
+          
+          # Install Artillery
+          npm install -g artillery@latest
+          
+          # Verify installations
+          k6 version
+          artillery version
+
+  # Baseline performance test
+  performance-baseline-test:
+    runs-on: ubuntu-latest
+    needs: [performance-pre-checks, performance-infrastructure]
+    if: needs.performance-pre-checks.outputs.should-run-tests == 'true'
+    strategy:
+      matrix:
+        test-scenario: [api-endpoints, database-operations, authentication-flows]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run k6 baseline test - ${{ matrix.test-scenario }}
+        env:
+          K6_INFLUX_DB_PUSH_INTERVAL: "5s"
+          K6_INFLUX_DB: "http://localhost:8086/k6_metrics"
+          ENVIRONMENT: ${{ needs.performance-pre-checks.outputs.environment }}
+        run: |
+          cd performance-testing/k6/scenarios
+          
+          # Run specific test scenario
+          case "${{ matrix.test-scenario }}" in
+            "api-endpoints")
+              k6 run --out influxdb api-endpoints-comprehensive.js
+              ;;
+            "database-operations") 
+              k6 run --out influxdb database-intensive-operations.js
+              ;;
+            "authentication-flows")
+              k6 run --out influxdb ../auth/authentication-stress-test.js
+              ;;
+          esac
+
+      - name: Collect test results
+        run: |
+          # Export results from InfluxDB
+          mkdir -p test-results/${{ matrix.test-scenario }}
+          
+          # Query and export performance metrics
+          docker exec performance-testing_influxdb_1 influx -database 'k6_metrics' -execute "
+            SELECT mean(value) as avg_response_time, percentile(value, 95) as p95, percentile(value, 99) as p99 
+            FROM http_req_duration 
+            WHERE time > now() - 30m 
+            GROUP BY name
+          " -format json > test-results/${{ matrix.test-scenario }}/response_times.json
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: baseline-results-${{ matrix.test-scenario }}
+          path: test-results/${{ matrix.test-scenario }}/
+
+  # Stress testing for critical scenarios  
+  performance-stress-test:
+    runs-on: ubuntu-latest
+    needs: [performance-pre-checks, performance-infrastructure]
+    if: |
+      needs.performance-pre-checks.outputs.should-run-tests == 'true' && 
+      (needs.performance-pre-checks.outputs.test-type == 'stress' || 
+       needs.performance-pre-checks.outputs.test-type == 'comprehensive')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Artillery stress test
+        env:
+          ARTILLERY_PROMETHEUS_ENDPOINT: "http://localhost:9091"
+          ENVIRONMENT: ${{ needs.performance-pre-checks.outputs.environment }}
+        run: |
+          cd performance-testing/artillery
+          
+          # Run comprehensive load test with higher concurrency
+          artillery run comprehensive-load-test.yml \
+            --config stress-config.json \
+            --output stress-test-results.json
+
+      - name: Analyze stress test results
+        run: |
+          cd performance-testing/artillery
+          
+          # Generate HTML report
+          artillery report stress-test-results.json --output stress-report.html
+          
+          # Extract key metrics for CI evaluation
+          node -e "
+            const results = require('./stress-test-results.json');
+            const summary = results.aggregate;
+            
+            console.log('=== STRESS TEST RESULTS ===');
+            console.log('Total Requests:', summary.counters['vusers.created']);
+            console.log('Success Rate:', (100 - (summary.counters['errors.total'] || 0) / summary.counters['vusers.created'] * 100).toFixed(2) + '%');
+            console.log('P95 Response Time:', summary.latency.p95, 'ms');
+            console.log('P99 Response Time:', summary.latency.p99, 'ms');
+            
+            // Set GitHub outputs for threshold checking
+            const fs = require('fs');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'stress_p95=' + summary.latency.p95 + '\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'stress_p99=' + summary.latency.p99 + '\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'stress_error_rate=' + ((summary.counters['errors.total'] || 0) / summary.counters['vusers.created'] * 100).toFixed(2) + '\n');
+          "
+
+      - name: Upload stress test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: stress-test-results
+          path: performance-testing/artillery/stress-*
+
+  # Performance regression analysis
+  performance-regression-analysis:
+    runs-on: ubuntu-latest
+    needs: [performance-pre-checks, performance-baseline-test, performance-stress-test]
+    if: always() && needs.performance-pre-checks.outputs.should-run-tests == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python for analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis dependencies
+        run: |
+          pip install pandas numpy requests influxdb-client matplotlib seaborn
+
+      - name: Download baseline results
+        uses: actions/download-artifact@v3
+        with:
+          path: current-results/
+
+      - name: Fetch historical baseline data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download baseline data from previous successful runs
+          python3 - << 'EOF'
+          import requests
+          import json
+          import os
+          
+          # Get previous successful workflow runs
+          headers = {'Authorization': f'token {os.environ["GITHUB_TOKEN"]}'}
+          url = f'https://api.github.com/repos/{os.environ["GITHUB_REPOSITORY"]}/actions/workflows/performance-testing.yml/runs?status=success&per_page=5'
+          
+          response = requests.get(url, headers=headers)
+          runs = response.json()['workflow_runs']
+          
+          # Find the most recent baseline run
+          baseline_run = None
+          for run in runs:
+            if run['head_sha'] != os.environ['GITHUB_SHA']:
+              baseline_run = run
+              break
+          
+          if baseline_run:
+            print(f"Found baseline run: {baseline_run['id']}")
+            # Store baseline run info for comparison
+            with open('baseline_run_info.json', 'w') as f:
+              json.dump({'run_id': baseline_run['id'], 'commit': baseline_run['head_sha']}, f)
+          else:
+            print("No baseline run found, using current run as baseline")
+            with open('baseline_run_info.json', 'w') as f:
+              json.dump({'run_id': 'none', 'commit': os.environ['GITHUB_SHA']}, f)
+          EOF
+
+      - name: Perform regression analysis
+        run: |
+          python3 - << 'EOF'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          
+          # Performance thresholds from environment
+          p95_threshold = int(os.environ.get('PERFORMANCE_THRESHOLD_P95', 1000))
+          p99_threshold = int(os.environ.get('PERFORMANCE_THRESHOLD_P99', 2000))
+          error_rate_threshold = float(os.environ.get('PERFORMANCE_THRESHOLD_ERROR_RATE', 2.0))
+          regression_tolerance = float(os.environ.get('REGRESSION_TOLERANCE', 15.0))
+          
+          print("=== PERFORMANCE REGRESSION ANALYSIS ===")
+          print(f"P95 Threshold: {p95_threshold}ms")
+          print(f"P99 Threshold: {p99_threshold}ms") 
+          print(f"Error Rate Threshold: {error_rate_threshold}%")
+          print(f"Regression Tolerance: {regression_tolerance}%")
+          print()
+          
+          # Analyze current results
+          results_dir = Path('current-results')
+          regressions = []
+          performance_issues = []
+          
+          # Process baseline test results
+          for scenario_dir in results_dir.glob('baseline-results-*'):
+            scenario = scenario_dir.name.replace('baseline-results-', '')
+            print(f"Analyzing scenario: {scenario}")
+            
+            response_times_file = scenario_dir / 'response_times.json'
+            if response_times_file.exists():
+              with open(response_times_file) as f:
+                data = json.load(f)
+                
+                for series in data.get('series', []):
+                  endpoint = series.get('name', 'unknown')
+                  values = series.get('values', [])
+                  
+                  if values:
+                    # Extract metrics (assuming InfluxDB JSON format)
+                    avg_time = values[0][1] if len(values[0]) > 1 else 0
+                    p95_time = values[0][2] if len(values[0]) > 2 else 0
+                    p99_time = values[0][3] if len(values[0]) > 3 else 0
+                    
+                    print(f"  {endpoint}: Avg={avg_time:.2f}ms, P95={p95_time:.2f}ms, P99={p99_time:.2f}ms")
+                    
+                    # Check against absolute thresholds
+                    if p95_time > p95_threshold:
+                      performance_issues.append({
+                        'scenario': scenario,
+                        'endpoint': endpoint,
+                        'metric': 'P95 Response Time',
+                        'value': p95_time,
+                        'threshold': p95_threshold,
+                        'severity': 'high'
+                      })
+                    
+                    if p99_time > p99_threshold:
+                      performance_issues.append({
+                        'scenario': scenario,
+                        'endpoint': endpoint,
+                        'metric': 'P99 Response Time', 
+                        'value': p99_time,
+                        'threshold': p99_threshold,
+                        'severity': 'critical'
+                      })
+          
+          # Check stress test results if available
+          if 'STRESS_P95' in os.environ:
+            stress_p95 = float(os.environ.get('STRESS_P95', 0))
+            stress_p99 = float(os.environ.get('STRESS_P99', 0))
+            stress_error_rate = float(os.environ.get('STRESS_ERROR_RATE', 0))
+            
+            print(f"\nStress Test Results:")
+            print(f"  P95: {stress_p95}ms")
+            print(f"  P99: {stress_p99}ms") 
+            print(f"  Error Rate: {stress_error_rate}%")
+            
+            if stress_error_rate > error_rate_threshold:
+              performance_issues.append({
+                'scenario': 'stress-test',
+                'endpoint': 'overall',
+                'metric': 'Error Rate',
+                'value': stress_error_rate,
+                'threshold': error_rate_threshold,
+                'severity': 'critical'
+              })
+          
+          # Generate performance report
+          report = {
+            'commit': os.environ.get('GITHUB_SHA'),
+            'timestamp': os.environ.get('GITHUB_RUN_ID'),
+            'performance_issues': performance_issues,
+            'regressions': regressions,
+            'passed_thresholds': len(performance_issues) == 0,
+            'summary': {
+              'total_issues': len(performance_issues),
+              'critical_issues': len([i for i in performance_issues if i['severity'] == 'critical']),
+              'regressions': len(regressions)
+            }
+          }
+          
+          # Save report
+          with open('performance_analysis_report.json', 'w') as f:
+            json.dump(report, f, indent=2)
+          
+          # Print summary
+          print(f"\n=== ANALYSIS SUMMARY ===")
+          print(f"Total Performance Issues: {report['summary']['total_issues']}")
+          print(f"Critical Issues: {report['summary']['critical_issues']}")
+          print(f"Regressions: {report['summary']['regressions']}")
+          
+          if performance_issues:
+            print(f"\n=== PERFORMANCE ISSUES DETECTED ===")
+            for issue in performance_issues:
+              print(f"❌ {issue['severity'].upper()}: {issue['scenario']} - {issue['endpoint']}")
+              print(f"   {issue['metric']}: {issue['value']} (threshold: {issue['threshold']})")
+          
+          # Set GitHub Action outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"performance_passed={'true' if report['passed_thresholds'] else 'false'}\n")
+            f.write(f"critical_issues={report['summary']['critical_issues']}\n")
+            f.write(f"total_issues={report['summary']['total_issues']}\n")
+          
+          # Exit with error if critical issues found
+          if report['summary']['critical_issues'] > 0:
+            print("\n❌ Critical performance issues detected - failing CI")
+            sys.exit(1)
+          elif report['summary']['total_issues'] > 0:
+            print("\n⚠️  Performance issues detected but not critical")
+            sys.exit(0)
+          else:
+            print("\n✅ All performance tests passed")
+            sys.exit(0)
+          EOF
+
+      - name: Upload performance analysis report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-analysis-report
+          path: performance_analysis_report.json
+
+  # Performance alerting and notifications
+  performance-alerting:
+    runs-on: ubuntu-latest
+    needs: [performance-regression-analysis]
+    if: always() && needs.performance-regression-analysis.result == 'failure'
+    steps:
+      - name: Download analysis report
+        uses: actions/download-artifact@v3
+        with:
+          name: performance-analysis-report
+
+      - name: Send Slack notification for performance issues
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PERFORMANCE_WEBHOOK }}
+        run: |
+          python3 - << 'EOF'
+          import json
+          import requests
+          import os
+          
+          # Load analysis report
+          with open('performance_analysis_report.json') as f:
+            report = json.load(f)
+          
+          # Build Slack message
+          commit = report['commit'][:8]
+          total_issues = report['summary']['total_issues']
+          critical_issues = report['summary']['critical_issues']
+          
+          color = "danger" if critical_issues > 0 else "warning"
+          title = f"🚨 Performance Regression Detected" if critical_issues > 0 else "⚠️ Performance Issues Detected"
+          
+          message = {
+            "attachments": [
+              {
+                "color": color,
+                "title": title,
+                "title_link": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                "fields": [
+                  {
+                    "title": "Commit",
+                    "value": f"`{commit}` on `{os.environ.get('GITHUB_REF_NAME', 'unknown')}`",
+                    "short": True
+                  },
+                  {
+                    "title": "Issues Found",
+                    "value": f"{total_issues} total ({critical_issues} critical)",
+                    "short": True
+                  }
+                ]
+              }
+            ]
+          }
+          
+          # Add issue details
+          if report['performance_issues']:
+            issues_text = "\n".join([
+              f"• {issue['scenario']} - {issue['metric']}: {issue['value']} (threshold: {issue['threshold']})"
+              for issue in report['performance_issues'][:5]  # Limit to first 5 issues
+            ])
+            message["attachments"][0]["fields"].append({
+              "title": "Key Issues",
+              "value": f"```{issues_text}```",
+              "short": False
+            })
+          
+          # Send notification
+          webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
+          if webhook_url:
+            response = requests.post(webhook_url, json=message)
+            if response.status_code == 200:
+              print("Slack notification sent successfully")
+            else:
+              print(f"Failed to send Slack notification: {response.status_code}")
+          else:
+            print("No Slack webhook configured")
+          EOF
+
+      - name: Create GitHub issue for performance regression
+        if: needs.performance-regression-analysis.outputs.critical_issues > 0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - << 'EOF'
+          import json
+          import requests
+          import os
+          
+          # Load analysis report
+          with open('performance_analysis_report.json') as f:
+            report = json.load(f)
+          
+          if report['summary']['critical_issues'] == 0:
+            print("No critical issues - skipping issue creation")
+            exit(0)
+          
+          # Create GitHub issue
+          commit = report['commit'][:8]
+          run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          
+          issue_body = f"""## Performance Regression Detected
+          
+          **Commit:** `{commit}` on `{os.environ.get('GITHUB_REF_NAME', 'unknown')}`
+          **CI Run:** {run_url}
+          
+          ### Summary
+          - Total Issues: {report['summary']['total_issues']}
+          - Critical Issues: {report['summary']['critical_issues']}
+          - Regressions: {report['summary']['regressions']}
+          
+          ### Critical Issues
+          """
+          
+          for issue in report['performance_issues']:
+            if issue['severity'] == 'critical':
+              issue_body += f"- **{issue['scenario']}** - {issue['endpoint']}: {issue['metric']} = {issue['value']} (threshold: {issue['threshold']})\n"
+          
+          issue_body += f"""
+          ### Action Required
+          1. Review the performance test results in the CI run
+          2. Analyze the bottlenecks identified in the test scenarios  
+          3. Apply necessary optimizations to meet performance thresholds
+          4. Re-run performance tests to validate improvements
+          
+          ### Automation
+          This issue was automatically created by the performance testing CI/CD pipeline.
+          """
+          
+          # Create issue via GitHub API
+          headers = {
+            'Authorization': f'token {os.environ["GITHUB_TOKEN"]}',
+            'Accept': 'application/vnd.github.v3+json'
+          }
+          
+          issue_data = {
+            'title': f'Performance Regression: Critical Issues in {commit}',
+            'body': issue_body,
+            'labels': ['performance', 'regression', 'critical', 'ci-automation']
+          }
+          
+          url = f'https://api.github.com/repos/{os.environ["GITHUB_REPOSITORY"]}/issues'
+          response = requests.post(url, headers=headers, json=issue_data)
+          
+          if response.status_code == 201:
+            issue_url = response.json()['html_url']
+            print(f"Created GitHub issue: {issue_url}")
+          else:
+            print(f"Failed to create GitHub issue: {response.status_code}")
+            print(response.text)
+          EOF
+
+  # Cleanup infrastructure
+  performance-cleanup:
+    runs-on: ubuntu-latest
+    needs: [performance-infrastructure, performance-baseline-test, performance-stress-test]
+    if: always() && needs.performance-infrastructure.result != 'skipped'
+    steps:
+      - name: Cleanup Docker containers
+        run: |
+          docker ps -aq | xargs -r docker stop
+          docker ps -aq | xargs -r docker rm
+          docker system prune -f

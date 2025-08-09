@@ -1,0 +1,228 @@
+{
+  "industry": "healthcare",
+  "description": "Cybersecurity sample data tailored for healthcare organizations",
+  "compliance_frameworks": ["hipaa", "hitech", "gdpr", "fda_21_cfr_part_11", "sox"],
+  "security_scenarios": [
+    {
+      "name": "patient_data_protection",
+      "description": "Protected Health Information (PHI) access monitoring and breach detection",
+      "event_types": [
+        "unauthorized_phi_access",
+        "patient_record_modification",
+        "bulk_data_export",
+        "after_hours_access",
+        "privileged_user_activity"
+      ],
+      "threat_actors": ["insider_threats", "external_attackers", "business_associates"],
+      "attack_vectors": ["ehr_system", "patient_portal", "medical_devices", "email_systems"]
+    },
+    {
+      "name": "medical_device_security",
+      "description": "IoMT (Internet of Medical Things) device monitoring and vulnerability management",
+      "event_types": [
+        "device_configuration_change",
+        "firmware_update_failure",
+        "network_communication_anomaly",
+        "device_authentication_failure",
+        "safety_critical_alert"
+      ],
+      "device_types": ["infusion_pumps", "patient_monitors", "imaging_systems", "ventilators", "pacemakers"],
+      "protocols": ["hl7", "dicom", "fhir", "bluetooth_le", "zigbee"]
+    },
+    {
+      "name": "ransomware_defense",
+      "description": "Healthcare-targeted ransomware detection and response scenarios",
+      "event_types": [
+        "file_encryption_activity",
+        "lateral_movement_detection",
+        "backup_system_compromise",
+        "clinical_system_downtime",
+        "patient_safety_impact"
+      ],
+      "affected_systems": ["ehr", "pacs", "lis", "pharmacy_system", "nurse_call_system"],
+      "business_impact": "patient_safety_critical"
+    },
+    {
+      "name": "research_data_security",
+      "description": "Clinical trial and research data protection scenarios",
+      "event_types": [
+        "research_data_exfiltration",
+        "protocol_deviation_detection",
+        "fda_audit_preparation",
+        "intellectual_property_theft",
+        "regulatory_compliance_violation"
+      ],
+      "data_types": ["clinical_trial_data", "genomic_data", "pharmaceutical_research", "medical_imaging"],
+      "regulations": ["gcp", "fda_21_cfr_part_11", "ich_gcp"]
+    }
+  ],
+  "asset_types": [
+    {
+      "type": "ehr_server",
+      "description": "Electronic Health Record systems",
+      "os": ["windows_server", "linux"],
+      "software": ["epic", "cerner", "allscripts", "athenahealth"],
+      "security_controls": ["database_encryption", "audit_logging", "access_controls"]
+    },
+    {
+      "type": "medical_imaging_system",
+      "description": "PACS and medical imaging infrastructure",
+      "os": ["linux", "windows_server"],
+      "software": ["dcm4chee", "orthanc", "clearcanvas", "agfa_impax"],
+      "protocols": ["dicom", "hl7", "wado"],
+      "security_controls": ["dicom_tls", "image_integrity", "access_logging"]
+    },
+    {
+      "type": "patient_monitoring_device",
+      "description": "Bedside and portable patient monitoring equipment",
+      "manufacturer": ["philips", "ge_healthcare", "mindray", "nihon_kohden"],
+      "connectivity": ["wifi", "ethernet", "bluetooth"],
+      "data_types": ["vital_signs", "waveform_data", "alarm_data"],
+      "security_controls": ["device_authentication", "data_encryption", "network_segmentation"]
+    },
+    {
+      "type": "laboratory_information_system",
+      "description": "Clinical laboratory data management systems", 
+      "os": ["windows_server", "unix"],
+      "software": ["cerner_millennium", "epic_beaker", "sunquest", "meditech"],
+      "interfaces": ["hl7_messaging", "instrument_interfaces", "billing_systems"],
+      "security_controls": ["result_integrity", "chain_of_custody", "audit_trails"]
+    }
+  ],
+  "threat_intelligence": {
+    "threat_groups": [
+      "ryuk_ransomware", "maze_ransomware", "conti_ransomware", "revil_ransomware", "lockbit_ransomware"
+    ],
+    "attack_patterns": [
+      "healthcare_targeted_phishing",
+      "medical_device_exploitation", 
+      "ehr_system_compromise",
+      "business_email_compromise",
+      "supply_chain_attack"
+    ],
+    "indicators_of_compromise": [
+      {
+        "type": "ip_address",
+        "values": ["192.0.2.0/24", "203.0.113.0/24"],
+        "description": "Healthcare ransomware command and control servers"
+      },
+      {
+        "type": "domain",
+        "values": ["fake-hospital-portal.com", "medical-device-update.net"],
+        "description": "Phishing domains targeting healthcare organizations"
+      },
+      {
+        "type": "file_hash",
+        "values": ["5d41402abc4b2a76b9719d911017c592", "7d865e959b2466918c9863afca942d0f"],
+        "description": "Healthcare-targeted malware file hashes"
+      }
+    ]
+  },
+  "data_volumes": {
+    "standard": {
+      "security_events_per_day": 25000,
+      "network_connections_per_day": 500000,
+      "patient_records_accessed_per_day": 5000,
+      "medical_device_events_per_day": 10000,
+      "vulnerabilities": 200,
+      "incidents_per_month": 15
+    },
+    "enterprise": {
+      "security_events_per_day": 250000,
+      "network_connections_per_day": 5000000,
+      "patient_records_accessed_per_day": 50000,
+      "medical_device_events_per_day": 100000,
+      "vulnerabilities": 800,
+      "incidents_per_month": 60
+    },
+    "premium": {
+      "security_events_per_day": 1000000,
+      "network_connections_per_day": 20000000,
+      "patient_records_accessed_per_day": 200000,
+      "medical_device_events_per_day": 500000,
+      "vulnerabilities": 1500,
+      "incidents_per_month": 150
+    }
+  },
+  "sample_users": [
+    {
+      "role": "physician",
+      "department": "internal_medicine",
+      "access_level": "clinical_data",
+      "typical_activities": ["patient_chart_review", "medication_ordering", "lab_result_review"],
+      "risk_profile": "medium"
+    },
+    {
+      "role": "nurse",
+      "department": "intensive_care",
+      "access_level": "bedside_care",
+      "typical_activities": ["vital_signs_monitoring", "medication_administration", "patient_documentation"],
+      "risk_profile": "medium"
+    },
+    {
+      "role": "pharmacist",
+      "department": "pharmacy",
+      "access_level": "medication_management",
+      "typical_activities": ["prescription_review", "drug_interaction_checking", "inventory_management"],
+      "risk_profile": "medium"
+    },
+    {
+      "role": "radiology_technician",
+      "department": "imaging",
+      "access_level": "imaging_systems",
+      "typical_activities": ["image_acquisition", "study_processing", "equipment_maintenance"],
+      "risk_profile": "low"
+    },
+    {
+      "role": "medical_researcher",
+      "department": "clinical_research",
+      "access_level": "research_data",
+      "typical_activities": ["clinical_trial_management", "data_analysis", "regulatory_reporting"],
+      "risk_profile": "high"
+    },
+    {
+      "role": "biomedical_engineer",
+      "department": "clinical_engineering",
+      "access_level": "device_management",
+      "typical_activities": ["medical_device_maintenance", "safety_testing", "configuration_management"],
+      "risk_profile": "high"
+    }
+  ],
+  "regulatory_requirements": {
+    "hipaa": {
+      "description": "Health Insurance Portability and Accountability Act",
+      "key_controls": ["phi_protection", "access_controls", "audit_logs", "risk_assessments"],
+      "breach_notification": "60_days"
+    },
+    "hitech": {
+      "description": "Health Information Technology for Economic and Clinical Health Act",
+      "key_controls": ["breach_notification", "business_associate_agreements", "meaningful_use"],
+      "penalties": "tiered_penalty_structure"
+    },
+    "fda_21_cfr_part_11": {
+      "description": "FDA regulations for electronic records and signatures",
+      "key_controls": ["electronic_signature_validation", "audit_trails", "system_access", "data_integrity"],
+      "scope": "clinical_trials_and_drug_manufacturing"
+    }
+  },
+  "medical_devices": {
+    "infusion_pumps": {
+      "manufacturers": ["bd_alaris", "baxter_sigma", "smiths_medfusion"],
+      "communication_protocols": ["wi_fi", "bluetooth", "serial"],
+      "common_vulnerabilities": ["default_credentials", "unencrypted_communications", "firmware_vulnerabilities"],
+      "safety_impact": "high"
+    },
+    "patient_monitors": {
+      "manufacturers": ["philips_intellivue", "ge_carescape", "mindray_beneheart"],
+      "monitored_parameters": ["ecg", "blood_pressure", "oxygen_saturation", "temperature"],
+      "network_connectivity": ["ethernet", "wi_fi", "cellular"],
+      "security_concerns": ["alarm_manipulation", "data_integrity", "network_segmentation"]
+    },
+    "imaging_systems": {
+      "modalities": ["ct_scanner", "mri", "x_ray", "ultrasound", "mammography"],
+      "manufacturers": ["siemens_healthineers", "ge_healthcare", "philips_healthcare"],
+      "data_formats": ["dicom", "jpeg", "raw_imaging_data"],
+      "security_controls": ["dicom_tls", "user_authentication", "image_integrity_checking"]
+    }
+  }
+}

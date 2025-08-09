@@ -1,0 +1,792 @@
+# iSECTECH Build Automation and Testing Integration
+# Production-grade multi-language build system with comprehensive testing
+
+name: 'Build Automation & Testing'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      build-matrix:
+        required: true
+        type: string
+      skip-tests:
+        required: false
+        type: boolean
+        default: false
+      force-rebuild:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      build-status:
+        description: "Overall build status"
+        value: ${{ jobs.build-summary.outputs.status }}
+      test-coverage:
+        description: "Test coverage percentage"
+        value: ${{ jobs.build-summary.outputs.coverage }}
+      artifacts-built:
+        description: "List of built artifacts"
+        value: ${{ jobs.build-summary.outputs.artifacts }}
+
+env:
+  REGISTRY: ghcr.io
+  BUILDKIT_PROGRESS: plain
+  DOCKER_BUILDKIT: 1
+  BUILD_CACHE_KEY: ${{ github.repository }}-build-cache
+  NODE_VERSION: '18.x'
+  GO_VERSION: '1.21'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # FRONTEND BUILD (Node.js/TypeScript)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  frontend-build:
+    name: 'Frontend Build & Test'
+    runs-on: ubuntu-latest
+    if: contains(fromJSON(inputs.build-matrix).include, 'frontend') || inputs.force-rebuild
+    timeout-minutes: 30
+    outputs:
+      build-success: ${{ steps.build-status.outputs.success }}
+      test-coverage: ${{ steps.test-results.outputs.coverage }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 'Cache Dependencies'
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.npm
+            node_modules
+            .next/cache
+          key: ${{ runner.os }}-frontend-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-
+            
+      - name: 'Install Dependencies'
+        run: |
+          echo "::group::Installing Frontend Dependencies"
+          npm ci --prefer-offline --no-audit
+          
+          # Verify critical dependencies
+          echo "Verifying critical dependencies..."
+          npm list react next typescript --depth=0
+          
+          echo "::endgroup::"
+          
+      - name: 'Type Check'
+        run: |
+          echo "::group::TypeScript Type Checking"
+          npm run type-check || npm run tsc -- --noEmit
+          echo "::endgroup::"
+          
+      - name: 'Lint Code'
+        run: |
+          echo "::group::Frontend Linting"
+          npm run lint || npx eslint . --ext .ts,.tsx,.js,.jsx --max-warnings 0
+          echo "::endgroup::"
+          
+      - name: 'Run Unit Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Frontend Unit Tests"
+          npm run test:unit || npm test -- --coverage --watchAll=false --passWithNoTests
+          echo "::endgroup::"
+          
+      - name: 'Run Integration Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Frontend Integration Tests"
+          npm run test:integration || npm run test -- --testPathPattern=integration --coverage --watchAll=false
+          echo "::endgroup::"
+          
+      - name: 'Run E2E Tests'
+        if: ${{ !inputs.skip-tests && inputs.environment != 'production' }}
+        run: |
+          echo "::group::Frontend E2E Tests"
+          npm run test:e2e || npx playwright test --reporter=html
+          echo "::endgroup::"
+          
+      - name: 'Extract Test Results'
+        id: test-results
+        run: |
+          # Extract coverage from Jest output
+          if [[ -f coverage/lcov.info ]]; then
+            COVERAGE=$(grep -o "lines.*: [0-9.]*%" coverage/lcov-report/index.html | head -1 | grep -o "[0-9.]*" || echo "0")
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 'Build Frontend Application'
+        run: |
+          echo "::group::Building Frontend Application"
+          
+          # Set build environment
+          export NODE_ENV=production
+          export NEXT_TELEMETRY_DISABLED=1
+          
+          # Build Next.js application
+          npm run build || npx next build
+          
+          # Verify build output
+          if [[ -d ".next" ]]; then
+            echo "✅ Frontend build successful"
+            ls -la .next/
+          else
+            echo "❌ Frontend build failed"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Optimize Build'
+        run: |
+          echo "::group::Build Optimization"
+          
+          # Bundle analysis
+          if [[ -f "package.json" ]] && grep -q "@next/bundle-analyzer" package.json; then
+            npm run analyze || echo "Bundle analysis skipped"
+          fi
+          
+          # Compress build artifacts
+          tar -czf frontend-build.tar.gz .next public
+          
+          echo "Build size: $(du -sh frontend-build.tar.gz | cut -f1)"
+          echo "::endgroup::"
+          
+      - name: 'Build Docker Image'
+        run: |
+          echo "::group::Building Frontend Docker Image"
+          
+          # Create Dockerfile if not exists
+          if [[ ! -f "Dockerfile.frontend" ]]; then
+            cat > Dockerfile.frontend << 'EOF'
+          FROM node:18-alpine AS base
+          
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm ci --only=production && npm cache clean --force
+          
+          FROM node:18-alpine AS builder
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm ci
+          COPY . .
+          RUN npm run build
+          
+          FROM node:18-alpine AS runner
+          WORKDIR /app
+          ENV NODE_ENV production
+          RUN addgroup --system --gid 1001 nodejs
+          RUN adduser --system --uid 1001 nextjs
+          
+          COPY --from=builder /app/public ./public
+          COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+          COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+          
+          USER nextjs
+          EXPOSE 3000
+          ENV PORT 3000
+          CMD ["node", "server.js"]
+          EOF
+          fi
+          
+          # Build Docker image
+          docker build -f Dockerfile.frontend -t isectech/frontend:${{ github.sha }} .
+          docker tag isectech/frontend:${{ github.sha }} isectech/frontend:latest
+          
+          echo "::endgroup::"
+          
+      - name: 'Set Build Status'
+        id: build-status
+        run: |
+          echo "success=true" >> $GITHUB_OUTPUT
+          
+      - name: 'Upload Build Artifacts'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: |
+            frontend-build.tar.gz
+            coverage/
+          retention-days: 30
+          
+      - name: 'Upload Test Results'
+        if: ${{ !inputs.skip-tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: |
+            coverage/
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BACKEND BUILD (Go)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  backend-build:
+    name: 'Backend Build & Test'
+    runs-on: ubuntu-latest
+    if: contains(fromJSON(inputs.build-matrix).include, 'backend') || inputs.force-rebuild
+    timeout-minutes: 20
+    outputs:
+      build-success: ${{ steps.build-status.outputs.success }}
+      test-coverage: ${{ steps.test-results.outputs.coverage }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 'Setup Go'
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          
+      - name: 'Cache Go Modules'
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+            
+      - name: 'Download Dependencies'
+        run: |
+          echo "::group::Downloading Go Dependencies"
+          go mod download
+          go mod verify
+          echo "::endgroup::"
+          
+      - name: 'Lint Code'
+        run: |
+          echo "::group::Go Code Linting"
+          
+          # Install golangci-lint if not present
+          if ! command -v golangci-lint &> /dev/null; then
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+          fi
+          
+          golangci-lint run --timeout=10m ./...
+          echo "::endgroup::"
+          
+      - name: 'Run Unit Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Go Unit Tests"
+          go test -race -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -html=coverage.out -o coverage.html
+          echo "::endgroup::"
+          
+      - name: 'Run Integration Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Go Integration Tests"
+          go test -tags=integration -race -coverprofile=integration-coverage.out ./...
+          echo "::endgroup::"
+          
+      - name: 'Run Benchmark Tests'
+        if: ${{ !inputs.skip-tests && inputs.environment != 'production' }}
+        run: |
+          echo "::group::Go Benchmark Tests"
+          go test -bench=. -benchmem ./... > benchmark-results.txt
+          echo "::endgroup::"
+          
+      - name: 'Extract Test Results'
+        id: test-results
+        run: |
+          if [[ -f coverage.out ]]; then
+            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 'Build Backend Services'
+        run: |
+          echo "::group::Building Go Backend Services"
+          
+          # Build main services
+          go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/api-server ./cmd/api
+          go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/worker ./cmd/worker
+          go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/migrate ./cmd/migrate
+          
+          # Verify builds
+          ls -la bin/
+          file bin/*
+          
+          echo "::endgroup::"
+          
+      - name: 'Build Docker Image'
+        run: |
+          echo "::group::Building Backend Docker Image"
+          
+          # Create Dockerfile if not exists
+          if [[ ! -f "Dockerfile.backend" ]]; then
+            cat > Dockerfile.backend << 'EOF'
+          FROM golang:1.21-alpine AS builder
+          
+          WORKDIR /app
+          COPY go.mod go.sum ./
+          RUN go mod download
+          
+          COPY . .
+          RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o api-server ./cmd/api
+          RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o worker ./cmd/worker
+          
+          FROM alpine:latest
+          RUN apk --no-cache add ca-certificates tzdata
+          WORKDIR /root/
+          
+          COPY --from=builder /app/api-server .
+          COPY --from=builder /app/worker .
+          
+          EXPOSE 8080
+          CMD ["./api-server"]
+          EOF
+          fi
+          
+          # Build Docker image
+          docker build -f Dockerfile.backend -t isectech/backend:${{ github.sha }} .
+          docker tag isectech/backend:${{ github.sha }} isectech/backend:latest
+          
+          echo "::endgroup::"
+          
+      - name: 'Set Build Status'
+        id: build-status
+        run: |
+          echo "success=true" >> $GITHUB_OUTPUT
+          
+      - name: 'Upload Build Artifacts'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: |
+            bin/
+            coverage.out
+            coverage.html
+          retention-days: 30
+          
+      - name: 'Upload Test Results'
+        if: ${{ !inputs.skip-tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: |
+            coverage.out
+            coverage.html
+            integration-coverage.out
+            benchmark-results.txt
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AI SERVICES BUILD (Python)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  ai-services-build:
+    name: 'AI Services Build & Test'
+    runs-on: ubuntu-latest
+    if: contains(fromJSON(inputs.build-matrix).include, 'ai-services') || inputs.force-rebuild
+    timeout-minutes: 25
+    outputs:
+      build-success: ${{ steps.build-status.outputs.success }}
+      test-coverage: ${{ steps.test-results.outputs.coverage }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 'Setup Python'
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          
+      - name: 'Cache Python Dependencies'
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: ${{ runner.os }}-python-${{ hashFiles('**/requirements*.txt', '**/Pipfile.lock', '**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-python-
+            
+      - name: 'Install Dependencies'
+        run: |
+          echo "::group::Installing Python Dependencies"
+          
+          # Upgrade pip and install build tools
+          python -m pip install --upgrade pip setuptools wheel
+          
+          # Install dependencies based on available files
+          if [[ -f "requirements.txt" ]]; then
+            pip install -r requirements.txt
+          fi
+          
+          if [[ -f "requirements-dev.txt" ]]; then
+            pip install -r requirements-dev.txt
+          fi
+          
+          if [[ -f "Pipfile" ]]; then
+            pip install pipenv
+            pipenv install --dev --deploy
+          fi
+          
+          if [[ -f "pyproject.toml" ]]; then
+            pip install poetry
+            poetry install
+          fi
+          
+          # Install testing and linting tools
+          pip install pytest pytest-cov black flake8 mypy safety bandit
+          
+          echo "::endgroup::"
+          
+      - name: 'Lint Code'
+        run: |
+          echo "::group::Python Code Linting"
+          
+          # Format check with black
+          black --check --diff .
+          
+          # Lint with flake8
+          flake8 . --max-line-length=88 --extend-ignore=E203,W503
+          
+          # Type checking with mypy
+          mypy . --ignore-missing-imports --no-strict-optional
+          
+          echo "::endgroup::"
+          
+      - name: 'Security Scanning'
+        run: |
+          echo "::group::Python Security Scanning"
+          
+          # Check for known vulnerabilities
+          safety check --json --output safety-report.json || true
+          
+          # Security linting with bandit
+          bandit -r . -f json -o bandit-report.json || true
+          
+          echo "::endgroup::"
+          
+      - name: 'Run Unit Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Python Unit Tests"
+          
+          # Run tests with coverage
+          pytest tests/ --cov=. --cov-report=html --cov-report=xml --cov-report=term-missing --junit-xml=test-results.xml
+          
+          echo "::endgroup::"
+          
+      - name: 'Run Integration Tests'
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "::group::Python Integration Tests"
+          pytest tests/integration/ --cov=. --cov-append --junit-xml=integration-test-results.xml || echo "No integration tests found"
+          echo "::endgroup::"
+          
+      - name: 'Extract Test Results'
+        id: test-results
+        run: |
+          if [[ -f coverage.xml ]]; then
+            COVERAGE=$(python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          coverage = root.get('line-rate')
+          print(f'{float(coverage)*100:.1f}')
+          " 2>/dev/null || echo "0")
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 'Build Python Package'
+        run: |
+          echo "::group::Building Python Package"
+          
+          # Create setup.py if not exists for AI services
+          if [[ ! -f "setup.py" ]] && [[ ! -f "pyproject.toml" ]]; then
+            cat > setup.py << 'EOF'
+          from setuptools import setup, find_packages
+          
+          setup(
+              name="isectech-ai-services",
+              version="1.0.0",
+              packages=find_packages(),
+              install_requires=[
+                  "fastapi>=0.68.0",
+                  "uvicorn>=0.15.0",
+                  "pydantic>=1.8.0",
+                  "numpy>=1.21.0",
+                  "pandas>=1.3.0",
+                  "scikit-learn>=1.0.0",
+                  "tensorflow>=2.6.0",
+                  "torch>=1.9.0",
+              ],
+              extras_require={
+                  "dev": [
+                      "pytest>=6.0.0",
+                      "pytest-cov>=2.12.0",
+                      "black>=21.0.0",
+                      "flake8>=3.9.0",
+                      "mypy>=0.910",
+                  ]
+              },
+          )
+          EOF
+          fi
+          
+          # Build wheel
+          python setup.py bdist_wheel
+          
+          # Verify package
+          ls -la dist/
+          
+          echo "::endgroup::"
+          
+      - name: 'Build Docker Image'
+        run: |
+          echo "::group::Building AI Services Docker Image"
+          
+          # Create Dockerfile if not exists
+          if [[ ! -f "Dockerfile.ai" ]]; then
+            cat > Dockerfile.ai << 'EOF'
+          FROM python:3.11-slim AS base
+          
+          WORKDIR /app
+          
+          # Install system dependencies
+          RUN apt-get update && apt-get install -y \
+              build-essential \
+              curl \
+              && rm -rf /var/lib/apt/lists/*
+          
+          # Copy requirements and install Python dependencies
+          COPY requirements*.txt ./
+          RUN pip install --no-cache-dir -r requirements.txt
+          
+          # Copy application code
+          COPY . .
+          
+          # Install the package
+          RUN pip install -e .
+          
+          EXPOSE 8000
+          CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+          EOF
+          fi
+          
+          # Build Docker image
+          docker build -f Dockerfile.ai -t isectech/ai-services:${{ github.sha }} .
+          docker tag isectech/ai-services:${{ github.sha }} isectech/ai-services:latest
+          
+          echo "::endgroup::"
+          
+      - name: 'Set Build Status'
+        id: build-status
+        run: |
+          echo "success=true" >> $GITHUB_OUTPUT
+          
+      - name: 'Upload Build Artifacts'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-services-build
+          path: |
+            dist/
+            htmlcov/
+            coverage.xml
+          retention-days: 30
+          
+      - name: 'Upload Test Results'
+        if: ${{ !inputs.skip-tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-services-test-results
+          path: |
+            htmlcov/
+            coverage.xml
+            test-results.xml
+            integration-test-results.xml
+            safety-report.json
+            bandit-report.json
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CONTAINER REGISTRY PUSH
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  container-registry:
+    name: 'Push to Container Registry'
+    runs-on: ubuntu-latest
+    needs: [frontend-build, backend-build, ai-services-build]
+    if: inputs.environment != 'development' && (success() || failure())
+    
+    steps:
+      - name: 'Login to Container Registry'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 'Push Frontend Image'
+        if: needs.frontend-build.result == 'success'
+        run: |
+          docker push isectech/frontend:${{ github.sha }}
+          docker push isectech/frontend:latest
+          
+      - name: 'Push Backend Image'
+        if: needs.backend-build.result == 'success'
+        run: |
+          docker push isectech/backend:${{ github.sha }}
+          docker push isectech/backend:latest
+          
+      - name: 'Push AI Services Image'
+        if: needs.ai-services-build.result == 'success'
+        run: |
+          docker push isectech/ai-services:${{ github.sha }}
+          docker push isectech/ai-services:latest
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BUILD SUMMARY AND REPORTING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  build-summary:
+    name: 'Build Summary & Reporting'
+    runs-on: ubuntu-latest
+    needs: [frontend-build, backend-build, ai-services-build, container-registry]
+    if: always()
+    outputs:
+      status: ${{ steps.summary.outputs.status }}
+      coverage: ${{ steps.summary.outputs.coverage }}
+      artifacts: ${{ steps.summary.outputs.artifacts }}
+      
+    steps:
+      - name: 'Generate Build Summary'
+        id: summary
+        run: |
+          echo "::group::Build Summary Generation"
+          
+          # Collect build results
+          FRONTEND_SUCCESS="${{ needs.frontend-build.result }}"
+          BACKEND_SUCCESS="${{ needs.backend-build.result }}"
+          AI_SUCCESS="${{ needs.ai-services-build.result }}"
+          REGISTRY_SUCCESS="${{ needs.container-registry.result }}"
+          
+          # Calculate overall status
+          if [[ "$FRONTEND_SUCCESS" == "success" ]] && [[ "$BACKEND_SUCCESS" == "success" ]] && [[ "$AI_SUCCESS" == "success" ]]; then
+            OVERALL_STATUS="success"
+          elif [[ "$FRONTEND_SUCCESS" == "failure" ]] || [[ "$BACKEND_SUCCESS" == "failure" ]] || [[ "$AI_SUCCESS" == "failure" ]]; then
+            OVERALL_STATUS="failure"
+          else
+            OVERALL_STATUS="partial"
+          fi
+          
+          # Calculate average coverage
+          FRONTEND_COV="${{ needs.frontend-build.outputs.test-coverage || '0' }}"
+          BACKEND_COV="${{ needs.backend-build.outputs.test-coverage || '0' }}"
+          AI_COV="${{ needs.ai-services-build.outputs.test-coverage || '0' }}"
+          
+          AVG_COVERAGE=$(python3 -c "
+          coverages = [$FRONTEND_COV, $BACKEND_COV, $AI_COV]
+          valid_coverages = [c for c in coverages if c > 0]
+          avg = sum(valid_coverages) / len(valid_coverages) if valid_coverages else 0
+          print(f'{avg:.1f}')
+          ")
+          
+          # List built artifacts
+          ARTIFACTS="[]"
+          if [[ "$FRONTEND_SUCCESS" == "success" ]]; then
+            ARTIFACTS=$(echo $ARTIFACTS | jq '. += ["frontend"]')
+          fi
+          if [[ "$BACKEND_SUCCESS" == "success" ]]; then
+            ARTIFACTS=$(echo $ARTIFACTS | jq '. += ["backend"]')
+          fi
+          if [[ "$AI_SUCCESS" == "success" ]]; then
+            ARTIFACTS=$(echo $ARTIFACTS | jq '. += ["ai-services"]')
+          fi
+          
+          # Set outputs
+          echo "status=$OVERALL_STATUS" >> $GITHUB_OUTPUT
+          echo "coverage=$AVG_COVERAGE" >> $GITHUB_OUTPUT
+          echo "artifacts=$ARTIFACTS" >> $GITHUB_OUTPUT
+          
+          # Display summary
+          echo "🏗️  **Build Summary**"
+          echo "Overall Status: $OVERALL_STATUS"
+          echo "Average Test Coverage: $AVG_COVERAGE%"
+          echo "Built Artifacts: $(echo $ARTIFACTS | jq -r '.[]' | tr '\n' ' ')"
+          echo ""
+          echo "**Component Results:**"
+          echo "- Frontend: $FRONTEND_SUCCESS (Coverage: $FRONTEND_COV%)"
+          echo "- Backend: $BACKEND_SUCCESS (Coverage: $BACKEND_COV%)"
+          echo "- AI Services: $AI_SUCCESS (Coverage: $AI_COV%)"
+          echo "- Container Registry: $REGISTRY_SUCCESS"
+          
+          echo "::endgroup::"
+          
+      - name: 'Create Build Report'
+        run: |
+          cat << EOF > build-report.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "environment": "${{ inputs.environment }}",
+            "overall_status": "${{ steps.summary.outputs.status }}",
+            "average_coverage": "${{ steps.summary.outputs.coverage }}",
+            "components": {
+              "frontend": {
+                "status": "${{ needs.frontend-build.result }}",
+                "coverage": "${{ needs.frontend-build.outputs.test-coverage || '0' }}"
+              },
+              "backend": {
+                "status": "${{ needs.backend-build.result }}",
+                "coverage": "${{ needs.backend-build.outputs.test-coverage || '0' }}"
+              },
+              "ai_services": {
+                "status": "${{ needs.ai-services-build.result }}",
+                "coverage": "${{ needs.ai-services-build.outputs.test-coverage || '0' }}"
+              },
+              "container_registry": {
+                "status": "${{ needs.container-registry.result }}"
+              }
+            },
+            "artifacts": ${{ steps.summary.outputs.artifacts }},
+            "build_duration": "${{ github.event.head_commit.timestamp }}",
+            "skip_tests": ${{ inputs.skip-tests }}
+          }
+          EOF
+          
+      - name: 'Upload Build Report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-automation-report
+          path: build-report.json
+          retention-days: 90

@@ -1,0 +1,493 @@
+# ECS (Elastic Common Schema) Field Mapping Configuration
+# Comprehensive field mapping for log normalization across all security data sources
+# Version: 8.11.0 ECS Specification
+
+version: "8.11.0"
+ecs_version: "8.11"
+
+# Core Event Fields
+event_fields:
+  timestamp:
+    ecs_field: "@timestamp"
+    type: "date"
+    format: ["iso8601", "epoch_ms", "epoch_s", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss"]
+    required: true
+    
+  event_id:
+    ecs_field: "event.id"
+    type: "keyword"
+    description: "Unique identifier for the event"
+    
+  event_action:
+    ecs_field: "event.action"
+    type: "keyword"
+    description: "Action captured by the event"
+    
+  event_category:
+    ecs_field: "event.category"
+    type: "keyword"
+    allowed_values: ["authentication", "configuration", "database", "driver", "email", "file", "host", "iam", "intrusion_detection", "malware", "network", "package", "process", "registry", "session", "threat", "vulnerability", "web"]
+    
+  event_type:
+    ecs_field: "event.type"
+    type: "keyword"
+    allowed_values: ["access", "admin", "allowed", "change", "connection", "creation", "deletion", "denied", "end", "error", "group", "indicator", "info", "installation", "protocol", "start", "user"]
+    
+  event_outcome:
+    ecs_field: "event.outcome"
+    type: "keyword"
+    allowed_values: ["failure", "success", "unknown"]
+    
+  event_severity:
+    ecs_field: "event.severity"
+    type: "long"
+    range: [0, 100]
+    
+  event_risk_score:
+    ecs_field: "event.risk_score"
+    type: "float"
+    range: [0.0, 100.0]
+
+# Host and Agent Fields
+host_fields:
+  host_name:
+    ecs_field: "host.name"
+    type: "keyword"
+    description: "Name of the host"
+    
+  host_ip:
+    ecs_field: "host.ip"
+    type: "ip"
+    description: "Host IP addresses"
+    
+  host_os_platform:
+    ecs_field: "host.os.platform"
+    type: "keyword"
+    allowed_values: ["aix", "darwin", "dragonfly", "freebsd", "hpux", "linux", "netbsd", "openbsd", "solaris", "windows"]
+    
+  host_os_name:
+    ecs_field: "host.os.name"
+    type: "keyword"
+    
+  host_os_version:
+    ecs_field: "host.os.version"
+    type: "keyword"
+    
+  host_architecture:
+    ecs_field: "host.architecture"
+    type: "keyword"
+    
+  agent_id:
+    ecs_field: "agent.id"
+    type: "keyword"
+    
+  agent_version:
+    ecs_field: "agent.version"
+    type: "keyword"
+
+# User and Authentication Fields
+user_fields:
+  user_id:
+    ecs_field: "user.id"
+    type: "keyword"
+    
+  user_name:
+    ecs_field: "user.name"
+    type: "keyword"
+    
+  user_email:
+    ecs_field: "user.email"
+    type: "keyword"
+    
+  user_domain:
+    ecs_field: "user.domain"
+    type: "keyword"
+    
+  user_full_name:
+    ecs_field: "user.full_name"
+    type: "keyword"
+    
+  user_roles:
+    ecs_field: "user.roles"
+    type: "keyword"
+    is_array: true
+
+# Process Fields
+process_fields:
+  process_pid:
+    ecs_field: "process.pid"
+    type: "long"
+    
+  process_name:
+    ecs_field: "process.name"
+    type: "keyword"
+    
+  process_command_line:
+    ecs_field: "process.command_line"
+    type: "wildcard"
+    
+  process_executable:
+    ecs_field: "process.executable"
+    type: "keyword"
+    
+  process_working_directory:
+    ecs_field: "process.working_directory"
+    type: "keyword"
+    
+  process_start:
+    ecs_field: "process.start"
+    type: "date"
+    
+  process_parent_pid:
+    ecs_field: "process.parent.pid"
+    type: "long"
+    
+  process_parent_name:
+    ecs_field: "process.parent.name"
+    type: "keyword"
+    
+  process_parent_command_line:
+    ecs_field: "process.parent.command_line"
+    type: "wildcard"
+
+# Network Fields
+network_fields:
+  source_ip:
+    ecs_field: "source.ip"
+    type: "ip"
+    
+  source_port:
+    ecs_field: "source.port"
+    type: "long"
+    
+  destination_ip:
+    ecs_field: "destination.ip"
+    type: "ip"
+    
+  destination_port:
+    ecs_field: "destination.port"
+    type: "long"
+    
+  network_protocol:
+    ecs_field: "network.protocol"
+    type: "keyword"
+    
+  network_direction:
+    ecs_field: "network.direction"
+    type: "keyword"
+    allowed_values: ["ingress", "egress", "inbound", "outbound", "internal", "external", "unknown"]
+    
+  network_bytes:
+    ecs_field: "network.bytes"
+    type: "long"
+    
+  network_packets:
+    ecs_field: "network.packets"
+    type: "long"
+
+# File Fields
+file_fields:
+  file_name:
+    ecs_field: "file.name"
+    type: "keyword"
+    
+  file_path:
+    ecs_field: "file.path"
+    type: "keyword"
+    
+  file_size:
+    ecs_field: "file.size"
+    type: "long"
+    
+  file_hash_md5:
+    ecs_field: "file.hash.md5"
+    type: "keyword"
+    
+  file_hash_sha1:
+    ecs_field: "file.hash.sha1"
+    type: "keyword"
+    
+  file_hash_sha256:
+    ecs_field: "file.hash.sha256"
+    type: "keyword"
+    
+  file_extension:
+    ecs_field: "file.extension"
+    type: "keyword"
+
+# Threat Intelligence Fields
+threat_fields:
+  threat_technique_id:
+    ecs_field: "threat.technique.id"
+    type: "keyword"
+    
+  threat_technique_name:
+    ecs_field: "threat.technique.name"
+    type: "keyword"
+    
+  threat_tactic_id:
+    ecs_field: "threat.tactic.id"
+    type: "keyword"
+    
+  threat_tactic_name:
+    ecs_field: "threat.tactic.name"
+    type: "keyword"
+    
+  threat_framework:
+    ecs_field: "threat.framework"
+    type: "keyword"
+    default: "MITRE ATT&CK"
+    
+  threat_indicator_type:
+    ecs_field: "threat.indicator.type"
+    type: "keyword"
+    allowed_values: ["autonomous-system", "artifact", "directory", "domain-name", "email-addr", "file", "ipv4-addr", "ipv6-addr", "mac-addr", "mutex", "port", "process", "software", "url", "user-account", "windows-registry-key", "x509-certificate"]
+
+# Registry Fields (Windows)
+registry_fields:
+  registry_key:
+    ecs_field: "registry.key"
+    type: "keyword"
+    
+  registry_value:
+    ecs_field: "registry.value"
+    type: "keyword"
+    
+  registry_data_strings:
+    ecs_field: "registry.data.strings"
+    type: "wildcard"
+    is_array: true
+    
+  registry_data_type:
+    ecs_field: "registry.data.type"
+    type: "keyword"
+
+# URL and Web Fields
+url_fields:
+  url_original:
+    ecs_field: "url.original"
+    type: "wildcard"
+    
+  url_domain:
+    ecs_field: "url.domain"
+    type: "keyword"
+    
+  url_path:
+    ecs_field: "url.path"
+    type: "wildcard"
+    
+  url_query:
+    ecs_field: "url.query"
+    type: "keyword"
+    
+  http_request_method:
+    ecs_field: "http.request.method"
+    type: "keyword"
+    
+  http_response_status_code:
+    ecs_field: "http.response.status_code"
+    type: "long"
+    
+  user_agent_original:
+    ecs_field: "user_agent.original"
+    type: "keyword"
+
+# Geographic Fields
+geo_fields:
+  source_geo_country_name:
+    ecs_field: "source.geo.country_name"
+    type: "keyword"
+    
+  source_geo_country_iso_code:
+    ecs_field: "source.geo.country_iso_code"
+    type: "keyword"
+    
+  source_geo_city_name:
+    ecs_field: "source.geo.city_name"
+    type: "keyword"
+    
+  source_geo_location:
+    ecs_field: "source.geo.location"
+    type: "geo_point"
+    
+  destination_geo_country_name:
+    ecs_field: "destination.geo.country_name"
+    type: "keyword"
+    
+  destination_geo_city_name:
+    ecs_field: "destination.geo.city_name"
+    type: "keyword"
+
+# Rule and Detection Fields
+rule_fields:
+  rule_id:
+    ecs_field: "rule.id"
+    type: "keyword"
+    
+  rule_name:
+    ecs_field: "rule.name"
+    type: "keyword"
+    
+  rule_description:
+    ecs_field: "rule.description"
+    type: "text"
+    
+  rule_category:
+    ecs_field: "rule.category"
+    type: "keyword"
+    
+  rule_ruleset:
+    ecs_field: "rule.ruleset"
+    type: "keyword"
+
+# Custom iSECTECH Fields
+isectech_fields:
+  isectech_tenant_id:
+    ecs_field: "labels.isectech_tenant_id"
+    type: "keyword"
+    description: "iSECTECH tenant identifier"
+    
+  isectech_environment:
+    ecs_field: "labels.isectech_environment"
+    type: "keyword"
+    allowed_values: ["production", "staging", "development", "testing"]
+    
+  isectech_criticality:
+    ecs_field: "labels.isectech_criticality"
+    type: "keyword"
+    allowed_values: ["critical", "high", "medium", "low"]
+    
+  isectech_data_classification:
+    ecs_field: "labels.isectech_data_classification"
+    type: "keyword"
+    allowed_values: ["confidential", "internal", "public", "restricted"]
+    
+  isectech_compliance_tags:
+    ecs_field: "labels.isectech_compliance"
+    type: "keyword"
+    is_array: true
+    allowed_values: ["SOX", "HIPAA", "PCI-DSS", "GDPR", "ISO27001", "SOC2"]
+
+# Field Transformation Rules
+transformations:
+  severity_normalization:
+    input_field: "severity"
+    output_field: "event.severity"
+    mapping:
+      "critical": 90
+      "high": 70
+      "medium": 50
+      "low": 30
+      "info": 10
+      "informational": 10
+      "warning": 40
+      "error": 60
+      "fatal": 95
+    default: 0
+    
+  outcome_normalization:
+    input_field: "result"
+    output_field: "event.outcome"
+    mapping:
+      "success": "success"
+      "allowed": "success"
+      "pass": "success"
+      "fail": "failure"
+      "failure": "failure"
+      "denied": "failure"
+      "blocked": "failure"
+      "error": "failure"
+    default: "unknown"
+    
+  protocol_normalization:
+    input_field: "protocol"
+    output_field: "network.protocol"
+    case_insensitive: true
+    mapping:
+      "6": "tcp"
+      "17": "udp"
+      "1": "icmp"
+      "58": "icmpv6"
+    preserve_original: true
+
+# Data Type Conversion Rules
+type_conversions:
+  string_to_ip:
+    - "source.ip"
+    - "destination.ip"
+    - "host.ip"
+    
+  string_to_long:
+    - "source.port"
+    - "destination.port"
+    - "process.pid"
+    - "process.parent.pid"
+    - "event.severity"
+    
+  string_to_date:
+    - "@timestamp"
+    - "process.start"
+    - "file.ctime"
+    - "file.mtime"
+    
+  string_to_float:
+    - "event.risk_score"
+    - "threat.indicator.confidence"
+
+# Validation Rules
+validation:
+  required_fields:
+    - "@timestamp"
+    - "event.action"
+    - "host.name"
+    
+  ip_validation:
+    fields:
+      - "source.ip"
+      - "destination.ip"
+    pattern: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$"
+    
+  port_validation:
+    fields:
+      - "source.port"
+      - "destination.port"
+    range: [1, 65535]
+    
+  timestamp_validation:
+    field: "@timestamp"
+    max_age_hours: 720  # 30 days
+    future_tolerance_minutes: 5
+
+# Drop Rules (fields to exclude from normalization)
+drop_fields:
+  - "beat.hostname"
+  - "beat.name"
+  - "beat.version"
+  - "input.type"
+  - "log.file.path"
+  - "log.offset"
+  - "prospector.type"
+  - "_temp"
+  - "_internal"
+  - "debug"
+
+# Enrichment Rules
+enrichment:
+  geoip:
+    source_fields: ["source.ip", "destination.ip"]
+    database_path: "/opt/geoip/GeoLite2-City.mmdb"
+    target_prefix: "geo"
+    
+  user_agent:
+    source_field: "user_agent.original"
+    target_fields:
+      - "user_agent.device.name"
+      - "user_agent.name"
+      - "user_agent.os.name"
+      - "user_agent.os.version"
+      
+  dns_lookup:
+    source_fields: ["source.ip", "destination.ip"]
+    target_fields: ["source.domain", "destination.domain"]
+    timeout_ms: 1000
+    cache_ttl_seconds: 3600

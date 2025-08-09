@@ -1,0 +1,221 @@
+{
+  "version": "1.0",
+  "description": "Security testing configuration for iSECTECH Protect platform",
+  "environments": {
+    "ci": {
+      "baseURL": "http://localhost:8080",
+      "timeout": 300000,
+      "maxWorkers": 1,
+      "enabledTests": ["auth", "authz", "input", "session", "crypto", "config", "deps", "infra", "api", "tenant"],
+      "blockDeploymentOnCritical": true,
+      "blockDeploymentOnRegression": false,
+      "reportingEnabled": true
+    },
+    "staging": {
+      "baseURL": "https://staging.isectech.com",
+      "timeout": 600000,
+      "maxWorkers": 2,
+      "enabledTests": ["auth", "authz", "input", "session", "crypto", "config", "deps", "infra", "api", "tenant"],
+      "blockDeploymentOnCritical": true,
+      "blockDeploymentOnRegression": true,
+      "reportingEnabled": true
+    },
+    "production": {
+      "baseURL": "https://api.isectech.com",
+      "timeout": 900000,
+      "maxWorkers": 1,
+      "enabledTests": ["auth", "authz", "session", "crypto", "config", "api", "tenant"],
+      "blockDeploymentOnCritical": true,
+      "blockDeploymentOnRegression": true,
+      "reportingEnabled": true,
+      "readOnlyMode": true
+    }
+  },
+  "testCategories": {
+    "auth": {
+      "name": "Authentication Security",
+      "description": "Authentication bypass and token validation tests",
+      "severity": "CRITICAL",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Authentication Bypass",
+      "requiredForCI": true
+    },
+    "authz": {
+      "name": "Authorization Matrix",
+      "description": "Authorization matrix and RBAC validation",
+      "severity": "CRITICAL",
+      "testFile": "comprehensive-api-authorization-matrix.test.ts",
+      "testPattern": "Authorization Matrix",
+      "requiredForCI": true
+    },
+    "input": {
+      "name": "Input Validation",
+      "description": "SQL injection, XSS, and command injection tests",
+      "severity": "HIGH",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Input Validation",
+      "requiredForCI": true
+    },
+    "session": {
+      "name": "Session Management",
+      "description": "Session fixation, hijacking, and cookie security",
+      "severity": "HIGH",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Session Management",
+      "requiredForCI": true
+    },
+    "crypto": {
+      "name": "Cryptographic Controls",
+      "description": "TLS configuration and security headers",
+      "severity": "HIGH",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Cryptographic",
+      "requiredForCI": true
+    },
+    "config": {
+      "name": "Security Configuration",
+      "description": "Security misconfiguration and hardening tests",
+      "severity": "MEDIUM",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Security Configuration",
+      "requiredForCI": false
+    },
+    "deps": {
+      "name": "Dependency Vulnerabilities",
+      "description": "Known vulnerabilities in dependencies",
+      "severity": "HIGH",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Dependency",
+      "requiredForCI": true
+    },
+    "infra": {
+      "name": "Infrastructure Security",
+      "description": "Infrastructure security controls validation",
+      "severity": "MEDIUM",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Infrastructure",
+      "requiredForCI": false
+    },
+    "api": {
+      "name": "API Security",
+      "description": "API security validation and method testing",
+      "severity": "CRITICAL",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "API Security",
+      "requiredForCI": true
+    },
+    "tenant": {
+      "name": "Tenant Isolation",
+      "description": "Multi-tenant isolation and data segregation",
+      "severity": "CRITICAL",
+      "testFile": "security-regression-automation.test.ts",
+      "testPattern": "Tenant Isolation",
+      "requiredForCI": true
+    }
+  },
+  "securityThresholds": {
+    "criticalVulnerabilities": {
+      "ci": 0,
+      "staging": 0,
+      "production": 0
+    },
+    "highVulnerabilities": {
+      "ci": 5,
+      "staging": 2,
+      "production": 0
+    },
+    "mediumVulnerabilities": {
+      "ci": 10,
+      "staging": 5,
+      "production": 3
+    },
+    "overallSecurityScore": {
+      "ci": 75,
+      "staging": 85,
+      "production": 95
+    },
+    "authorizationSuccessRate": {
+      "ci": 80,
+      "staging": 90,
+      "production": 95
+    },
+    "regressionTolerance": {
+      "ci": "medium",
+      "staging": "low",
+      "production": "none"
+    }
+  },
+  "complianceFrameworks": {
+    "NIST_CSF": {
+      "enabled": true,
+      "minimumScore": 80,
+      "requiredControls": ["PR.AC", "PR.DS", "DE.CM", "RS.RP"]
+    },
+    "ISO_27001": {
+      "enabled": true,
+      "minimumScore": 85,
+      "requiredControls": ["A.9", "A.14", "A.18"]
+    },
+    "SOC_2": {
+      "enabled": true,
+      "minimumScore": 85,
+      "requiredControls": ["CC6", "CC7"]
+    },
+    "GDPR": {
+      "enabled": true,
+      "minimumScore": 90,
+      "requiredControls": ["Art. 25", "Art. 32"]
+    },
+    "PCI_DSS": {
+      "enabled": false,
+      "minimumScore": 95,
+      "requiredControls": ["Req. 6", "Req. 7"]
+    }
+  },
+  "reporting": {
+    "outputFormats": ["json", "html", "junit"],
+    "reportDirectory": "test-results",
+    "retentionDays": 30,
+    "includeBaseline": true,
+    "generateTrendAnalysis": true
+  },
+  "notifications": {
+    "slack": {
+      "enabled": true,
+      "criticalChannel": "#security-critical",
+      "alertsChannel": "#security-alerts"
+    },
+    "email": {
+      "enabled": false,
+      "recipients": ["security-team@isectech.com"],
+      "criticalOnly": true
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "",
+      "authToken": ""
+    }
+  },
+  "integrations": {
+    "jira": {
+      "enabled": false,
+      "createIssuesForCritical": true,
+      "projectKey": "ISEC"
+    },
+    "sonarqube": {
+      "enabled": false,
+      "serverUrl": "",
+      "authToken": ""
+    },
+    "artifactory": {
+      "enabled": false,
+      "uploadReports": true
+    }
+  },
+  "regressionBaseline": {
+    "autoUpdateBaseline": false,
+    "baselineFile": "security-regression-baseline.json",
+    "compareWithPrevious": 5,
+    "ignoreResolvedVulnerabilities": true
+  }
+}

@@ -1,0 +1,166 @@
+# Redis Configuration for iSECTECH Development Environment
+# This configuration uses a single Redis instance for local development
+
+redis:
+  # Connection settings
+  addresses:
+    - "${REDIS_HOST:-localhost:6379}"
+  password: "${REDIS_PASSWORD:-}"
+  db: 0
+  dial_timeout: 5s
+  read_timeout: 30s
+  write_timeout: 30s
+  
+  # Connection pool settings (smaller for development)
+  pool_size: 25
+  min_idle_conns: 5
+  max_idle_conns: 10
+  conn_max_idle_time: 30m
+  conn_max_lifetime: 1h
+  pool_timeout: 30s
+  
+  # Cluster configuration (disabled for development)
+  cluster:
+    enabled: false
+    max_redirects: 3
+    read_only: false
+    route_by_latency: false
+    route_randomly: false
+  
+  # Sentinel configuration (disabled for development)
+  sentinel:
+    enabled: false
+    master_name: "isectech-master"
+    sentinel_addrs: []
+    sentinel_password: ""
+    failover_timeout: 3s
+  
+  # Streams configuration for event processing
+  streams:
+    enabled: true
+    max_length: 1000  # Smaller for development
+    approx_max_length: true
+    blocking_timeout: 5s
+    processing_timeout: 30s
+    consumer_groups:
+      security-events:
+        stream_name: "security:events"
+        group_name: "security-processors"
+        consumer_name: "processor-dev"
+        batch_size: 5
+        idle_timeout: 1m
+        retry_interval: 10s
+        max_retries: 2
+      threat-intel:
+        stream_name: "threat:intelligence"
+        group_name: "threat-processors"
+        consumer_name: "threat-processor-dev"
+        batch_size: 3
+        idle_timeout: 2m
+        retry_interval: 15s
+        max_retries: 2
+      audit-events:
+        stream_name: "audit:events"
+        group_name: "audit-processors"
+        consumer_name: "audit-processor-dev"
+        batch_size: 10
+        idle_timeout: 30s
+        retry_interval: 5s
+        max_retries: 1
+      performance-metrics:
+        stream_name: "metrics:performance"
+        group_name: "metrics-processors"
+        consumer_name: "metrics-processor-dev"
+        batch_size: 20
+        idle_timeout: 15s
+        retry_interval: 3s
+        max_retries: 1
+  
+  # Cache configuration (smaller TTLs for development)
+  cache:
+    default_ttl: 10m  # Shorter for development
+    max_memory: "512mb"
+    eviction_policy: "allkeys-lru"
+    serialization: "json"  # JSON for easier debugging
+    compression:
+      enabled: false  # Disabled for easier debugging
+      algorithm: "lz4"
+      threshold: 1024
+      level: 1
+    prefixes:
+      "session:":
+        ttl: 5m  # Shorter for development
+        max_size: 1048576
+        compress: false
+        encrypt: false  # Disabled for development
+        tenant_isolated: true
+      "threat:":
+        ttl: 30m
+        max_size: 1048576
+        compress: false
+        encrypt: false
+        tenant_isolated: true
+      "asset:":
+        ttl: 10m
+        max_size: 524288
+        compress: false
+        encrypt: false
+        tenant_isolated: true
+      "compliance:":
+        ttl: 1h
+        max_size: 524288
+        compress: false
+        encrypt: false
+        tenant_isolated: true
+      "metrics:":
+        ttl: 2m
+        max_size: 262144
+        compress: false
+        encrypt: false
+        tenant_isolated: false
+      "alert:":
+        ttl: 30m
+        max_size: 524288
+        compress: false
+        encrypt: false
+        tenant_isolated: true
+      "user:":
+        ttl: 10m
+        max_size: 262144
+        compress: false
+        encrypt: false
+        tenant_isolated: true
+  
+  # Security settings (simplified for development)
+  security:
+    enable_tls: false
+    tls_config:
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: true
+    enable_encryption: false
+    encryption_key: "dev-encryption-key-change-in-production"
+    tenant_isolation: true
+    acl_config:
+      enabled: false  # Disabled for development
+      users: {}
+  
+  # Monitoring and observability (disabled for development)
+  enable_metrics: false
+  enable_tracing: false
+  slow_log_threshold: 500ms
+  
+  # Circuit breaker settings (relaxed for development)
+  circuit_breaker:
+    max_requests: 100
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 10
+  
+  # Retry settings (reduced for development)
+  retry_config:
+    max_attempts: 2
+    initial_interval: 50ms
+    max_interval: 1s
+    multiplier: 2.0

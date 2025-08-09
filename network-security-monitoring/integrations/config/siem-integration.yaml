@@ -1,0 +1,675 @@
+# iSECTECH SIEM Integration Configuration
+# Production-grade SIEM integration for Network Security Monitoring
+
+# General Configuration
+general:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service settings
+  service_name: "siem-integration-engine"
+  version: "1.0.0"
+  bind_address: "0.0.0.0"
+  port: 8448
+
+# Processing Configuration
+processing:
+  # Batch processing settings
+  batch_size: 100
+  interval: 30  # seconds
+  max_retries: 3
+  
+  # Queue settings
+  max_queue_size: 10000
+  processing_timeout: 60
+  
+  # Threading
+  worker_threads: 4
+  max_concurrent_batches: 5
+
+# SIEM Platform Configurations
+siem_platforms:
+  # Splunk Integration
+  splunk:
+    enabled: true
+    name: "splunk"
+    
+    # Connection settings
+    host: "splunk.isectech.local"
+    port: 8088
+    token: "${SPLUNK_HEC_TOKEN}"
+    verify_ssl: true
+    
+    # Index settings
+    index: "nsm_events"
+    source: "nsm:integration"
+    sourcetype: "nsm:security_event"
+    
+    # Event formatting
+    event_format:
+      include_raw_data: true
+      include_enrichment: true
+      timestamp_format: "epoch"
+      
+    # Performance settings
+    batch_size: 100
+    timeout: 30
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300  # 5 minutes
+      endpoint: "/services/collector/health"
+  
+  # Elasticsearch Integration
+  elasticsearch:
+    enabled: true
+    name: "elasticsearch"
+    
+    # Connection settings
+    hosts:
+      - "elastic01.isectech.local:9200"
+      - "elastic02.isectech.local:9200"
+    username: "${ELASTIC_USERNAME}"
+    password: "${ELASTIC_PASSWORD}"
+    use_ssl: true
+    verify_certs: true
+    ca_certs: "/etc/ssl/certs/elasticsearch-ca.pem"
+    
+    # Index settings
+    index_pattern: "nsm-security-events-%Y-%m-%d"
+    doc_type: "_doc"
+    
+    # Mapping settings
+    mapping:
+      dynamic: false
+      include_raw_data: false
+      geo_ip_enabled: true
+      
+    # Performance settings
+    timeout: 30
+    max_retries: 3
+    bulk_size: 500
+    bulk_timeout: 30
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # IBM QRadar Integration
+  qradar:
+    enabled: false
+    name: "qradar"
+    
+    # Connection settings
+    host: "qradar.isectech.local"
+    sec_token: "${QRADAR_SEC_TOKEN}"
+    version: "15.0"
+    verify_ssl: true
+    
+    # API settings
+    api_version: "15.0"
+    timeout: 30
+    max_retries: 3
+    
+    # Event processing
+    create_offenses: true
+    minimum_severity: "medium"
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+      endpoint: "/api/system/about"
+  
+  # Microsoft Sentinel Integration
+  sentinel:
+    enabled: false
+    name: "sentinel"
+    
+    # Connection settings
+    workspace_id: "${SENTINEL_WORKSPACE_ID}"
+    shared_key: "${SENTINEL_SHARED_KEY}"
+    log_type: "NSMSecurityEvents"
+    
+    # API settings
+    api_version: "2016-04-01"
+    timeout: 30
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # Generic Syslog Integration
+  syslog:
+    enabled: true
+    name: "syslog"
+    
+    # Connection settings
+    server: "siem-syslog.isectech.local"
+    port: 514
+    protocol: "UDP"  # UDP or TCP
+    facility: 16  # Local0
+    
+    # Message formatting
+    format: "cef"  # cef, json, or rfc3164
+    hostname: "nsm-integration"
+    tag: "NSM"
+    
+    # Performance settings
+    timeout: 10
+    max_retries: 2
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # ArcSight Integration
+  arcsight:
+    enabled: false
+    name: "arcsight"
+    
+    # Connection settings (via syslog)
+    syslog_server: "arcsight.isectech.local"
+    syslog_port: 514
+    protocol: "UDP"
+    
+    # CEF formatting
+    cef_version: "0"
+    device_vendor: "iSECTECH"
+    device_product: "NSM"
+    device_version: "1.0"
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # LogRhythm Integration
+  logrhythm:
+    enabled: false
+    name: "logrhythm"
+    
+    # Connection settings
+    host: "logrhythm.isectech.local"
+    port: 443
+    api_token: "${LOGRHYTHM_API_TOKEN}"
+    verify_ssl: true
+    
+    # Event settings
+    classification_id: 1000  # Security event classification
+    log_source_type_id: 1001  # Custom log source type
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+
+# Redis Configuration
+redis:
+  enabled: true
+  
+  # Connection settings
+  host: "redis-nsm.isectech.local"
+  port: 6379
+  db: 8  # Dedicated DB for SIEM integration
+  password: "${REDIS_PASSWORD}"
+  
+  # Connection pool settings
+  connection_pool_size: 20
+  socket_timeout: 30
+  socket_connect_timeout: 30
+  retry_on_timeout: true
+  max_connections: 50
+  
+  # Queue settings
+  event_queue_key: "nsm:siem_events"
+  failed_queue_key: "nsm:siem_failed"
+  queue_timeout: 30
+  
+  # Performance settings
+  pipeline_size: 100
+  publish_batch_size: 50
+
+# Database Configuration
+database:
+  # SQLite for event tracking
+  type: "sqlite"
+  path: "/var/lib/nsm/siem_integration.db"
+  
+  # Connection settings
+  timeout: 30
+  check_same_thread: false
+  
+  # Performance optimization
+  optimization:
+    enable_wal_mode: true
+    enable_foreign_keys: true
+    cache_size_mb: 256
+    temp_store: "memory"
+  
+  # Backup settings
+  backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/siem_integration"
+    compression: true
+
+# Event Processing Configuration
+event_processing:
+  # Event filtering
+  filtering:
+    enabled: true
+    
+    # Severity filtering
+    minimum_severity: "info"
+    severity_mapping:
+      critical: 10
+      high: 8
+      medium: 5
+      low: 3
+      info: 1
+    
+    # Source filtering
+    allowed_sources:
+      - "signature_detection"
+      - "anomaly_detection"
+      - "behavioral_analysis"
+      - "vulnerability_correlation"
+      - "encrypted_analysis"
+      - "asset_discovery"
+    
+    # Event type filtering
+    event_type_filters:
+      - "malware_detected"
+      - "intrusion_attempt"
+      - "anomaly_detected"
+      - "vulnerability_found"
+      - "policy_violation"
+      - "data_exfiltration"
+      - "lateral_movement"
+      - "c2_communication"
+  
+  # Event enrichment
+  enrichment:
+    enabled: true
+    
+    # GeoIP enrichment
+    geoip:
+      enabled: true
+      database_path: "/var/lib/nsm/geoip/GeoLite2-City.mmdb"
+      fields: ["src_ip", "dst_ip"]
+    
+    # Asset enrichment
+    asset_enrichment:
+      enabled: true
+      redis_cache: true
+      cache_ttl: 3600
+    
+    # Threat intelligence enrichment
+    threat_intelligence:
+      enabled: true
+      sources: ["misp", "otx", "local"]
+      timeout: 5
+    
+    # DNS enrichment
+    dns_enrichment:
+      enabled: true
+      reverse_dns: true
+      timeout: 2
+  
+  # Event normalization
+  normalization:
+    enabled: true
+    
+    # Field mapping
+    field_mapping:
+      src_ip: "source_ip"
+      dst_ip: "destination_ip"
+      src_port: "source_port"
+      dst_port: "destination_port"
+      event_time: "timestamp"
+    
+    # Data type conversion
+    type_conversion:
+      timestamp: "datetime"
+      severity: "string"
+      ports: "integer"
+      ips: "ip_address"
+    
+    # Value normalization
+    value_normalization:
+      severity_lowercase: true
+      ip_standardization: true
+      port_range_validation: true
+
+# Alert Correlation Configuration
+alert_correlation:
+  enabled: true
+  
+  # Correlation windows
+  time_windows:
+    immediate: 300      # 5 minutes
+    short_term: 1800    # 30 minutes
+    medium_term: 7200   # 2 hours
+    long_term: 86400    # 24 hours
+  
+  # Correlation rules
+  rules:
+    # Multi-stage attack detection
+    - name: "multi_stage_attack"
+      enabled: true
+      events:
+        - "reconnaissance"
+        - "initial_access"
+        - "privilege_escalation"
+      time_window: 3600  # 1 hour
+      confidence_threshold: 0.7
+    
+    # Brute force detection
+    - name: "brute_force_attack"
+      enabled: true
+      events:
+        - "authentication_failure"
+      count_threshold: 10
+      time_window: 300  # 5 minutes
+      group_by: ["src_ip", "dst_ip"]
+    
+    # Data exfiltration detection
+    - name: "data_exfiltration"
+      enabled: true
+      events:
+        - "large_data_transfer"
+        - "unusual_outbound_traffic"
+      time_window: 1800  # 30 minutes
+      data_threshold: "100MB"
+  
+  # Alert grouping
+  grouping:
+    enabled: true
+    group_by: ["src_ip", "event_type", "severity"]
+    max_group_size: 50
+    group_timeout: 300  # 5 minutes
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_gb: 4
+  max_cpu_cores: 4
+  max_concurrent_connections: 100
+  
+  # Processing limits
+  max_events_per_second: 1000
+  max_batch_size: 500
+  processing_timeout: 60
+  
+  # Caching
+  caching:
+    enabled: true
+    cache_size_mb: 512
+    cache_ttl: 3600  # 1 hour
+    
+    # Cache types
+    event_cache: true
+    enrichment_cache: true
+    connector_cache: true
+  
+  # Optimization
+  optimization:
+    enable_compression: true
+    enable_connection_pooling: true
+    enable_batch_processing: true
+    enable_async_processing: true
+
+# Monitoring Configuration
+monitoring:
+  # Health monitoring
+  health_monitoring:
+    enabled: true
+    check_interval: 60  # seconds
+    
+    # Health checks
+    checks:
+      - name: "database_connectivity"
+        type: "database"
+        timeout: 10
+      
+      - name: "redis_connectivity"
+        type: "redis"
+        timeout: 5
+      
+      - name: "siem_connector_health"
+        type: "connector"
+        connectors: ["splunk", "elasticsearch"]
+        timeout: 15
+      
+      - name: "queue_size"
+        type: "queue"
+        threshold: 5000  # Alert if queue size exceeds this
+      
+      - name: "processing_latency"
+        type: "performance"
+        threshold: 30  # seconds
+  
+  # Metrics collection
+  metrics:
+    enabled: true
+    
+    # Performance metrics
+    performance_metrics:
+      - events_processed_per_second
+      - events_sent_per_second
+      - processing_latency
+      - queue_size
+      - error_rate
+      - connector_response_time
+    
+    # Business metrics
+    business_metrics:
+      - total_events_processed
+      - events_by_severity
+      - events_by_source
+      - top_event_types
+      - connector_success_rate
+  
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    port: 9094
+    metrics_path: "/metrics"
+    
+    # Custom metrics
+    custom_metrics:
+      - name: "nsm_siem_events_total"
+        type: "counter"
+        description: "Total number of events processed"
+        labels: ["severity", "source", "connector"]
+      
+      - name: "nsm_siem_processing_duration_seconds"
+        type: "histogram"
+        description: "Event processing duration"
+        buckets: [0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+      
+      - name: "nsm_siem_connector_status"
+        type: "gauge"
+        description: "SIEM connector status (1=healthy, 0=unhealthy)"
+        labels: ["connector"]
+  
+  # Alerting
+  alerting:
+    enabled: true
+    
+    # Alert conditions
+    conditions:
+      - name: "high_error_rate"
+        metric: "error_rate"
+        threshold: 5  # percent
+        duration: 300  # 5 minutes
+        severity: "warning"
+      
+      - name: "connector_down"
+        metric: "connector_availability"
+        threshold: 0
+        duration: 60  # 1 minute
+        severity: "critical"
+      
+      - name: "high_processing_latency"
+        metric: "processing_latency"
+        threshold: 60  # seconds
+        duration: 300  # 5 minutes
+        severity: "warning"
+      
+      - name: "queue_overflow"
+        metric: "queue_size"
+        threshold: 8000
+        duration: 60  # 1 minute
+        severity: "critical"
+    
+    # Alert destinations
+    destinations:
+      - type: "webhook"
+        url: "http://alertmanager.isectech.local:9093/api/v1/alerts"
+        headers:
+          Content-Type: "application/json"
+      
+      - type: "email"
+        smtp_server: "smtp.isectech.local:587"
+        username: "${SMTP_USERNAME}"
+        password: "${SMTP_PASSWORD}"
+        recipients: ["ops@isectech.local", "security@isectech.local"]
+        
+      - type: "slack"
+        webhook_url: "${SLACK_WEBHOOK_URL}"
+        channel: "#security-alerts"
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enabled: true
+    authentication_required: true
+    api_key_header: "X-API-Key"
+    valid_api_keys: ["${SIEM_INTEGRATION_API_KEY}"]
+    
+    # Rate limiting
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 1000
+      burst_size: 100
+  
+  # Data protection
+  data_protection:
+    # Encryption
+    encryption:
+      encrypt_in_transit: true
+      encrypt_at_rest: true
+      encryption_key_file: "/etc/nsm/siem_integration_encryption.key"
+    
+    # Privacy
+    privacy:
+      anonymize_pii: false  # Keep for security analysis
+      hash_sensitive_fields: false
+      data_retention_days: 365
+    
+    # Access control
+    access_control:
+      rbac_enabled: true
+      rbac_config: "/etc/nsm/rbac_siem_integration.yaml"
+
+# Backup and Recovery
+backup:
+  # Database backup
+  database_backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/siem_integration"
+    compression: true
+  
+  # Configuration backup
+  configuration_backup:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+  
+  # Recovery procedures
+  recovery:
+    auto_recovery:
+      enabled: true
+      max_attempts: 3
+      backoff_factor: 2
+    
+    recovery_scripts:
+      database_corruption: "/opt/nsm/scripts/recover_siem_db.sh"
+      config_corruption: "/opt/nsm/scripts/recover_siem_config.sh"
+      connector_failure: "/opt/nsm/scripts/recover_siem_connector.sh"
+
+# Logging Configuration
+logging:
+  # Log levels
+  level: "INFO"
+  
+  # Log destinations
+  destinations:
+    - type: "file"
+      path: "/var/log/nsm/siem_integration.log"
+      rotation: "daily"
+      retention_days: 30
+      max_size_mb: 100
+    
+    - type: "syslog"
+      facility: "local5"
+      server: "syslog.isectech.local:514"
+      format: "rfc3164"
+    
+    - type: "json_file"
+      path: "/var/log/nsm/siem_integration_structured.log"
+      rotation: "daily"
+      retention_days: 30
+  
+  # Log formatting
+  format: "json"
+  include_timestamps: true
+  include_source_info: true
+  include_trace_id: true
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  
+  # Testing
+  test_mode: false
+  synthetic_events: false
+  
+  # Experimental features
+  experimental:
+    enable_ml_correlation: false
+    enable_adaptive_batching: true
+    enable_predictive_scaling: false
+
+# Integration Hooks
+hooks:
+  # Pre-processing hooks
+  pre_processing:
+    enabled: false
+    scripts: []
+  
+  # Post-processing hooks
+  post_processing:
+    enabled: false
+    scripts: []
+  
+  # Error handling hooks
+  error_handling:
+    enabled: true
+    scripts:
+      - "/opt/nsm/scripts/siem_error_handler.sh"

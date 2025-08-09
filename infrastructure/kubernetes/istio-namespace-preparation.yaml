@@ -1,0 +1,402 @@
+# Istio Namespace Preparation for iSECTECH Applications
+# Enable sidecar injection and security policies for all application namespaces
+
+---
+# iSECTECH API Gateway namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-api-gateway
+  labels:
+    name: isectech-api-gateway
+    security.isectech.com/tier: "api-gateway"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - baseline for API Gateway (needs some flexibility)
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# iSECTECH Services namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-services
+  labels:
+    name: isectech-services
+    security.isectech.com/tier: "services"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - restricted for application services
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# iSECTECH Data namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-data
+  labels:
+    name: isectech-data
+    security.isectech.com/tier: "data"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - restricted for data services (maximum security)
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# iSECTECH AI Services namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-ai
+  labels:
+    name: isectech-ai
+    security.isectech.com/tier: "ai-services"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - restricted for AI services
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# iSECTECH Frontend namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-frontend
+  labels:
+    name: isectech-frontend
+    security.isectech.com/tier: "frontend"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - restricted for frontend services
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Production namespace with strict Istio security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    name: production
+    security.isectech.com/tier: "production"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    security.isectech.com/strict-mode: "true"
+    # Pod Security Standards - restricted for production (maximum security)
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Staging namespace with Istio injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    name: staging
+    security.isectech.com/tier: "staging"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - restricted for staging environment
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Default PeerAuthentication for API Gateway namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: isectech-api-gateway
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for Services namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: isectech-services
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for Data namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: isectech-data
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for AI Services namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: isectech-ai
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for Frontend namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: isectech-frontend
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for Production namespace (extra strict)
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: production
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Default PeerAuthentication for Staging namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: staging
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# AuthorizationPolicy for API Gateway - Allow ingress traffic
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-gateway-ingress
+  namespace: isectech-api-gateway
+spec:
+  selector:
+    matchLabels:
+      app: kong-gateway
+  rules:
+  - from:
+    - source:
+        namespaces: ["istio-system"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
+---
+# AuthorizationPolicy for Services - Allow communication from API Gateway
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: services-from-gateway
+  namespace: isectech-services
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["isectech-api-gateway"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
+
+---
+# AuthorizationPolicy for Data services - Allow communication from Services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: data-from-services
+  namespace: isectech-data
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["isectech-services", "isectech-ai"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
+
+---
+# AuthorizationPolicy for AI Services - Allow communication from Services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ai-from-services
+  namespace: isectech-ai
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["isectech-services"]
+    to:
+    - operation:
+        methods: ["GET", "POST"]
+
+---
+# AuthorizationPolicy for Frontend - Allow communication from Gateway
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: frontend-from-gateway
+  namespace: isectech-frontend
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["isectech-api-gateway", "istio-system"]
+    to:
+    - operation:
+        methods: ["GET", "POST"]
+
+---
+# Production namespace authorization - Extra strict controls
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: production-strict-access
+  namespace: production
+spec:
+  # Default deny all - require explicit allow rules
+  rules: []
+
+---
+# Allow monitoring access to all namespaces
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: monitoring-access
+  namespace: isectech-api-gateway
+spec:
+  selector:
+    matchLabels:
+      app: kong-gateway
+  rules:
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/status", "/metrics", "/health", "/ready"]
+
+---
+# Allow monitoring access to Services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: monitoring-access
+  namespace: isectech-services
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/status", "/metrics", "/health", "/ready"]
+
+---
+# Allow monitoring access to Data services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: monitoring-access
+  namespace: isectech-data
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/status", "/metrics", "/health", "/ready"]
+
+---
+# Allow monitoring access to AI services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: monitoring-access
+  namespace: isectech-ai
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/status", "/metrics", "/health", "/ready"]
+
+---
+# Allow monitoring access to Frontend
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: monitoring-access
+  namespace: isectech-frontend
+spec:
+  rules:
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/status", "/metrics", "/health", "/ready"]

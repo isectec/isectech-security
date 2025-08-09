@@ -1,0 +1,45 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPBaseline
+metadata:
+  name: isectech-psp-baseline
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - isectech-services
+      - isectech-api-gateway
+      - isectech-data
+      - isectech-ai
+  parameters:
+    hostPorts: []
+    forbiddenSysctls: ["*"]
+    allowedCapabilities: []
+    allowPrivilegeEscalation: false
+    runAsUser:
+      rule: "MustRunAsNonRoot"
+    seccompProfiles:
+      - "RuntimeDefault"
+    volumes:
+      - 'configMap'
+      - 'emptyDir'
+      - 'projected'
+      - 'secret'
+      - 'downwardAPI'
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sAllowedRepos
+metadata:
+  name: isectech-allowed-repos
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+  parameters:
+    repos:
+      - "gcr.io/isectech/"
+      - "us-docker.pkg.dev/isectech/"
+
+

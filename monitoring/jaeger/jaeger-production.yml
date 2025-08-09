@@ -1,0 +1,207 @@
+# iSECTECH Jaeger Production Configuration
+# Production-grade distributed tracing configuration
+
+version: '3.8'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORKS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  jaeger-network:
+    driver: bridge
+  monitoring:
+    external: true
+  isectech-network:
+    external: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOLUMES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+volumes:
+  jaeger_data:
+    driver: local
+  elasticsearch_jaeger:
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVICES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # Jaeger Collector - Receives trace data
+  jaeger-collector:
+    image: jaegertracing/jaeger-collector:1.49
+    container_name: isectech-jaeger-collector
+    restart: unless-stopped
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=isectech_elastic_2024
+      - ES_NUM_SHARDS=1
+      - ES_NUM_REPLICAS=0
+      - ES_INDEX_PREFIX=jaeger
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_GRPC_TLS_ENABLED=false
+      - COLLECTOR_HTTP_TLS_ENABLED=false
+      - LOG_LEVEL=info
+    ports:
+      - "14267:14267"   # Jaeger Thrift over HTTP
+      - "14268:14268"   # Jaeger Thrift over HTTP
+      - "14269:14269"   # Jaeger Health Check
+      - "14250:14250"   # Jaeger gRPC
+      - "9411:9411"     # Zipkin compatible endpoint
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+    networks:
+      - jaeger-network
+      - monitoring
+      - isectech-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:14269/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=14269"
+
+  # Jaeger Query - Serves the UI and API
+  jaeger-query:
+    image: jaegertracing/jaeger-query:1.49
+    container_name: isectech-jaeger-query
+    restart: unless-stopped
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=isectech_elastic_2024
+      - ES_INDEX_PREFIX=jaeger
+      - QUERY_BASE_PATH=/jaeger
+      - LOG_LEVEL=info
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "16687:16687"   # Jaeger Query Health Check
+    networks:
+      - jaeger-network
+      - monitoring
+      - isectech-network
+    depends_on:
+      jaeger-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:16687/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jaeger.rule=Host(`jaeger.isectech.local`)"
+      - "traefik.http.routers.jaeger.tls=true"
+      - "traefik.http.services.jaeger.loadbalancer.server.port=16686"
+
+  # Jaeger Agent - Local agent for trace collection
+  jaeger-agent:
+    image: jaegertracing/jaeger-agent:1.49
+    container_name: isectech-jaeger-agent
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+    command:
+      - "--reporter.grpc.host-port=jaeger-collector:14250"
+      - "--reporter.grpc.retry.max=3"
+      - "--agent.tags=deployment=production,environment=isectech"
+    ports:
+      - "5775:5775/udp"   # Zipkin Thrift compact
+      - "5778:5778"       # Agent HTTP server
+      - "6831:6831/udp"   # Jaeger Thrift compact
+      - "6832:6832/udp"   # Jaeger Thrift binary
+    networks:
+      - jaeger-network
+      - monitoring
+      - isectech-network
+    depends_on:
+      jaeger-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5778/sampling || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # OpenTelemetry Collector - Modern telemetry collection
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.88.0
+    container_name: isectech-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./monitoring/otel/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "4315:4317"     # OTLP gRPC receiver
+      - "4316:4318"     # OTLP HTTP receiver
+      - "8888:8888"     # Prometheus metrics
+      - "8889:8889"     # Prometheus metrics
+      - "13133:13133"   # Health check
+    networks:
+      - jaeger-network
+      - monitoring
+      - isectech-network
+    depends_on:
+      jaeger-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:13133/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Jaeger SPM (Service Performance Monitoring)
+  jaeger-spm:
+    image: jaegertracing/spark-dependencies:latest
+    container_name: isectech-jaeger-spm
+    restart: "no"
+    environment:
+      - STORAGE=elasticsearch
+      - ES_NODES=http://elasticsearch:9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=isectech_elastic_2024
+      - ES_INDEX_PREFIX=jaeger
+    networks:
+      - jaeger-network
+      - monitoring
+    depends_on:
+      jaeger-collector:
+        condition: service_healthy
+    profiles:
+      - analytics
+
+  # Jaeger Analytics with Apache Spark
+  jaeger-analytics:
+    image: jaegertracing/jaeger-analytics-java:latest
+    container_name: isectech-jaeger-analytics
+    restart: unless-stopped
+    environment:
+      - STORAGE=elasticsearch
+      - ES_NODES=http://elasticsearch:9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=isectech_elastic_2024
+      - ES_INDEX_PREFIX=jaeger
+      - SPARK_MASTER=local[*]
+    networks:
+      - jaeger-network
+      - monitoring
+    depends_on:
+      jaeger-collector:
+        condition: service_healthy
+    profiles:
+      - analytics

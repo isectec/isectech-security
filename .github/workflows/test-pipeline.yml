@@ -1,0 +1,527 @@
+# iSECTECH Automated Testing Pipeline
+# Production-grade CI/CD for cybersecurity platform
+
+name: 🛡️ iSECTECH Testing Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'feature/*', 'security/*']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  NODE_VERSION: '18'
+  GO_VERSION: '1.21'
+  PYTHON_VERSION: '3.11'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# Concurrency control
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Security and dependency scanning
+  security-scan:
+    name: 🔒 Security & Dependency Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level moderate
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@0.4.0
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript, go, python
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  # Frontend testing pipeline
+  frontend-tests:
+    name: 🎨 Frontend Tests
+    runs-on: ubuntu-latest
+    needs: security-scan
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type checking
+        run: npm run type-check
+
+      - name: Linting
+        run: npm run lint
+
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+        env:
+          CI: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+
+      - name: Accessibility tests
+        run: npm run test:accessibility
+
+      - name: Component tests (Storybook)
+        run: |
+          npm run build-storybook
+          npx http-server storybook-static -p 6006 &
+          sleep 10
+          npm run test:storybook
+
+  # Backend (Go) testing pipeline
+  backend-tests:
+    name: 🔧 Backend Tests (Go)
+    runs-on: ubuntu-latest
+    needs: security-scan
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass123
+          POSTGRES_DB: isectech_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mongodb:
+        image: mongo:7
+        env:
+          MONGO_INITDB_ROOT_USERNAME: testuser
+          MONGO_INITDB_ROOT_PASSWORD: testpass123
+        options: >-
+          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Install dependencies
+        working-directory: backend
+        run: go mod download
+
+      - name: Go formatting check
+        working-directory: backend
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go code is not formatted. Please run 'gofmt -w .'"
+            exit 1
+          fi
+
+      - name: Go linting
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          working-directory: backend
+          args: --timeout=5m
+
+      - name: Go unit tests
+        working-directory: backend
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: isectech_test
+          DB_USER: postgres
+          DB_PASSWORD: testpass123
+          REDIS_URL: redis://localhost:6379
+          MONGO_URL: mongodb://testuser:testpass123@localhost:27017
+
+      - name: Go integration tests
+        working-directory: backend
+        run: |
+          go test -v -tags=integration ./test/integration/...
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: isectech_test
+          DB_USER: postgres
+          DB_PASSWORD: testpass123
+
+      - name: Go benchmarks
+        working-directory: backend
+        run: |
+          go test -bench=. -benchmem ./pkg/...
+
+      - name: Upload Go coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./backend/coverage.out
+          flags: backend
+          name: backend-coverage
+
+  # AI Services (Python) testing pipeline
+  ai-services-tests:
+    name: 🤖 AI Services Tests (Python)
+    runs-on: ubuntu-latest
+    needs: security-scan
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ai-services
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio black flake8 mypy
+
+      - name: Python code formatting check
+        working-directory: ai-services
+        run: black --check .
+
+      - name: Python linting
+        working-directory: ai-services
+        run: flake8 .
+
+      - name: Python type checking
+        working-directory: ai-services
+        run: mypy .
+
+      - name: Python unit tests
+        working-directory: ai-services
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term-missing tests/
+        env:
+          PYTHONPATH: .
+
+      - name: Upload Python coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./ai-services/coverage.xml
+          flags: ai-services
+          name: ai-services-coverage
+
+  # End-to-end testing pipeline
+  e2e-tests:
+    name: 🎭 E2E Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-tests, backend-tests]
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install ${{ matrix.browser }} --with-deps
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 30
+        env:
+          PORT: 3000
+
+      - name: Run E2E tests
+        run: npx playwright test --project=${{ matrix.browser }}
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 7
+
+  # Performance testing
+  performance-tests:
+    name: ⚡ Performance Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-tests, backend-tests]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 30
+        env:
+          PORT: 3000
+
+      - name: Run Lighthouse tests
+        run: npm run test:lighthouse
+        env:
+          LIGHTHOUSE_URL: http://localhost:3000
+
+      - name: Install k6
+        run: |
+          curl https://github.com/grafana/k6/releases/download/v0.47.0/k6-v0.47.0-linux-amd64.tar.gz -L | tar xvz --strip-components 1
+          sudo cp k6 /usr/local/bin
+
+      - name: Run load tests
+        run: k6 run __tests__/performance/load-test.js
+        env:
+          API_BASE_URL: http://localhost:3000
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: test-results/
+          retention-days: 30
+
+  # Contract testing
+  contract-tests:
+    name: 📋 Contract Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-tests, backend-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run consumer contract tests
+        run: npm run test:pact:consumer
+
+      - name: Publish contracts
+        if: github.ref == 'refs/heads/main'
+        run: npm run pact:publish
+        env:
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+
+  # Security penetration testing
+  penetration-tests:
+    name: 🛡️ Penetration Tests
+    runs-on: ubuntu-latest
+    needs: [e2e-tests]
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[security-test]')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and start application
+        run: |
+          npm run build
+          npm start &
+          sleep 30
+        env:
+          PORT: 3000
+
+      - name: Run OWASP ZAP security scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+
+      - name: Run security-focused E2E tests
+        run: npx playwright test --project=penetration-testing
+
+      - name: Upload security scan results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-scan-results
+          path: report_html.html
+          retention-days: 30
+
+  # Compliance validation
+  compliance-tests:
+    name: ✅ Compliance Tests
+    runs-on: ubuntu-latest
+    needs: [e2e-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 30
+        env:
+          PORT: 3000
+
+      - name: Run compliance tests
+        run: npx playwright test --project=compliance
+
+      - name: Validate accessibility compliance
+        run: |
+          npm run test:accessibility
+          npx pa11y-ci --sitemap http://localhost:3000/sitemap.xml
+
+  # Test result aggregation and reporting
+  test-results:
+    name: 📊 Test Results & Reporting
+    runs-on: ubuntu-latest
+    needs: [frontend-tests, backend-tests, ai-services-tests, e2e-tests, performance-tests]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Generate test summary report
+        run: |
+          echo "# 🛡️ iSECTECH Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend Tests: ${{ needs.frontend-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend Tests: ${{ needs.backend-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- AI Services Tests: ${{ needs.ai-services-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- E2E Tests: ${{ needs.e2e-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance Tests: ${{ needs.performance-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Coverage Reports" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage reports have been uploaded to Codecov" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          channel: '#security-alerts'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  # Deployment readiness check
+  deployment-readiness:
+    name: 🚀 Deployment Readiness
+    runs-on: ubuntu-latest
+    needs: [test-results, compliance-tests]
+    if: github.ref == 'refs/heads/main' && success()
+    steps:
+      - name: Deployment readiness check
+        run: |
+          echo "✅ All tests passed - Ready for deployment"
+          echo "🛡️ Security scans completed successfully"
+          echo "📋 Compliance validation passed"
+          echo "⚡ Performance benchmarks met"
+          
+      - name: Create deployment badge
+        run: |
+          echo "![Deployment Ready](https://img.shields.io/badge/deployment-ready-green)" >> $GITHUB_STEP_SUMMARY

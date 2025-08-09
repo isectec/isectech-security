@@ -1,0 +1,411 @@
+# Feature Engineering Pipeline Configuration
+# This file contains all configurable parameters for the ML user behavior analysis
+# feature engineering pipeline, optimized for high-performance processing
+
+# Global Pipeline Settings
+pipeline:
+  name: "isectech_behavioral_features"
+  version: "1.0.0"
+  description: "High-performance feature engineering pipeline for user behavior analysis"
+  
+  # Performance Configuration
+  performance:
+    target_throughput_eps: 10000        # Target events per second
+    target_latency_ms: 50               # Target feature extraction latency
+    batch_size: 500                     # Default batch size for processing
+    max_concurrent: 100                 # Maximum concurrent operations
+    
+    # Memory Management
+    memory_limit_mb: 2048               # Memory usage limit
+    gc_threshold: 1000                  # Events processed before garbage collection
+    object_pool_size: 1000              # Object pool maximum size
+    
+    # Processing Optimization
+    use_vectorized_processing: true     # Enable vectorized batch processing
+    use_process_pool: true              # Use process pool for CPU-intensive tasks
+    use_async_io: true                  # Enable asynchronous I/O operations
+    enable_caching: true                # Enable feature caching
+
+# Feature Extractors Configuration
+feature_extractors:
+  # Temporal Feature Extractor
+  temporal:
+    enabled: true
+    cache_ttl_seconds: 300              # 5 minutes cache TTL
+    features:
+      basic_temporal:
+        - hour_of_day
+        - day_of_week
+        - is_weekend
+        - is_business_hours
+        - month
+        - quarter
+      
+      cyclical_features:               # Better for ML models
+        - hour_sin
+        - hour_cos
+        - day_sin
+        - day_cos
+        - month_sin
+        - month_cos
+      
+      historical_features:
+        - time_since_last_activity
+        - session_duration
+        - login_frequency_1h
+        - login_frequency_24h
+        - activity_burst_score
+        - time_pattern_anomaly
+    
+    # Temporal Feature Settings
+    settings:
+      business_hours_start: 9           # Business hours start (24h format)
+      business_hours_end: 17            # Business hours end (24h format)
+      weekend_days: [5, 6]              # Weekend days (0=Monday, 6=Sunday)
+      session_timeout_minutes: 30       # Session timeout for duration calculation
+      activity_burst_threshold: 0.5     # Threshold for burst detection
+  
+  # Categorical Feature Extractor
+  categorical:
+    enabled: true
+    cache_ttl_seconds: 600              # 10 minutes cache TTL
+    features:
+      device_features:
+        - device_change_score
+        - user_agent_change_score
+        - is_new_device
+        - device_diversity_score
+      
+      location_features:
+        - location_change_score
+        - is_new_location
+        - location_entropy
+        - geographic_velocity
+      
+      security_features:
+        - ip_reputation_score
+        - vpn_detection_score
+        - tor_detection_score
+    
+    # Categorical Feature Settings
+    settings:
+      device_history_limit: 10          # Max devices to track per user
+      location_history_limit: 20        # Max locations to track per user
+      ip_reputation_cache_hours: 24     # IP reputation cache duration
+      device_fingerprint_method: "md5"  # Device fingerprinting method
+      location_velocity_threshold: 500  # km/h threshold for impossible travel
+  
+  # Behavioral Feature Extractor
+  behavioral:
+    enabled: true
+    cache_ttl_seconds: 180              # 3 minutes cache TTL
+    features:
+      access_patterns:
+        - resource_access_rate
+        - unique_resources_count
+        - api_call_diversity
+        - data_transfer_volume
+      
+      security_behaviors:
+        - failure_rate
+        - admin_action_count
+        - privilege_escalation_attempts
+        - anomalous_access_score
+      
+      consistency_metrics:
+        - behavioral_consistency_score
+        - pattern_deviation_score
+        - routine_compliance_score
+    
+    # Behavioral Feature Settings
+    settings:
+      access_rate_window_hours: 1       # Window for access rate calculation
+      diversity_calculation_method: "shannon_entropy"
+      failure_rate_threshold: 0.1       # Threshold for high failure rate
+      admin_action_weight: 2.0          # Weight for admin actions in scoring
+      consistency_history_days: 30      # Days of history for consistency scoring
+
+# Caching Configuration
+caching:
+  # Redis Cache Configuration
+  redis:
+    enabled: true
+    url: "${REDIS_URL:-redis://localhost:6379}"
+    max_connections: 50
+    connection_timeout_seconds: 5
+    socket_timeout_seconds: 10
+    retry_on_timeout: true
+    decode_responses: true
+    
+    # Cache Strategy
+    strategy:
+      default_ttl_seconds: 300
+      max_memory_mb: 512
+      eviction_policy: "lru"            # Least Recently Used
+      key_prefix: "behavioral_features:"
+  
+  # Memory-Mapped Cache Configuration
+  memory_mapped:
+    enabled: true
+    cache_dir: "/tmp/feature_cache"
+    max_size_mb: 1024                   # Maximum cache size
+    cleanup_interval_hours: 4           # Cleanup interval
+    compression_enabled: true           # Enable data compression
+    
+  # Feature-Specific Cache Settings
+  feature_cache:
+    temporal_features_ttl: 300          # 5 minutes
+    categorical_features_ttl: 600       # 10 minutes
+    behavioral_features_ttl: 180        # 3 minutes
+    consistency_features_ttl: 1800      # 30 minutes
+
+# Feature Store Integration
+feature_store:
+  # Store Type: redis, postgresql, hybrid
+  type: "hybrid"
+  
+  # Online Store (Redis)
+  online_store:
+    type: "redis"
+    url: "${REDIS_URL:-redis://localhost:6379}"
+    key_prefix: "fs:"
+    max_connections: 50
+    
+  # Offline Store (PostgreSQL)
+  offline_store:
+    type: "postgresql"
+    connection_string: "${POSTGRES_URL:-postgresql://user:pass@localhost/features}"
+    pool_size: 20
+    max_overflow: 30
+    pool_pre_ping: true
+  
+  # Feature Routing (which features go to which store)
+  routing:
+    online_features:                    # Real-time features -> Redis
+      - hour_of_day
+      - session_duration
+      - resource_access_rate
+      - failure_rate
+      - is_new_device
+      - is_new_location
+    
+    offline_features:                   # Historical features -> PostgreSQL
+      - behavioral_consistency_score
+      - time_pattern_anomaly
+      - location_entropy
+      - pattern_deviation_score
+  
+  # Feature Groups
+  feature_groups:
+    temporal_features:
+      entity_key: "user_id"
+      ttl_seconds: 86400                # 24 hours
+      serving_modes: ["online", "offline"]
+    
+    categorical_features:
+      entity_key: "user_id" 
+      ttl_seconds: 172800               # 48 hours
+      serving_modes: ["online"]
+    
+    behavioral_features:
+      entity_key: "user_id"
+      ttl_seconds: 259200               # 72 hours
+      serving_modes: ["online", "offline"]
+
+# Data Quality and Validation
+data_quality:
+  # Quality Checks
+  validation:
+    enabled: true
+    fail_on_validation_error: false     # Continue processing on validation errors
+    
+    # Field Validation Rules
+    field_rules:
+      user_id:
+        required: true
+        min_length: 1
+        max_length: 256
+        pattern: "^[a-zA-Z0-9_-]+$"
+      
+      timestamp:
+        required: true
+        format: "iso8601"
+        max_age_hours: 24               # Reject events older than 24 hours
+        max_future_hours: 1             # Reject events more than 1 hour in future
+      
+      event_type:
+        required: true
+        allowed_values: 
+          - "login"
+          - "logout" 
+          - "api_call"
+          - "file_access"
+          - "admin_action"
+          - "resource_access"
+          - "authentication"
+          - "authorization"
+      
+      source_ip:
+        format: "ipv4_or_ipv6"
+        required: false
+  
+  # Quality Monitoring
+  monitoring:
+    enabled: true
+    quality_threshold: 0.8              # Minimum acceptable quality score
+    alert_on_degradation: true
+    quality_report_interval_minutes: 15
+    
+    # Quality Metrics
+    metrics:
+      completeness_threshold: 0.85      # 85% field completeness required
+      validity_threshold: 0.90          # 90% valid data required
+      consistency_threshold: 0.80       # 80% temporal consistency required
+      uniqueness_threshold: 0.95        # 95% unique events required
+      timeliness_threshold_minutes: 60  # Max 1 hour data latency
+
+# Monitoring and Observability
+monitoring:
+  # Performance Metrics
+  performance:
+    enabled: true
+    collection_interval_seconds: 30
+    metrics:
+      - events_processed_per_second
+      - feature_extraction_latency_p95
+      - memory_usage_percentage
+      - cpu_utilization
+      - cache_hit_rate
+      - error_rate
+      - queue_depth
+    
+    # Alerting Thresholds
+    alerts:
+      throughput_warning_eps: 8000      # Below 8K events/second
+      throughput_critical_eps: 5000     # Below 5K events/second
+      latency_warning_ms: 75            # Above 75ms
+      latency_critical_ms: 100          # Above 100ms
+      memory_warning_percent: 80        # Above 80% memory usage
+      memory_critical_percent: 90       # Above 90% memory usage
+      error_rate_warning_percent: 1     # Above 1% error rate
+      error_rate_critical_percent: 5    # Above 5% error rate
+  
+  # Health Checks
+  health:
+    enabled: true
+    check_interval_seconds: 60
+    timeout_seconds: 30
+    endpoints:
+      - redis_connection
+      - postgresql_connection
+      - memory_usage
+      - disk_space
+      - feature_quality
+  
+  # Logging Configuration
+  logging:
+    level: "INFO"                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    
+    # Log Rotation
+    rotation:
+      max_size_mb: 100
+      backup_count: 5
+      interval: "daily"
+    
+    # Structured Logging
+    structured: true
+    include_fields:
+      - timestamp
+      - level
+      - component
+      - user_id
+      - event_id
+      - processing_time_ms
+      - error_message
+
+# Security Configuration
+security:
+  # Data Encryption
+  encryption:
+    at_rest: true                       # Encrypt cached data
+    in_transit: true                    # Use TLS for connections
+    algorithm: "AES-256-GCM"
+    key_rotation_days: 90
+  
+  # Access Control
+  access_control:
+    enabled: true
+    require_authentication: true
+    audit_access: true
+    
+  # Privacy Protection
+  privacy:
+    pii_detection: true                 # Detect personally identifiable information
+    pii_masking: true                   # Mask PII in logs and outputs
+    data_anonymization: false           # Anonymize user data
+    gdpr_compliance: true
+
+# Development and Testing Configuration
+development:
+  # Mock Data Generation
+  mock_data:
+    enabled: false                      # Enable for testing
+    event_count: 1000
+    user_count: 100
+    time_range_hours: 24
+  
+  # Testing Configuration
+  testing:
+    enabled: false                      # Enable test mode
+    test_cache_ttl: 10                  # Short TTL for testing
+    test_batch_size: 100                # Smaller batches for testing
+    
+  # Debug Settings
+  debug:
+    enabled: false                      # Enable debug mode
+    verbose_logging: false
+    profile_performance: false
+    dump_feature_vectors: false
+
+# Environment-Specific Overrides
+environments:
+  development:
+    pipeline:
+      performance:
+        batch_size: 100
+        max_concurrent: 10
+    caching:
+      redis:
+        max_connections: 10
+    monitoring:
+      performance:
+        collection_interval_seconds: 10
+  
+  staging:
+    pipeline:
+      performance:
+        batch_size: 250
+        max_concurrent: 50
+    caching:
+      redis:
+        max_connections: 25
+    monitoring:
+      performance:
+        collection_interval_seconds: 20
+  
+  production:
+    pipeline:
+      performance:
+        batch_size: 1000
+        max_concurrent: 200
+    caching:
+      redis:
+        max_connections: 100
+    monitoring:
+      performance:
+        collection_interval_seconds: 30
+    security:
+      encryption:
+        at_rest: true
+        in_transit: true

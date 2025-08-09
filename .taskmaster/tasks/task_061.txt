@@ -1,0 +1,165 @@
+# Task ID: 61
+# Title: Implement Custom Domain Setup and SSL Certificate Management
+# Status: done
+# Dependencies: 26, 27, 39, 54
+# Priority: high
+# Description: Configure custom domain setup for app.isectech.org including DNS configuration, SSL certificate provisioning, domain mapping to Cloud Run, and production-grade domain management.
+# Details:
+Implement a comprehensive custom domain setup with the following components:
+
+1. DNS Configuration and Domain Management:
+   - Configure DNS records (A, CNAME, TXT) for app.isectech.org pointing to Google Cloud Run
+   - Set up subdomain management for api.isectech.org and docs.isectech.org
+   - Implement DNS health monitoring with Cloud Monitoring
+   - Configure domain validation and ownership verification through Google Search Console
+   - Set up DNS failover mechanisms for high availability
+
+2. SSL Certificate Provisioning and Management:
+   - Provision SSL certificates for all domains using Google Cloud Certificate Manager
+   - Configure automatic certificate renewal with monitoring alerts for expiration
+   - Implement certificate pinning via HTTP headers
+   - Set up security headers (HSTS, CSP, X-Content-Type-Options)
+   - Enable certificate transparency logging for security auditing
+   - Implement certificate rotation procedures
+
+3. Cloud Run Domain Mapping:
+   - Map custom domains to appropriate Cloud Run services
+   - Configure domain routing rules and load balancing
+   - Set up domain-specific environment variables for service configuration
+   - Implement domain verification through Google Cloud Console
+   - Configure custom domain traffic management and scaling policies
+
+4. Production Security and Monitoring:
+   - Implement comprehensive security headers for all domains
+   - Set up domain monitoring with uptime checks and latency monitoring
+   - Configure domain-specific logging with Cloud Logging
+   - Implement rate limiting and access controls for domains
+   - Set up alerting for domain availability and certificate issues
+
+5. Multi-Environment Domain Management:
+   - Configure staging domains (staging.isectech.org) and development domains (dev.isectech.org)
+   - Implement environment-specific configurations and routing rules
+   - Set up domain testing workflows for pre-production validation
+   - Configure domain backup procedures and recovery documentation
+
+Implementation will use Terraform for infrastructure as code with the following key resources:
+- google_dns_managed_zone for DNS configuration
+- google_certificate_manager_certificate for SSL certificates
+- google_cloud_run_domain_mapping for domain mapping
+- google_monitoring_uptime_check_config for domain monitoring
+
+All configurations will be version-controlled and deployed through the CI/CD pipeline to ensure consistency across environments.
+
+# Test Strategy:
+1. DNS Configuration Testing:
+   - Verify DNS propagation for all domains and subdomains
+   - Validate A and CNAME records using dig and nslookup
+   - Test DNS failover by simulating primary endpoint failure
+   - Verify domain ownership validation records
+
+2. SSL Certificate Testing:
+   - Validate certificate installation using SSL Labs and testssl.sh
+   - Verify certificate chain and trust validation
+   - Test certificate renewal process by forcing renewal
+   - Validate security headers using securityheaders.com
+   - Check certificate transparency logs for proper registration
+
+3. Domain Mapping Testing:
+   - Verify all domains resolve to correct Cloud Run services
+   - Test domain routing with various request patterns
+   - Validate environment variables are correctly applied per domain
+   - Test load balancing and traffic distribution
+   - Verify domain-specific configurations are applied
+
+4. Security and Performance Testing:
+   - Conduct security scanning of all domains
+   - Test rate limiting and access controls
+   - Perform load testing to verify domain performance
+   - Validate monitoring alerts by triggering test conditions
+   - Verify logging captures appropriate domain-specific information
+
+5. Multi-Environment Testing:
+   - Verify isolation between production, staging, and development domains
+   - Test environment-specific configurations
+   - Validate domain migration procedures between environments
+   - Test backup and recovery procedures
+
+6. End-to-End Testing:
+   - Perform user journey testing across all domains
+   - Validate cross-domain interactions
+   - Test mobile and desktop experiences
+   - Verify analytics and monitoring capture all domain traffic
+
+# Subtasks:
+## 1. Provision DNS Managed Zones for All Domains [done]
+### Dependencies: None
+### Description: Create and configure google_dns_managed_zone resources for app.isectech.org, api.isectech.org, docs.isectech.org, staging.isectech.org, and dev.isectech.org using Terraform.
+### Details:
+Ensure each domain and subdomain has a dedicated managed zone in Google Cloud DNS, following best practices for isolation and scalability.
+
+## 2. Configure DNS Records for Cloud Run Mapping [done]
+### Dependencies: 61.1
+### Description: Set up A, CNAME, and TXT records for all domains and subdomains to point to the appropriate Cloud Run endpoints and enable domain verification.
+### Details:
+Use Terraform to automate DNS record creation, including records required for Google Search Console verification and Cloud Run domain mapping.
+
+## 3. Implement DNS Health Monitoring and Failover [done]
+### Dependencies: 61.2
+### Description: Set up DNS health checks and failover mechanisms using google_monitoring_uptime_check_config and Cloud Monitoring for high availability.
+### Details:
+Configure uptime checks for all domains and subdomains, and implement DNS failover policies to reroute traffic in case of endpoint failure.
+
+## 4. Provision SSL Certificates via Certificate Manager [done]
+### Dependencies: 61.2
+### Description: Use google_certificate_manager_certificate to provision SSL certificates for all domains and subdomains, ensuring wildcard and SAN coverage as needed.
+### Details:
+Automate certificate provisioning with Terraform, ensuring certificates are issued, validated, and attached to the correct resources.
+
+## 5. Configure Automatic SSL Renewal and Monitoring [done]
+### Dependencies: 61.4
+### Description: Set up automatic certificate renewal and monitoring alerts for impending expiration using Google Cloud tools.
+### Details:
+Ensure certificates are renewed before expiration and configure monitoring to alert on renewal failures or upcoming expirations.
+
+## 6. Implement Security Headers and Certificate Pinning [done]
+### Dependencies: 61.4
+### Description: Configure HTTP security headers (HSTS, CSP, X-Content-Type-Options) and implement certificate pinning for all domains.
+### Details:
+Update service configurations to include required headers and pinning policies, ensuring compliance with security best practices.
+
+## 7. Enable Certificate Transparency Logging and Rotation [done]
+### Dependencies: 61.4
+### Description: Configure certificate transparency logging and establish documented procedures for certificate rotation.
+### Details:
+Ensure all certificates are logged for transparency and create runbooks for secure, auditable certificate rotation.
+
+## 8. Map Custom Domains to Cloud Run Services [done]
+### Dependencies: 61.2, 61.4
+### Description: Use google_cloud_run_domain_mapping to map each domain and subdomain to the appropriate Cloud Run service, including environment-specific mappings.
+### Details:
+Automate domain mapping with Terraform, ensuring correct routing and service association for production, staging, and development environments.
+
+## 9. Configure Domain Routing Rules and Load Balancing [done]
+### Dependencies: 61.8
+### Description: Set up domain routing rules and load balancing policies for multi-service and multi-environment traffic management.
+### Details:
+Implement routing logic and load balancing using Google Cloud Load Balancer and Cloud Run settings, supporting path-based and subdomain-based routing.
+
+## 10. Implement Domain-Specific Security, Logging, and Monitoring [done]
+### Dependencies: 61.8
+### Description: Configure security headers, rate limiting, access controls, and domain-specific logging and monitoring for all environments.
+### Details:
+Use Cloud Logging and Monitoring to capture domain-specific metrics, set up alerting for availability and security events, and enforce access policies.
+
+## 11. Establish Multi-Environment Domain Management and Testing [done]
+### Dependencies: 61.8, 61.9
+### Description: Configure and validate staging and development domains, implement environment-specific routing, and set up domain testing workflows.
+### Details:
+Ensure isolation between environments, automate environment-specific configuration, and document testing and validation procedures.
+
+## 12. Document Disaster Recovery and Rollback Procedures [done]
+### Dependencies: 61.1, 61.4, 61.8
+### Description: Develop and maintain comprehensive documentation for domain backup, disaster recovery, and rollback processes.
+### Details:
+Include step-by-step guides for restoring DNS, SSL, and domain mappings, and ensure procedures are tested and version-controlled.
+

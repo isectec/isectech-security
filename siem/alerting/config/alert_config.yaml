@@ -1,0 +1,586 @@
+# iSECTECH SIEM Alert Manager Configuration
+# Production-grade alerting and notification configuration
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Alert Manager Configuration"
+last_updated: "2024-01-15T10:30:00Z"
+
+# Database configuration for alert storage
+database:
+  host: "localhost"
+  port: 5432
+  database: "siem_alerts"
+  user: "alert_user"
+  password: "${ALERT_DB_PASSWORD}"
+  pool_size: 10
+  connection_timeout: 30
+  
+# Redis configuration for alert caching and suppression
+redis:
+  host: "localhost"
+  port: 6379
+  db: 4
+  password: "${REDIS_PASSWORD}"
+  max_connections: 50
+  socket_timeout: 5
+  
+# Kafka configuration for real-time alert processing
+kafka:
+  bootstrap_servers: "${KAFKA_BROKERS:localhost:9092}"
+  security_protocol: "SSL"
+  ssl_truststore_location: "/opt/siem/certs/kafka.truststore.jks"
+  ssl_truststore_password: "${KAFKA_TRUSTSTORE_PASSWORD}"
+  ssl_keystore_location: "/opt/siem/certs/kafka.keystore.jks"
+  ssl_keystore_password: "${KAFKA_KEYSTORE_PASSWORD}"
+  
+  # Consumer configuration
+  consumer:
+    group_id: "alert-manager"
+    auto_offset_reset: "latest"
+    max_poll_records: 500
+    session_timeout_ms: 30000
+    
+  # Producer configuration
+  producer:
+    acks: "all"
+    retries: 3
+    compression_type: "snappy"
+    
+# SMTP configuration for email notifications
+smtp:
+  host: "${SMTP_HOST:localhost}"
+  port: 587
+  username: "${SMTP_USERNAME}"
+  password: "${SMTP_PASSWORD}"
+  tls: true
+  timeout: 30
+  
+# Template configuration
+templates:
+  path: "/opt/siem/templates"
+  auto_reload: true
+  cache_size: 100
+
+# Alert Processing Configuration
+alert_processing:
+  # Suppression settings
+  suppression:
+    default_window_minutes: 15
+    max_suppression_window_minutes: 1440  # 24 hours
+    enable_deduplication: true
+    deduplication_window_minutes: 5
+    
+  # Correlation settings
+  correlation:
+    enable_alert_correlation: true
+    correlation_window_minutes: 30
+    max_correlated_alerts: 10
+    correlation_score_threshold: 0.7
+    
+  # Rate limiting
+  rate_limiting:
+    enable_global_rate_limiting: true
+    max_alerts_per_minute: 100
+    max_alerts_per_hour: 1000
+    rate_limit_action: "queue"  # queue, drop, throttle
+    
+  # Processing performance
+  performance:
+    max_concurrent_alerts: 50
+    alert_processing_timeout_seconds: 30
+    batch_size: 100
+    queue_size: 10000
+
+# Notification Channels Configuration
+notification_channels:
+  # Email channels
+  email_security:
+    type: "email"
+    enabled: true
+    config:
+      from_address: "siem-alerts@isectech.com"
+      to_addresses:
+        - "security-team@isectech.com"
+        - "soc@isectech.com"
+      reply_to: "no-reply@isectech.com"
+      template: "security_alert_email"
+    severity_filter: ["low", "medium", "high", "critical"]
+    category_filter: ["security_incident", "anomaly", "compliance"]
+    rate_limit: 50  # per hour
+    escalation_delay: 30  # minutes
+    
+  email_critical:
+    type: "email"
+    enabled: true
+    config:
+      from_address: "siem-critical@isectech.com"
+      to_addresses:
+        - "security-manager@isectech.com"
+        - "ciso@isectech.com"
+        - "on-call@isectech.com"
+      priority: "high"
+      template: "critical_alert_email"
+    severity_filter: ["critical"]
+    category_filter: ["security_incident", "anomaly"]
+    rate_limit: 100
+    escalation_delay: 15
+    
+  email_compliance:
+    type: "email"
+    enabled: true
+    config:
+      from_address: "compliance-alerts@isectech.com"
+      to_addresses:
+        - "compliance-team@isectech.com"
+        - "audit@isectech.com"
+      template: "compliance_alert_email"
+    severity_filter: ["medium", "high", "critical"]
+    category_filter: ["compliance"]
+    rate_limit: 25
+    escalation_delay: 60
+    
+  # Slack channels
+  slack_security:
+    type: "slack"
+    enabled: true
+    config:
+      webhook_url: "${SLACK_SECURITY_WEBHOOK}"
+      channel: "#security-alerts"
+      username: "SIEM Bot"
+      icon_emoji: ":warning:"
+      template: "slack_security_alert"
+    severity_filter: ["medium", "high", "critical"]
+    category_filter: ["security_incident", "anomaly"]
+    rate_limit: 100
+    escalation_delay: 20
+    
+  slack_general:
+    type: "slack"
+    enabled: true
+    config:
+      webhook_url: "${SLACK_GENERAL_WEBHOOK}"
+      channel: "#general-alerts"
+      username: "SIEM Bot"
+      icon_emoji: ":information_source:"
+      template: "slack_general_alert"
+    severity_filter: ["low", "medium"]
+    category_filter: ["system", "compliance"]
+    rate_limit: 50
+    escalation_delay: 45
+    
+  # Microsoft Teams
+  teams_security:
+    type: "teams"
+    enabled: true
+    config:
+      webhook_url: "${TEAMS_SECURITY_WEBHOOK}"
+      title_prefix: "[SECURITY ALERT]"
+      template: "teams_security_alert"
+    severity_filter: ["high", "critical"]
+    category_filter: ["security_incident", "anomaly"]
+    rate_limit: 75
+    escalation_delay: 25
+    
+  # PagerDuty
+  pagerduty:
+    type: "pagerduty"
+    enabled: true
+    config:
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      api_url: "https://events.pagerduty.com/v2/enqueue"
+      severity_mapping:
+        critical: "critical"
+        high: "error"
+        medium: "warning"
+        low: "info"
+    severity_filter: ["critical"]
+    category_filter: ["security_incident"]
+    rate_limit: 20
+    escalation_delay: 10
+    
+  # SMS notifications
+  sms_oncall:
+    type: "sms"
+    enabled: false  # Disabled by default
+    config:
+      provider: "twilio"
+      account_sid: "${TWILIO_ACCOUNT_SID}"
+      auth_token: "${TWILIO_AUTH_TOKEN}"
+      from_number: "${TWILIO_FROM_NUMBER}"
+      to_numbers:
+        - "${ONCALL_PHONE_1}"
+        - "${ONCALL_PHONE_2}"
+      message_template: "SIEM Alert: {{alert.severity}} - {{alert.title}}"
+    severity_filter: ["critical"]
+    category_filter: ["security_incident"]
+    rate_limit: 10
+    escalation_delay: 5
+    
+  # Webhook integrations
+  webhook_soar:
+    type: "webhook"
+    enabled: true
+    config:
+      url: "${SOAR_WEBHOOK_URL}"
+      method: "POST"
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer ${SOAR_API_TOKEN}"
+      timeout: 10
+      retry_attempts: 3
+      template: "soar_webhook"
+    severity_filter: ["high", "critical"]
+    category_filter: ["security_incident", "anomaly"]
+    rate_limit: 200
+    escalation_delay: 0
+    
+  webhook_siem_platform:
+    type: "webhook"
+    enabled: true
+    config:
+      url: "${EXTERNAL_SIEM_WEBHOOK}"
+      method: "POST"
+      headers:
+        Content-Type: "application/json"
+        X-API-Key: "${EXTERNAL_SIEM_API_KEY}"
+      template: "external_siem_webhook"
+    severity_filter: ["medium", "high", "critical"]
+    category_filter: ["security_incident", "anomaly", "compliance"]
+    rate_limit: 500
+    escalation_delay: 0
+
+# Alert Rules Configuration
+alert_rules:
+  # Critical security incidents
+  critical_security_incident:
+    name: "Critical Security Incident"
+    description: "High-severity security incidents requiring immediate attention"
+    conditions:
+      severity: ["critical"]
+      category: ["security_incident"]
+      indicators:
+        threat_detected: true
+        confidence_score:
+          min: 0.8
+    notification_channels: ["email_critical", "slack_security", "pagerduty", "webhook_soar"]
+    suppression_window: 10  # minutes
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 15  # minutes
+        channels: ["sms_oncall"]
+      - level: 2
+        delay: 30
+        channels: ["email_critical", "teams_security"]
+    enabled: true
+    
+  # Anomaly detection alerts
+  ml_anomaly_detection:
+    name: "ML Anomaly Detection"
+    description: "Machine learning detected anomalies"
+    conditions:
+      source: ["ml_anomaly_engine"]
+      indicators:
+        ml_confidence:
+          min: 0.7
+    notification_channels: ["email_security", "slack_security"]
+    suppression_window: 20
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 45
+        channels: ["email_critical"]
+    enabled: true
+    
+  # Correlation engine alerts
+  correlation_alerts:
+    name: "Correlation Engine Alerts"
+    description: "Multi-event correlation alerts"
+    conditions:
+      source: ["correlation_engine"]
+      category: ["security_incident", "anomaly"]
+    notification_channels: ["email_security", "slack_security", "webhook_soar"]
+    suppression_window: 15
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 30
+        channels: ["teams_security"]
+    enabled: true
+    
+  # Compliance violations
+  compliance_violations:
+    name: "Compliance Violations"
+    description: "Regulatory compliance violations"
+    conditions:
+      category: ["compliance"]
+      severity: ["medium", "high", "critical"]
+    notification_channels: ["email_compliance", "webhook_siem_platform"]
+    suppression_window: 60
+    auto_resolve: true
+    escalation_rules:
+      - level: 1
+        delay: 120
+        channels: ["email_critical"]
+    enabled: true
+    
+  # Failed authentication patterns
+  failed_authentication:
+    name: "Failed Authentication Patterns"
+    description: "Multiple failed authentication attempts"
+    conditions:
+      category: ["security_incident"]
+      indicators:
+        failed_attempts:
+          min: 10
+        pattern_type: ["brute_force", "credential_stuffing"]
+    notification_channels: ["email_security", "slack_security"]
+    suppression_window: 30
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 60
+        channels: ["teams_security"]
+    enabled: true
+    
+  # Data exfiltration alerts
+  data_exfiltration:
+    name: "Data Exfiltration"
+    description: "Potential data exfiltration detected"
+    conditions:
+      category: ["security_incident"]
+      indicators:
+        data_volume:
+          min: 1000000  # bytes
+        external_transfer: true
+    notification_channels: ["email_critical", "slack_security", "pagerduty"]
+    suppression_window: 5
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 10
+        channels: ["sms_oncall"]
+    enabled: true
+    
+  # Malware detection
+  malware_detection:
+    name: "Malware Detection"
+    description: "Malware or malicious activity detected"
+    conditions:
+      category: ["security_incident"]
+      indicators:
+        threat_type: ["malware", "trojan", "ransomware"]
+        detection_confidence:
+          min: 0.8
+    notification_channels: ["email_critical", "slack_security", "webhook_soar"]
+    suppression_window: 15
+    auto_resolve: false
+    escalation_rules:
+      - level: 1
+        delay: 20
+        channels: ["teams_security"]
+      - level: 2
+        delay: 45
+        channels: ["pagerduty"]
+    enabled: true
+
+# Escalation Configuration
+escalation:
+  # Default escalation settings
+  default_escalation_delay: 30  # minutes
+  max_escalation_levels: 3
+  auto_escalation_enabled: true
+  
+  # Escalation schedules
+  schedules:
+    business_hours:
+      timezone: "America/New_York"
+      weekdays:
+        start_time: "09:00"
+        end_time: "17:00"
+      weekends: false
+      holidays: false
+      
+    after_hours:
+      timezone: "America/New_York"
+      weekdays:
+        start_time: "17:01"
+        end_time: "08:59"
+      weekends: true
+      holidays: true
+      
+    always:
+      enabled: true
+      
+  # Escalation policies
+  policies:
+    critical_incidents:
+      applicable_severities: ["critical"]
+      applicable_categories: ["security_incident"]
+      schedule: "always"
+      escalation_levels:
+        - level: 1
+          delay: 15
+          channels: ["email_critical", "pagerduty"]
+        - level: 2
+          delay: 30
+          channels: ["sms_oncall"]
+        - level: 3
+          delay: 60
+          channels: ["email_critical", "teams_security"]
+          
+    high_priority:
+      applicable_severities: ["high"]
+      applicable_categories: ["security_incident", "anomaly"]
+      schedule: "business_hours"
+      escalation_levels:
+        - level: 1
+          delay: 30
+          channels: ["email_security", "slack_security"]
+        - level: 2
+          delay: 60
+          channels: ["teams_security"]
+          
+    compliance_issues:
+      applicable_severities: ["medium", "high", "critical"]
+      applicable_categories: ["compliance"]
+      schedule: "business_hours"
+      escalation_levels:
+        - level: 1
+          delay: 120
+          channels: ["email_compliance"]
+
+# Monitoring and Metrics
+monitoring:
+  enabled: true
+  
+  # Metrics collection
+  metrics:
+    alerts_generated_total: true
+    alerts_suppressed_total: true
+    notifications_sent_total: true
+    escalations_triggered_total: true
+    notification_failures_total: true
+    alert_processing_duration: true
+    notification_delivery_duration: true
+    
+  # Health checks
+  health_checks:
+    database_connection: true
+    redis_connection: true
+    kafka_connection: true
+    notification_channels: true
+    
+  # Performance monitoring
+  performance:
+    max_alert_processing_time_seconds: 30
+    max_notification_delivery_time_seconds: 60
+    alert_queue_size_threshold: 1000
+    memory_usage_threshold_percent: 85
+    
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  output: "file"
+  file_path: "/var/log/siem/alert-manager.log"
+  max_file_size_mb: 100
+  backup_count: 10
+  
+  # Audit logging
+  audit_enabled: true
+  audit_file: "/var/log/siem/alert-audit.log"
+  audit_events:
+    - "alert_created"
+    - "alert_suppressed"
+    - "notification_sent"
+    - "escalation_triggered"
+    - "alert_acknowledged"
+    - "alert_resolved"
+    
+# Security Configuration
+security:
+  # API security (if REST API is enabled)
+  api_enabled: true
+  api_key_required: true
+  api_keys:
+    - name: "alert_service"
+      key: "${ALERT_API_KEY}"
+      permissions: ["read", "write"]
+    - name: "dashboard"
+      key: "${DASHBOARD_API_KEY}"
+      permissions: ["read"]
+      
+  # Encryption
+  encrypt_sensitive_data: true
+  encryption_key: "${ALERT_ENCRYPTION_KEY}"
+  
+  # Access control
+  rbac_enabled: true
+  audit_all_actions: true
+  
+  # Network security
+  allowed_sources:
+    - "192.168.0.0/16"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    
+# Integration Settings
+integrations:
+  # SOAR platform integration
+  soar:
+    enabled: true
+    platform: "phantom"  # phantom, demisto, siemplify
+    api_endpoint: "${SOAR_API_ENDPOINT}"
+    api_key: "${SOAR_API_KEY}"
+    auto_create_incidents: true
+    incident_mapping:
+      critical: "high"
+      high: "medium"
+      medium: "low"
+      low: "informational"
+      
+  # Ticketing system integration
+  ticketing:
+    enabled: true
+    system: "jira"  # jira, servicenow, remedy
+    api_endpoint: "${JIRA_API_ENDPOINT}"
+    username: "${JIRA_USERNAME}"
+    api_token: "${JIRA_API_TOKEN}"
+    project_key: "SEC"
+    auto_create_tickets: true
+    ticket_mapping:
+      critical: "Highest"
+      high: "High"
+      medium: "Medium"
+      low: "Low"
+      
+  # Chat platforms
+  chat_platforms:
+    slack:
+      bot_token: "${SLACK_BOT_TOKEN}"
+      signing_secret: "${SLACK_SIGNING_SECRET}"
+      interactive_components: true
+      
+    teams:
+      webhook_url: "${TEAMS_WEBHOOK_URL}"
+      card_templates: true
+      
+# Maintenance and Retention
+maintenance:
+  # Data retention
+  alert_retention_days: 90
+  notification_log_retention_days: 30
+  metrics_retention_days: 365
+  
+  # Cleanup schedules
+  cleanup_frequency_hours: 24
+  archive_old_alerts: true
+  compress_archived_data: true
+  
+  # Backup settings
+  backup_enabled: true
+  backup_frequency_hours: 12
+  backup_retention_days: 30
+  backup_location: "/opt/siem/backups"

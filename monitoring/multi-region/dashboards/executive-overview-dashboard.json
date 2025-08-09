@@ -1,0 +1,570 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "iSECTECH Multi-Region Executive Overview",
+    "tags": ["executive", "multi-region", "slo", "business-impact"],
+    "timezone": "UTC",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+      "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+    },
+    "schemaVersion": 37,
+    "version": 1,
+    "panels": [
+      {
+        "id": 1,
+        "title": "Global Service Health Summary",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "up{job=\"global-health-check\"}",
+            "legendFormat": "Global Status",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.95},
+                {"color": "green", "value": 0.99}
+              ]
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "horizontal",
+          "textMode": "auto",
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Regional Availability SLO Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "avg by (region) (up{job=~\"regional-health-check-.*\"})",
+            "legendFormat": "{{region}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "orange", "value": 0.95},
+                {"color": "yellow", "value": 0.98},
+                {"color": "green", "value": 0.999}
+              ]
+            },
+            "unit": "percentunit"
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "vertical",
+          "displayMode": "list",
+          "colorMode": "background"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Business Impact by Region",
+        "type": "piechart",
+        "gridPos": {"h": 10, "w": 8, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "label_replace(vector(40), \"region\", \"us-central1\", \"\", \"\")",
+            "legendFormat": "US Central ({{value}}%)",
+            "refId": "A"
+          },
+          {
+            "expr": "label_replace(vector(30), \"region\", \"europe-west4\", \"\", \"\")",
+            "legendFormat": "EU West ({{value}}%)",
+            "refId": "B"
+          },
+          {
+            "expr": "label_replace(vector(30), \"region\", \"asia-northeast1\", \"\", \"\")",
+            "legendFormat": "APAC ({{value}}%)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percent",
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "pieType": "pie",
+          "displayLabels": ["name", "value"],
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": ["value", "percent"]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Budget Burn Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 8, "x": 8, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m])",
+            "legendFormat": "Error Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "0.001",
+            "legendFormat": "SLO Threshold (0.1%)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percentunit",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "insertNulls": false,
+              "showPoints": "never",
+              "pointSize": 5,
+              "stacking": {"mode": "none", "group": "A"},
+              "axisPlacement": "auto",
+              "axisLabel": "",
+              "axisColorMode": "text",
+              "scaleDistribution": {"type": "linear"},
+              "axisCenteredZero": false,
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "thresholdsStyle": {"mode": "off"}
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "SLO Threshold (0.1%)"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                {"id": "custom.drawStyle", "value": "line"},
+                {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": {
+            "mode": "single",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["last", "max", "mean"]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Compliance Status",
+        "type": "stat",
+        "gridPos": {"h": 10, "w": 8, "x": 16, "y": 8},
+        "targets": [
+          {
+            "expr": "1 - (rate(compliance_violations_total{regulation=\"GDPR\"}[1h]) > 0)",
+            "legendFormat": "GDPR Compliance",
+            "refId": "A"
+          },
+          {
+            "expr": "1 - (rate(compliance_violations_total{regulation=\"CCPA\"}[1h]) > 0)",
+            "legendFormat": "CCPA Compliance",
+            "refId": "B"
+          },
+          {
+            "expr": "1 - (rate(compliance_violations_total{regulation=\"APPI\"}[1h]) > 0)",
+            "legendFormat": "APPI Compliance",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "unit": "none",
+            "mappings": [
+              {
+                "options": {
+                  "0": {"text": "NON-COMPLIANT", "color": "red"},
+                  "1": {"text": "COMPLIANT", "color": "green"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "horizontal",
+          "textMode": "name",
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 6,
+        "title": "Request Volume by Region",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 12, "x": 0, "y": 18},
+        "targets": [
+          {
+            "expr": "sum by (region) (rate(http_requests_total[5m]))",
+            "legendFormat": "{{region}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 15,
+              "gradientMode": "opacity",
+              "spanNulls": false,
+              "showPoints": "never",
+              "pointSize": 5,
+              "stacking": {"mode": "none", "group": "A"},
+              "axisPlacement": "auto",
+              "axisLabel": "Requests/second",
+              "scaleDistribution": {"type": "linear"},
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["last", "max", "mean"]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Response Time P95 by Region",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 12, "x": 12, "y": 18},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum by (region, le) (rate(http_request_duration_seconds_bucket[5m])))",
+            "legendFormat": "{{region}} P95",
+            "refId": "A"
+          },
+          {
+            "expr": "0.5",
+            "legendFormat": "SLO Target (500ms)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "showPoints": "never",
+              "pointSize": 5,
+              "stacking": {"mode": "none", "group": "A"},
+              "axisPlacement": "auto",
+              "axisLabel": "Response Time",
+              "scaleDistribution": {"type": "linear"},
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "SLO Target (500ms)"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                {"id": "custom.drawStyle", "value": "line"},
+                {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["last", "max", "mean"]
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Database Performance Overview",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "avg by (region) (mysql_global_status_queries / mysql_global_status_uptime)",
+            "legendFormat": "{{region}} Queries/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "avg by (region) (mysql_global_status_connections)",
+            "legendFormat": "{{region}} Connections",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "showPoints": "never",
+              "pointSize": 5,
+              "stacking": {"mode": "none", "group": "A"},
+              "axisPlacement": "auto",
+              "scaleDistribution": {"type": "linear"},
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": ["last", "max", "mean"]
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Cost and Capacity Utilization",
+        "type": "bargauge",
+        "gridPos": {"h": 10, "w": 12, "x": 12, "y": 28},
+        "targets": [
+          {
+            "expr": "avg by (region) (100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))",
+            "legendFormat": "{{region}} CPU %",
+            "refId": "A"
+          },
+          {
+            "expr": "avg by (region) ((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)",
+            "legendFormat": "{{region}} Memory %",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 60},
+                {"color": "orange", "value": 80},
+                {"color": "red", "value": 90}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "minVizWidth": 0,
+          "minVizHeight": 10
+        }
+      },
+      {
+        "id": 10,
+        "title": "Recent Critical Alerts",
+        "type": "logs",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 38},
+        "targets": [
+          {
+            "expr": "{severity=\"critical\", component=~\"monitoring|alerting\"} |= \"alert\"",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showLabels": true,
+          "showTime": true,
+          "sortOrder": "Descending",
+          "wrapLogMessage": false,
+          "prettifyLogMessage": false,
+          "enableLogDetails": true,
+          "dedupStrategy": "none"
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "region",
+          "type": "query",
+          "query": "label_values(up{job=~\"regional-health-check-.*\"}, region)",
+          "current": {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          "multi": true,
+          "includeAll": true,
+          "refresh": 1,
+          "options": []
+        },
+        {
+          "name": "compliance_zone",
+          "type": "custom",
+          "query": "gdpr,ccpa,appi",
+          "current": {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          "multi": true,
+          "includeAll": true,
+          "options": []
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "increase(deployment_events_total[1m]) > 0",
+          "iconColor": "blue",
+          "titleFormat": "Deployment"
+        },
+        {
+          "name": "Critical Incidents",
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "increase(incident_created_total{severity=\"critical\"}[1m]) > 0",
+          "iconColor": "red",
+          "titleFormat": "Critical Incident"
+        }
+      ]
+    }
+  },
+  "folderId": null,
+  "overwrite": true
+}

@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apigw-to-services
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: netpol
+    security.isectech.com/policy-type: pod-to-pod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: isectech-services
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: isectech-api-gateway
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace-services
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: netpol
+    security.isectech.com/policy-type: pod-to-pod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: isectech-services
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: isectech-services
+      ports:
+        - protocol: TCP
+          port: 8080
+
+

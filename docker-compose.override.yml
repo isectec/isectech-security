@@ -1,0 +1,105 @@
+# iSECTECH Development Environment Override
+# This file extends docker-compose.yml for local development
+
+version: '3.8'
+
+services:
+  # Frontend development overrides
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: builder
+    command: npm run dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    
+  # Backend development overrides
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: builder
+    command: air -c .air.toml
+    volumes:
+      - .:/app
+      - /go/pkg/mod
+    environment:
+      - ENV=development
+      - GIN_MODE=debug
+      - HOT_RELOAD=true
+    ports:
+      - "8080:8080"
+      - "2345:2345" # Delve debugger port
+    
+  # AI services development overrides
+  ai-services:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+      target: builder
+    command: uvicorn ai_services.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+      - ai_models:/app/models
+    environment:
+      - ENV=development
+      - LOG_LEVEL=debug
+      - RELOAD=true
+    ports:
+      - "8000:8000"
+    
+  # Development database with exposed port
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./scripts/init-dev-db.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_DB=isectech_dev
+      - POSTGRES_USER=dev_user
+      - POSTGRES_PASSWORD=dev_password
+      
+  # Development Redis with exposed port
+  redis:
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    
+  # Development tools and utilities
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@isectech.local
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_dev_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+      
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data: 
+  pgadmin_dev_data:
+  ai_models:

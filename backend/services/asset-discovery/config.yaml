@@ -1,0 +1,291 @@
+# Asset Discovery Service Configuration
+
+service:
+  name: "asset-discovery"
+  version: "1.0.0"
+  environment: "production"
+  debug: false
+  shutdown_timeout: "30s"
+  
+  health_check:
+    enabled: true
+    interval: "30s"
+    timeout: "5s"
+
+# HTTP Server Configuration
+http:
+  enabled: true
+  host: "0.0.0.0"
+  port: "8080"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+  
+  cors:
+    enabled: true
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers: ["*"]
+    allow_credentials: true
+    max_age: 3600
+  
+  rate_limit:
+    enabled: true
+    requests_per_minute: 1000
+    burst_size: 100
+    window_size: "1m"
+
+# gRPC Server Configuration
+grpc:
+  enabled: true
+  host: "0.0.0.0"
+  port: "9090"
+  max_receive_size: 4194304  # 4MB
+  max_send_size: 4194304     # 4MB
+  connection_timeout: "30s"
+  reflection: true
+  
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+
+# Database Configuration
+database:
+  postgresql:
+    host: "localhost"
+    port: 5432
+    database: "asset_discovery"
+    username: "postgres"
+    password: "password"  # Override with POSTGRES_PASSWORD env var
+    ssl_mode: "disable"
+    max_open_conns: 25
+    max_idle_conns: 10
+    conn_max_lifetime: "1h"
+    conn_max_idle_time: "30m"
+    query_timeout: "30s"
+    retry_attempts: 3
+    retry_delay: "1s"
+  
+  mongodb:
+    uri: "mongodb://localhost:27017"
+    database: "asset_discovery"
+    max_pool_size: 100
+    min_pool_size: 5
+    connect_timeout: "10s"
+    server_timeout: "30s"
+    retry_attempts: 3
+    retry_delay: "1s"
+  
+  migration:
+    enabled: true
+    path: "./migrations"
+    version: 0
+
+# Cache Configuration
+cache:
+  redis:
+    host: "localhost"
+    port: "6379"
+    password: ""  # Override with REDIS_PASSWORD env var
+    database: 0
+    pool_size: 10
+    min_idle_conns: 5
+    dial_timeout: "5s"
+    read_timeout: "3s"
+    write_timeout: "3s"
+    idle_timeout: "5m"
+    
+    cluster:
+      enabled: false
+      addresses: []
+    
+    sentinel:
+      enabled: false
+      master_name: ""
+      addresses: []
+  
+  ttl:
+    default: "1h"
+    assets: "30m"
+    discovery: "10m"
+    aggregation: "5m"
+
+# External Services Configuration
+external:
+  nmap:
+    enabled: true
+    path: "/usr/bin/nmap"
+    timeout: "30m"
+    max_targets: 1000
+  
+  aws:
+    enabled: false
+    region: "us-east-1"
+    access_key: ""  # Override with AWS_ACCESS_KEY_ID env var
+    secret_key: ""  # Override with AWS_SECRET_ACCESS_KEY env var
+    profile: ""
+  
+  azure:
+    enabled: false
+    tenant_id: ""
+    client_id: ""
+    client_secret: ""  # Override with AZURE_CLIENT_SECRET env var
+    subscription_id: ""
+  
+  gcp:
+    enabled: false
+    project_id: ""
+    credentials_file: ""
+    credentials_json: ""  # Override with GCP_CREDENTIALS_JSON env var
+  
+  vuln_scanners:
+    enabled: false
+    openvas:
+      enabled: false
+      host: "localhost"
+      port: 9390
+      username: ""
+      password: ""
+    nessus:
+      enabled: false
+      host: "localhost"
+      port: 8834
+      access_key: ""
+      secret_key: ""
+    qualys:
+      enabled: false
+      host: "qualysapi.qualys.com"
+      username: ""
+      password: ""
+  
+  threat_intel:
+    enabled: false
+    sources: []
+    update_interval: "24h"
+
+# Logging Configuration
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  filename: ""
+  max_size: 100
+  max_backups: 3
+  max_age: 28
+  compress: true
+  structured: true
+  fields:
+    service: "asset-discovery"
+
+# Metrics Configuration
+metrics:
+  enabled: true
+  host: "0.0.0.0"
+  port: "2112"
+  path: "/metrics"
+  namespace: "asset_discovery"
+  
+  prometheus:
+    enabled: true
+    push_gateway: ""
+    job: "asset-discovery"
+    instance: ""
+    interval: "15s"
+  
+  custom:
+    enabled: true
+    metrics: []
+
+# Security Configuration
+security:
+  api:
+    enabled: true
+    allowed_hosts: []
+    trusted_proxies: []
+    api_keys: []
+    max_request_size: 10485760  # 10MB
+    request_timeout: "30s"
+  
+  encryption:
+    enabled: false
+    algorithm: "AES-256-GCM"
+    key_file: ""
+    secret_key: ""  # Override with ENCRYPTION_SECRET_KEY env var
+    
+    at_rest:
+      enabled: false
+      algorithm: "AES-256-GCM"
+      key_size: 256
+    
+    in_transit:
+      enabled: false
+      tls:
+        enabled: false
+        cert_file: ""
+        key_file: ""
+        ca_file: ""
+  
+  authentication:
+    enabled: false
+    type: "jwt"
+    
+    jwt:
+      enabled: false
+      secret_key: ""  # Override with JWT_SECRET_KEY env var
+      issuer: "asset-discovery"
+      audience: "asset-discovery-clients"
+      token_lifetime: "1h"
+      refresh_lifetime: "24h"
+    
+    oauth:
+      enabled: false
+      provider_url: ""
+      client_id: ""
+      client_secret: ""
+      redirect_url: ""
+      scopes: []
+  
+  authorization:
+    enabled: false
+    type: "rbac"
+    
+    rbac:
+      enabled: false
+      policy_file: ""
+    
+    abac:
+      enabled: false
+      policy_file: ""
+
+# Discovery Configuration
+discovery:
+  default_scan_options:
+    port_ranges: ["1-1000", "8000-9000"]
+    service_detection: true
+    version_detection: false
+    os_detection: false
+    deep_inspection: false
+  
+  concurrency:
+    max_concurrent_scans: 10
+    max_concurrent_targets: 100
+    worker_pool_size: 50
+  
+  timeouts:
+    scan_timeout: "30m"
+    target_timeout: "5m"
+    service_timeout: "30s"
+  
+  rate_limiting:
+    enabled: true
+    requests_per_second: 100
+    burst_size: 200
+    window_size: "1m"
+  
+  asset_lifecycle:
+    stale_threshold: "7d"
+    archive_threshold: "30d"
+    cleanup_interval: "24h"
+    enable_auto_cleanup: false

@@ -1,0 +1,309 @@
+{
+  "test_scenarios": {
+    "crowdstrike_falcon": {
+      "description": "CrowdStrike Falcon EDR logs with various event types",
+      "logs": [
+        {
+          "format": "json",
+          "raw_log": "{\"timestamp\": 1705312200000, \"event_simpleName\": \"ProcessRollup2\", \"ComputerName\": \"WORKSTATION01\", \"UserName\": \"admin\", \"ProcessId\": \"1234\", \"ParentProcessId\": \"567\", \"ImageFileName\": \"notepad.exe\", \"CommandLine\": \"notepad.exe test.txt\", \"MD5HashData\": \"d41d8cd98f00b204e9800998ecf8427e\", \"SHA256HashData\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"LocalAddressIP4\": \"192.168.1.100\", \"RemoteAddressIP4\": \"10.0.0.1\", \"DetectName\": \"Suspicious Process Execution\", \"Severity\": \"Medium\", \"Tactic\": \"Execution\", \"Technique\": \"Command and Scripting Interpreter\"}",
+          "expected_fields": {
+            "event.action": "ProcessRollup2",
+            "host.name": "WORKSTATION01",
+            "user.name": "admin",
+            "process.pid": 1234,
+            "process.parent.pid": 567,
+            "process.name": "notepad.exe",
+            "process.command_line": "notepad.exe test.txt",
+            "process.hash.md5": "d41d8cd98f00b204e9800998ecf8427e",
+            "process.hash.sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "source.ip": "192.168.1.100",
+            "destination.ip": "10.0.0.1",
+            "rule.name": "Suspicious Process Execution",
+            "event.severity": 50,
+            "threat.tactic.name": "Execution",
+            "threat.technique.name": "Command and Scripting Interpreter"
+          }
+        },
+        {
+          "format": "json",
+          "raw_log": "{\"timestamp\": 1705312260000, \"event_simpleName\": \"NetworkConnectIP4\", \"ComputerName\": \"SERVER01\", \"UserName\": \"system\", \"ProcessId\": \"2468\", \"ImageFileName\": \"chrome.exe\", \"LocalAddressIP4\": \"192.168.1.50\", \"LocalPort\": \"54321\", \"RemoteAddressIP4\": \"185.199.108.153\", \"RemotePort\": \"443\", \"Protocol\": \"6\", \"ConnectionDirection\": \"Outbound\", \"DetectName\": \"Outbound Connection to Suspicious IP\", \"Severity\": \"High\", \"ThreatScore\": \"85\"}",
+          "expected_fields": {
+            "event.action": "NetworkConnectIP4",
+            "host.name": "SERVER01",
+            "user.name": "system",
+            "process.pid": 2468,
+            "process.name": "chrome.exe",
+            "source.ip": "192.168.1.50",
+            "source.port": 54321,
+            "destination.ip": "185.199.108.153",
+            "destination.port": 443,
+            "network.protocol": "tcp",
+            "rule.name": "Outbound Connection to Suspicious IP",
+            "event.severity": 70
+          }
+        }
+      ]
+    },
+    "microsoft_defender": {
+      "description": "Microsoft Defender ATP/EDR security events",
+      "logs": [
+        {
+          "format": "json",
+          "raw_log": "{\"Timestamp\": \"2024-01-15T10:30:00Z\", \"DeviceId\": \"12345678-1234-1234-1234-123456789012\", \"DeviceName\": \"LAPTOP01\", \"ActionType\": \"FileCreated\", \"FileName\": \"malicious.exe\", \"FilePath\": \"C:\\\\Users\\\\admin\\\\Downloads\\\\malicious.exe\", \"SHA256\": \"275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f\", \"ProcessId\": \"3456\", \"ProcessCommandLine\": \"powershell.exe -EncodedCommand\", \"AccountDomain\": \"DOMAIN\", \"AccountName\": \"admin\", \"Severity\": \"High\", \"ThreatFamily\": \"Trojan:Win32/Emotet\"}",
+          "expected_fields": {
+            "event.action": "FileCreated",
+            "host.id": "12345678-1234-1234-1234-123456789012",
+            "host.name": "LAPTOP01",
+            "file.name": "malicious.exe",
+            "file.path": "C:\\Users\\admin\\Downloads\\malicious.exe",
+            "file.hash.sha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+            "process.pid": 3456,
+            "process.command_line": "powershell.exe -EncodedCommand",
+            "user.domain": "DOMAIN",
+            "user.name": "admin",
+            "event.severity": 70,
+            "threat.technique.name": "Trojan:Win32/Emotet"
+          }
+        }
+      ]
+    },
+    "okta_identity": {
+      "description": "Okta identity and access management logs",
+      "logs": [
+        {
+          "format": "json",
+          "raw_log": "{\"uuid\": \"12345678-1234-1234-1234-123456789012\", \"published\": \"2024-01-15T10:30:00.000Z\", \"eventType\": \"user.authentication.auth_via_mfa\", \"version\": \"0\", \"severity\": \"INFO\", \"displayMessage\": \"User login to Okta\", \"actor\": {\"id\": \"00u1a2b3c4d5e6f7g8h9\", \"type\": \"User\", \"alternateId\": \"admin@isectech.com\", \"displayName\": \"Admin User\"}, \"client\": {\"ipAddress\": \"192.168.1.100\", \"userAgent\": {\"rawUserAgent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\"}, \"geographicalContext\": {\"city\": \"New York\", \"state\": \"NY\", \"country\": \"United States\", \"geolocation\": {\"lat\": 40.7589, \"lon\": -73.9851}}}, \"outcome\": {\"result\": \"SUCCESS\"}, \"authenticationContext\": {\"authenticationProvider\": \"OKTA_AUTHENTICATION_PROVIDER\", \"credentialProvider\": \"OKTA_CREDENTIAL_PROVIDER\", \"credentialType\": \"OTP\"}}",
+          "expected_fields": {
+            "event.id": "12345678-1234-1234-1234-123456789012",
+            "@timestamp": "2024-01-15T10:30:00.000Z",
+            "event.action": "user.authentication.auth_via_mfa",
+            "event.severity": 10,
+            "user.id": "00u1a2b3c4d5e6f7g8h9",
+            "user.email": "admin@isectech.com",
+            "user.full_name": "Admin User",
+            "source.ip": "192.168.1.100",
+            "user_agent.original": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "source.geo.city_name": "New York",
+            "source.geo.region_name": "NY",
+            "source.geo.country_name": "United States",
+            "event.outcome": "success"
+          }
+        },
+        {
+          "format": "json",
+          "raw_log": "{\"uuid\": \"87654321-4321-4321-4321-210987654321\", \"published\": \"2024-01-15T10:35:00.000Z\", \"eventType\": \"user.authentication.auth_via_mfa\", \"severity\": \"WARN\", \"displayMessage\": \"Authentication failed\", \"actor\": {\"id\": \"00u9z8y7x6w5v4u3t2s1\", \"alternateId\": \"attacker@malicious.com\"}, \"client\": {\"ipAddress\": \"203.0.113.100\", \"geographicalContext\": {\"country\": \"Unknown\"}}, \"outcome\": {\"result\": \"FAILURE\", \"reason\": \"INVALID_CREDENTIALS\"}}",
+          "expected_fields": {
+            "event.action": "user.authentication.auth_via_mfa",
+            "event.outcome": "failure",
+            "source.ip": "203.0.113.100",
+            "user.email": "attacker@malicious.com",
+            "event.reason": "INVALID_CREDENTIALS"
+          }
+        }
+      ]
+    },
+    "palo_alto_threat": {
+      "description": "Palo Alto Networks threat detection logs",
+      "logs": [
+        {
+          "format": "csv",
+          "raw_log": "2024/01/15 10:30:00,007054000012345,THREAT,vulnerability,2560,2024/01/15 10:30:00,192.168.1.100,203.0.113.50,0.0.0.0,0.0.0.0,allow-internet,DOMAIN\\admin,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2024/01/15 10:30:00,543210,1,54321,80,0,0,0x400000,tcp,alert,,CVE-2024-1234,high-vuln,client-to-server,12345,0x2000000000000000,United States,Unknown,text,12345,0123456789abcdef,,0,,,GET,MSIE,67890,,,,,",
+          "expected_fields": {
+            "@timestamp": "2024-01-15T10:30:00Z",
+            "source.ip": "192.168.1.100",
+            "destination.ip": "203.0.113.50",
+            "source.port": 54321,
+            "destination.port": 80,
+            "network.protocol": "tcp",
+            "rule.name": "allow-internet",
+            "user.name": "DOMAIN\\admin",
+            "network.application": "web-browsing",
+            "threat.technique.id": "CVE-2024-1234",
+            "threat.tactic.name": "high-vuln",
+            "event.action": "alert",
+            "event.severity": 70,
+            "source.geo.country_iso_code": "US",
+            "destination.geo.country_iso_code": "Unknown"
+          }
+        }
+      ]
+    },
+    "syslog_samples": {
+      "description": "Standard syslog format samples from various systems",
+      "logs": [
+        {
+          "format": "syslog",
+          "raw_log": "<30>Jan 15 10:30:00 firewall01 kernel: [123456.789] Dropped packet from 203.0.113.100 to 192.168.1.50",
+          "expected_fields": {
+            "syslog.priority": 30,
+            "syslog.facility": 3,
+            "syslog.severity": 6,
+            "syslog.hostname": "firewall01",
+            "syslog.program": "kernel",
+            "syslog.message": "[123456.789] Dropped packet from 203.0.113.100 to 192.168.1.50"
+          }
+        },
+        {
+          "format": "syslog",
+          "raw_log": "<13>2024-01-15T10:30:00Z proxy01 squid[12345]: 1705312200.123 192.168.1.100 TCP_MISS/200 1234 GET http://malicious.example.com/ - DIRECT/203.0.113.200 text/html",
+          "expected_fields": {
+            "syslog.priority": 13,
+            "syslog.facility": 1,
+            "syslog.severity": 5,
+            "syslog.hostname": "proxy01",
+            "syslog.program": "squid",
+            "syslog.pid": 12345
+          }
+        }
+      ]
+    },
+    "apache_access_logs": {
+      "description": "Apache web server access logs in various formats",
+      "logs": [
+        {
+          "format": "apache",
+          "raw_log": "192.168.1.100 - admin [15/Jan/2024:10:30:00 +0000] \"GET /api/users HTTP/1.1\" 200 1234 \"https://app.isectech.com/\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\"",
+          "expected_fields": {
+            "source.ip": "192.168.1.100",
+            "user.name": "admin",
+            "http.request.method": "GET",
+            "url.original": "/api/users",
+            "http.version": "1.1",
+            "http.response.status_code": 200,
+            "http.response.body.bytes": 1234,
+            "http.request.referrer": "https://app.isectech.com/",
+            "user_agent.original": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          }
+        },
+        {
+          "format": "apache",
+          "raw_log": "203.0.113.100 - - [15/Jan/2024:10:35:00 +0000] \"POST /admin/login HTTP/1.1\" 401 567 \"-\" \"python-requests/2.28.1\"",
+          "expected_fields": {
+            "source.ip": "203.0.113.100",
+            "http.request.method": "POST",
+            "url.original": "/admin/login",
+            "http.response.status_code": 401,
+            "user_agent.original": "python-requests/2.28.1"
+          }
+        }
+      ]
+    },
+    "windows_event_logs": {
+      "description": "Windows Security Event Logs in XML format",
+      "logs": [
+        {
+          "format": "xml",
+          "raw_log": "<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\"><System><Provider Name=\"Microsoft-Windows-Security-Auditing\" Guid=\"{54849625-5478-4994-a5ba-3e3b0328c30d}\" /><EventID>4624</EventID><Version>2</Version><Level>0</Level><Task>12544</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime=\"2024-01-15T10:30:00.000Z\" /><EventRecordID>123456</EventRecordID><Correlation /><Execution ProcessID=\"716\" ThreadID=\"1234\" /><Channel>Security</Channel><Computer>WORKSTATION01</Computer></System><EventData><Data Name=\"SubjectUserSid\">S-1-5-18</Data><Data Name=\"SubjectUserName\">SYSTEM</Data><Data Name=\"SubjectDomainName\">NT AUTHORITY</Data><Data Name=\"SubjectLogonId\">0x3e7</Data><Data Name=\"TargetUserSid\">S-1-5-21-123456789-123456789-123456789-1001</Data><Data Name=\"TargetUserName\">admin</Data><Data Name=\"TargetDomainName\">DOMAIN</Data><Data Name=\"TargetLogonId\">0x12345</Data><Data Name=\"LogonType\">3</Data><Data Name=\"LogonProcessName\">NtLmSsp </Data><Data Name=\"AuthenticationPackageName\">NTLM</Data><Data Name=\"WorkstationName\">WORKSTATION01</Data><Data Name=\"LogonGuid\">{12345678-1234-1234-1234-123456789012}</Data><Data Name=\"TransmittedServices\">-</Data><Data Name=\"LmPackageName\">NTLM V2</Data><Data Name=\"KeyLength\">128</Data><Data Name=\"ProcessId\">0x2bc</Data><Data Name=\"ProcessName\">C:\\Windows\\System32\\winlogon.exe</Data><Data Name=\"IpAddress\">192.168.1.100</Data><Data Name=\"IpPort\">54321</Data><Data Name=\"ImpersonationLevel\">%%1833</Data></EventData></Event>",
+          "expected_fields": {
+            "event.id": "4624",
+            "@timestamp": "2024-01-15T10:30:00.000Z",
+            "host.name": "WORKSTATION01",
+            "user.name": "admin",
+            "user.domain": "DOMAIN",
+            "source.ip": "192.168.1.100",
+            "source.port": 54321,
+            "authentication.logon_type": "3",
+            "authentication.package": "NTLM",
+            "process.name": "C:\\Windows\\System32\\winlogon.exe"
+          }
+        }
+      ]
+    },
+    "cloud_security_logs": {
+      "description": "Cloud platform security logs (AWS, Azure, GCP)",
+      "logs": [
+        {
+          "format": "json",
+          "raw_log": "{\"eventVersion\": \"1.08\", \"userIdentity\": {\"type\": \"IAMUser\", \"principalId\": \"AIDACKCEVSQ6C2EXAMPLE\", \"arn\": \"arn:aws:iam::123456789012:user/admin\", \"accountId\": \"123456789012\", \"userName\": \"admin\"}, \"eventTime\": \"2024-01-15T10:30:00Z\", \"eventSource\": \"s3.amazonaws.com\", \"eventName\": \"GetObject\", \"awsRegion\": \"us-east-1\", \"sourceIPAddress\": \"203.0.113.100\", \"userAgent\": \"aws-cli/2.0.0 Python/3.8.0\", \"requestParameters\": {\"bucketName\": \"sensitive-data-bucket\", \"key\": \"confidential/data.csv\"}, \"responseElements\": null, \"requestID\": \"1234567890ABCDEF\", \"eventID\": \"12345678-1234-1234-1234-123456789012\", \"readOnly\": true, \"eventType\": \"AwsApiCall\", \"managementEvent\": false, \"recipientAccountId\": \"123456789012\", \"serviceEventDetails\": {\"responseElements\": {\"x-amz-request-id\": \"1234567890ABCDEF\"}}}",
+          "expected_fields": {
+            "@timestamp": "2024-01-15T10:30:00Z",
+            "event.action": "GetObject",
+            "event.provider": "aws",
+            "user.name": "admin",
+            "source.ip": "203.0.113.100",
+            "user_agent.original": "aws-cli/2.0.0 Python/3.8.0",
+            "cloud.provider": "aws",
+            "cloud.service.name": "s3",
+            "cloud.region": "us-east-1"
+          }
+        }
+      ]
+    }
+  },
+  "validation_rules": {
+    "required_fields": [
+      "@timestamp",
+      "event.action"
+    ],
+    "ip_address_fields": [
+      "source.ip",
+      "destination.ip",
+      "client.ip"
+    ],
+    "port_fields": [
+      "source.port",
+      "destination.port"
+    ],
+    "severity_mapping": {
+      "critical": 90,
+      "high": 70,
+      "medium": 50,
+      "low": 30,
+      "info": 10,
+      "informational": 10
+    },
+    "outcome_mapping": {
+      "success": "success",
+      "allowed": "success",
+      "pass": "success",
+      "failure": "failure",
+      "fail": "failure",
+      "denied": "failure",
+      "blocked": "failure",
+      "error": "failure"
+    }
+  },
+  "performance_benchmarks": {
+    "minimum_throughput": {
+      "logs_per_second": 1000,
+      "description": "Minimum expected throughput for production deployment"
+    },
+    "maximum_latency": {
+      "milliseconds": 100,
+      "description": "Maximum acceptable latency per log entry"
+    },
+    "memory_usage": {
+      "max_mb_per_1k_logs": 50,
+      "description": "Maximum memory usage per 1000 log entries"
+    }
+  },
+  "test_categories": {
+    "functional": [
+      "json_parsing",
+      "syslog_parsing",
+      "csv_parsing",
+      "xml_parsing",
+      "field_mapping",
+      "data_type_conversion",
+      "timestamp_parsing"
+    ],
+    "security": [
+      "input_validation",
+      "injection_prevention",
+      "sensitive_data_masking",
+      "access_control"
+    ],
+    "performance": [
+      "batch_processing",
+      "memory_efficiency",
+      "concurrent_processing",
+      "large_log_handling"
+    ],
+    "compliance": [
+      "ecs_field_mapping",
+      "required_field_validation",
+      "data_retention",
+      "audit_trail"
+    ]
+  }
+}

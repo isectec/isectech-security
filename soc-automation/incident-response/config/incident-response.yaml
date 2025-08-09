@@ -1,0 +1,450 @@
+# SOC Automation - Incident Response Configuration
+# Production-ready configuration for the incident response orchestration system
+
+# Logging configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: json  # json or console
+  
+# Prometheus metrics server
+metrics:
+  enabled: true
+  port: 8080
+  
+# Redis configuration for message queuing and caching
+redis:
+  host: redis.soc.internal
+  port: 6379
+  db: 0
+  password: null
+  ssl: false
+  connection_pool:
+    max_connections: 20
+    retry_on_timeout: true
+    
+# Elasticsearch configuration for data storage and search
+elasticsearch:
+  host: elasticsearch.soc.internal
+  port: 9200
+  username: null
+  password: null
+  use_ssl: false
+  verify_certs: false
+  ca_certs: null
+  indices:
+    incidents: "soc-incidents"
+    executions: "soc-playbook-executions"
+    evidence: "soc-evidence"
+    alerts: "soc-alerts"
+    
+# Incident Response Orchestrator configuration
+orchestrator:
+  max_concurrent_executions: 50
+  execution_timeout: 3600  # 1 hour in seconds
+  evidence_retention_days: 2555  # 7 years
+  
+  # External system configurations
+  thehive:
+    enabled: true
+    url: https://thehive.soc.internal
+    api_key: ${THEHIVE_API_KEY}
+    organization: isectech
+    verify_ssl: true
+    default_case_template: incident_response
+    auto_assign_tasks: true
+    case_tag_prefix: soc_automation
+    
+  soar:
+    enabled: false
+    platform: phantom  # phantom, demisto, splunk_soar
+    url: https://soar.soc.internal
+    api_key: ${SOAR_API_KEY}
+    verify_ssl: true
+    
+# Evidence Collection Engine configuration
+evidence_collection:
+  enabled: true
+  
+  # Storage paths
+  evidence_storage_path: /evidence
+  temp_storage_path: /tmp/evidence
+  backup_storage_path: /evidence/backup
+  metadata_db_path: /evidence/metadata.db
+  
+  # Processing configuration
+  max_concurrent_collections: 10
+  collection_timeout: 3600  # 1 hour in seconds
+  integrity_check_interval: 86400  # 24 hours
+  
+  # Security configuration
+  encryption_enabled: true
+  signing_enabled: true
+  
+  # Legal and compliance
+  default_retention_years: 7
+  default_privacy_classification: confidential
+  default_jurisdiction: US
+  
+  # Integration endpoints
+  endpoints:
+    edr_platform:
+      type: crowdstrike  # crowdstrike, sentinelone, carbonblack
+      api_url: https://api.crowdstrike.com
+      client_id: ${EDR_CLIENT_ID}
+      client_secret: ${EDR_CLIENT_SECRET}
+      
+    forensic_tools:
+      ftk_imager_path: /opt/ftk-imager/ftk-imager
+      volatility_path: /opt/volatility3/vol.py
+      sleuthkit_path: /opt/sleuthkit/bin
+      
+    network_monitoring:
+      type: wireshark  # wireshark, ntopng, zeek
+      api_url: https://network-monitor.soc.internal
+      api_key: ${NETWORK_MONITOR_API_KEY}
+      
+# Alert Integration configuration
+alert_integration:
+  # Redis streams to monitor for alerts
+  alert_stream_keys:
+    - "alerts:all"
+    - "alerts:critical"
+    - "alerts:high"
+    
+  # Correlation configuration
+  correlation_window: 300  # 5 minutes in seconds
+  max_correlation_alerts: 50
+  
+  # Evidence collection
+  evidence_auto_collect: true
+  evidence_priority_mapping:
+    critical: 1
+    high: 2
+    medium: 3
+    low: 4
+    
+# TheHive Case Management Integration
+thehive:
+  enabled: true
+  url: https://thehive.soc.internal
+  api_key: ${THEHIVE_API_KEY}
+  organization: isectech
+  verify_ssl: true
+  
+  # Case configuration
+  default_case_template: incident_response
+  auto_assign_tasks: true
+  case_tag_prefix: soc_automation
+  
+  # Task assignment mapping
+  task_assignments:
+    soc_analyst: "analyst@isectech.com"
+    incident_commander: "commander@isectech.com"
+    forensic_analyst: "forensics@isectech.com"
+    malware_analyst: "malware@isectech.com"
+    network_analyst: "network@isectech.com"
+    data_protection_officer: "dpo@isectech.com"
+    legal_counsel: "legal@isectech.com"
+    
+# Incident Response Trigger Rules
+trigger_rules:
+  - rule_id: "critical_severity"
+    name: "Critical Severity Incidents"
+    description: "Trigger incident response for all critical severity alerts"
+    enabled: true
+    priority: 1
+    policy_type: "severity_based"
+    conditions:
+      severities: ["critical"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    immediate_containment: true
+    
+  - rule_id: "malware_detection"
+    name: "Malware Detection"
+    description: "Trigger incident response for malware detections"
+    enabled: true
+    priority: 1
+    policy_type: "category_based"
+    conditions:
+      categories: ["malware", "ransomware", "trojan", "virus"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    immediate_containment: true
+    
+  - rule_id: "data_breach"
+    name: "Data Breach Detection"
+    description: "Trigger incident response for data breach indicators"
+    enabled: true
+    priority: 1
+    policy_type: "category_based"
+    conditions:
+      categories: ["data_breach", "data_exfiltration", "unauthorized_access"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    immediate_containment: true
+    
+  - rule_id: "high_confidence_ml"
+    name: "High Confidence ML Alerts"
+    description: "Trigger incident response for high confidence ML detections"
+    enabled: true
+    priority: 2
+    policy_type: "ml_confidence_based"
+    conditions:
+      min_confidence: 0.85
+    actions: ["create_incident"]
+    evidence_collection: true
+    
+  - rule_id: "privilege_escalation"
+    name: "Privilege Escalation"
+    description: "Trigger incident response for privilege escalation attempts"
+    enabled: true
+    priority: 2
+    policy_type: "category_based"
+    conditions:
+      categories: ["privilege_escalation", "elevation_of_privilege"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    
+  - rule_id: "ddos_attack"
+    name: "DDoS Attack Detection"
+    description: "Trigger incident response for DDoS attacks"
+    enabled: true
+    priority: 1
+    policy_type: "category_based"
+    conditions:
+      categories: ["ddos", "denial_of_service"]
+    actions: ["create_incident"]
+    immediate_containment: true
+    
+  - rule_id: "insider_threat"
+    name: "Insider Threat Detection"
+    description: "Trigger incident response for insider threat indicators"
+    enabled: true
+    priority: 2
+    policy_type: "category_based"
+    conditions:
+      categories: ["insider_threat", "data_theft", "policy_violation"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    
+  - rule_id: "complex_attack"
+    name: "Complex Multi-Stage Attack"
+    description: "Trigger incident response for complex attacks with multiple indicators"
+    enabled: true
+    priority: 1
+    policy_type: "correlation_based"
+    conditions:
+      complex_conditions:
+        operator: "AND"
+        rules:
+          - field: "correlation_score"
+            operator: "greater_than"
+            value: 0.8
+          - field: "related_alerts_count"
+            operator: "greater_than"
+            value: 5
+          - field: "severity"
+            operator: "in"
+            value: ["high", "critical"]
+    actions: ["create_incident"]
+    evidence_collection: true
+    immediate_containment: true
+
+# Incident Response Playbooks
+playbooks:
+  malware_response:
+    name: "Malware Incident Response"
+    description: "Automated response for malware detection incidents"
+    incident_types: ["malware_incident", "ransomware_incident"]
+    severity_levels: ["high", "critical"]
+    sla_minutes: 240  # 4 hours
+    steps:
+      - step_id: "isolate_endpoint"
+        name: "Isolate Infected Endpoints"
+        description: "Immediately isolate infected endpoints from network"
+        type: "automated"
+        action: "isolate_endpoint"
+        timeout: 120
+        evidence_collection: true
+        
+      - step_id: "collect_memory"
+        name: "Collect Memory Dumps"
+        description: "Collect memory dumps from infected systems"
+        type: "automated"
+        action: "collect_memory_dump"
+        timeout: 1800
+        dependencies: ["isolate_endpoint"]
+        evidence_collection: true
+        
+      - step_id: "collect_disk"
+        name: "Create Disk Images"
+        description: "Create forensic disk images of infected systems"
+        type: "automated"
+        action: "collect_disk_image"
+        timeout: 7200
+        dependencies: ["isolate_endpoint"]
+        evidence_collection: true
+        
+      - step_id: "analyze_malware"
+        name: "Analyze Malware Sample"
+        description: "Analyze malware in sandbox environment"
+        type: "automated"
+        action: "analyze_malware_sample"
+        timeout: 3600
+        dependencies: ["collect_memory", "collect_disk"]
+        
+  phishing_response:
+    name: "Phishing Incident Response"
+    description: "Automated response for phishing incidents"
+    incident_types: ["phishing_incident"]
+    severity_levels: ["medium", "high"]
+    sla_minutes: 60  # 1 hour
+    steps:
+      - step_id: "quarantine_email"
+        name: "Quarantine Malicious Emails"
+        description: "Quarantine identified phishing emails"
+        type: "automated"
+        action: "quarantine_email"
+        timeout: 60
+        evidence_collection: true
+        
+      - step_id: "block_urls"
+        name: "Block Malicious URLs"
+        description: "Block URLs identified in phishing emails"
+        type: "automated"
+        action: "block_ip_address"
+        timeout: 120
+        dependencies: ["quarantine_email"]
+        
+      - step_id: "notify_users"
+        name: "Notify Affected Users"
+        description: "Notify users who received phishing emails"
+        type: "automated"
+        action: "notify_stakeholders"
+        timeout: 300
+        parameters:
+          notification_type: "phishing_warning"
+          
+  data_breach_response:
+    name: "Data Breach Response"
+    description: "Comprehensive data breach incident response"
+    incident_types: ["data_breach", "data_exfiltration"]
+    severity_levels: ["critical"]
+    sla_minutes: 120  # 2 hours
+    steps:
+      - step_id: "immediate_containment"
+        name: "Immediate Containment"
+        description: "Contain the data breach immediately"
+        type: "automated"
+        action: "isolate_endpoint"
+        timeout: 300
+        evidence_collection: true
+        
+      - step_id: "evidence_collection"
+        name: "Comprehensive Evidence Collection"
+        description: "Collect all relevant digital evidence"
+        type: "automated"
+        action: "collect_disk_image"
+        timeout: 7200
+        dependencies: ["immediate_containment"]
+        evidence_collection: true
+        
+      - step_id: "legal_notification"
+        name: "Legal Team Notification"
+        description: "Immediately notify legal and compliance teams"
+        type: "manual"
+        action: "notify_stakeholders"
+        timeout: 1800
+        parameters:
+          notification_type: "legal_breach"
+          urgency: "critical"
+        human_required: true
+
+# Notification and Communication
+notifications:
+  channels:
+    email:
+      smtp_server: smtp.isectech.com
+      smtp_port: 587
+      username: ${SMTP_USERNAME}
+      password: ${SMTP_PASSWORD}
+      from_address: soc-automation@isectech.com
+      
+    slack:
+      webhook_url: ${SLACK_WEBHOOK_URL}
+      channel: "#security-incidents"
+      
+    pagerduty:
+      integration_key: ${PAGERDUTY_INTEGRATION_KEY}
+      
+    teams:
+      webhook_url: ${TEAMS_WEBHOOK_URL}
+      
+  escalation:
+    levels:
+      - level: 1
+        contacts: ["soc-team@isectech.com"]
+        methods: ["email", "slack"]
+        
+      - level: 2
+        contacts: ["incident-commander@isectech.com", "ciso@isectech.com"]
+        methods: ["email", "pagerduty"]
+        
+      - level: 3
+        contacts: ["ceo@isectech.com", "legal@isectech.com"]
+        methods: ["email", "pagerduty"]
+
+# Health Check and Monitoring
+health_checks:
+  interval: 60  # seconds
+  endpoints:
+    - name: "redis_connectivity"
+      type: "redis_ping"
+      
+    - name: "elasticsearch_connectivity"
+      type: "elasticsearch_ping"
+      
+    - name: "thehive_connectivity"
+      type: "http_get"
+      url: "${THEHIVE_URL}/api/v1/status"
+      
+    - name: "evidence_storage"
+      type: "filesystem_check"
+      path: "/evidence"
+      
+# Security Configuration
+security:
+  api:
+    require_authentication: true
+    api_keys:
+      - name: "internal_services"
+        key: ${INTERNAL_API_KEY}
+        permissions: ["read", "write"]
+        
+      - name: "monitoring"
+        key: ${MONITORING_API_KEY}
+        permissions: ["read"]
+        
+  encryption:
+    algorithm: "AES-256-GCM"
+    key_rotation_days: 90
+    
+  signatures:
+    algorithm: "RSA-2048"
+    key_path: "/etc/soc-automation/keys/signing.pem"
+
+# Development and Testing
+development:
+  debug_mode: false
+  test_mode: false
+  mock_external_systems: false
+  
+  # Test data generation
+  generate_test_alerts: false
+  test_alert_interval: 300  # 5 minutes
+  
+  # Performance testing
+  load_testing:
+    max_test_incidents: 100
+    concurrent_executions: 10

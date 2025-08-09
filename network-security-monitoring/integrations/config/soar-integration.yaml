@@ -1,0 +1,817 @@
+# iSECTECH SOAR Integration Configuration
+# Production-grade SOAR integration for Network Security Monitoring
+
+# General Configuration
+general:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service settings
+  service_name: "soar-integration-engine"
+  version: "1.0.0"
+  bind_address: "0.0.0.0"
+  port: 8449
+
+# Processing Configuration
+processing:
+  # Incident processing settings
+  incident_batch_size: 50
+  interval: 30  # seconds
+  max_retries: 3
+  
+  # Queue settings
+  max_queue_size: 1000
+  processing_timeout: 120
+  
+  # Threading
+  worker_threads: 4
+  max_concurrent_incidents: 10
+
+# SOAR Platform Configurations
+soar_platforms:
+  # Splunk Phantom Integration
+  phantom:
+    enabled: true
+    name: "phantom"
+    
+    # Connection settings
+    host: "phantom.isectech.local"
+    port: 443
+    auth_token: "${PHANTOM_AUTH_TOKEN}"
+    verify_ssl: true
+    
+    # Container settings
+    default_label: "NSM"
+    container_type: "default"
+    
+    # Playbook settings
+    default_playbooks:
+      critical_incident: "nsm_critical_incident_response"
+      malware_detected: "nsm_malware_investigation"
+      data_exfiltration: "nsm_data_exfiltration_response"
+      brute_force: "nsm_brute_force_mitigation"
+      vulnerability_exploit: "nsm_vulnerability_response"
+    
+    # Artifact settings
+    artifact_types:
+      ip: "ip"
+      domain: "domain"
+      url: "url"
+      file_hash: "hash"
+      email: "email"
+      user: "user name"
+    
+    # Performance settings
+    timeout: 60
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300  # 5 minutes
+      endpoint: "/rest/system_info"
+  
+  # Demisto/XSOAR Integration
+  demisto:
+    enabled: false
+    name: "demisto"
+    
+    # Connection settings
+    host: "demisto.isectech.local"
+    port: 443
+    api_key: "${DEMISTO_API_KEY}"
+    verify_ssl: true
+    
+    # Incident settings
+    incident_type: "NSM Security Incident"
+    default_severity: 2  # Medium
+    
+    # Playbook settings
+    default_playbooks:
+      critical_incident: "NSM Critical Incident Response"
+      malware_detected: "NSM Malware Investigation"
+      data_exfiltration: "NSM Data Exfiltration Response"
+    
+    # Custom fields mapping
+    custom_fields:
+      nsm_incident_id: "nsm_incident_id"
+      source_ip: "sourceip"
+      destination_ip: "destinationip"
+      event_type: "event_type"
+      detection_method: "detection_method"
+    
+    # Performance settings
+    timeout: 60
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+      endpoint: "/settings/about"
+  
+  # Microsoft Sentinel Integration
+  sentinel:
+    enabled: false
+    name: "sentinel"
+    
+    # Connection settings
+    tenant_id: "${AZURE_TENANT_ID}"
+    client_id: "${AZURE_CLIENT_ID}"
+    client_secret: "${AZURE_CLIENT_SECRET}"
+    subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+    resource_group: "security-rg"
+    workspace_name: "sentinel-workspace"
+    
+    # Incident settings
+    incident_classification: "Undetermined"
+    incident_status: "New"
+    
+    # Playbook settings (Logic Apps)
+    default_playbooks:
+      critical_incident: "nsm-critical-incident-response"
+      malware_detected: "nsm-malware-investigation"
+    
+    # Performance settings
+    timeout: 60
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # ServiceNow ITSM Integration
+  servicenow:
+    enabled: false
+    name: "servicenow"
+    
+    # Connection settings
+    instance_url: "https://isectech.service-now.com"
+    username: "${SERVICENOW_USERNAME}"
+    password: "${SERVICENOW_PASSWORD}"
+    
+    # Incident settings
+    table: "incident"
+    category: "Security"
+    subcategory: "Network Security"
+    assignment_group: "Security Operations"
+    
+    # Priority mapping
+    priority_mapping:
+      critical: 1
+      high: 2
+      medium: 3
+      low: 4
+      info: 5
+    
+    # Performance settings
+    timeout: 30
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # TheHive Integration
+  thehive:
+    enabled: false
+    name: "thehive"
+    
+    # Connection settings
+    host: "thehive.isectech.local"
+    port: 9000
+    api_key: "${THEHIVE_API_KEY}"
+    
+    # Case settings
+    default_template: "NSM Security Case"
+    default_severity: 2  # Medium
+    default_tlp: 2  # TLP:AMBER
+    
+    # Task templates
+    task_templates:
+      - "Initial Analysis"
+      - "Artifact Collection"
+      - "Threat Hunting"
+      - "Containment"
+      - "Eradication"
+      - "Recovery"
+      - "Lessons Learned"
+    
+    # Performance settings
+    timeout: 30
+    max_retries: 3
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+  
+  # Generic Webhook Integration
+  webhook:
+    enabled: true
+    name: "webhook"
+    
+    # Connection settings
+    webhook_url: "https://soar.isectech.local/api/v1/incidents"
+    auth_headers:
+      Authorization: "Bearer ${WEBHOOK_AUTH_TOKEN}"
+      X-API-Key: "${WEBHOOK_API_KEY}"
+    
+    # Request settings
+    timeout: 30
+    max_retries: 3
+    verify_ssl: true
+    
+    # Payload format
+    payload_format: "json"
+    include_raw_data: true
+    
+    # Health check
+    health_check:
+      enabled: true
+      interval: 300
+
+# Incident Classification Configuration
+incident_classification:
+  # Severity mapping
+  severity_mapping:
+    # Based on CVSS or custom scoring
+    critical:
+      min_score: 9.0
+      conditions:
+        - "exploit_available"
+        - "internet_facing_asset"
+        - "critical_asset"
+    
+    high:
+      min_score: 7.0
+      conditions:
+        - "high_confidence_detection"
+        - "business_critical_asset"
+    
+    medium:
+      min_score: 4.0
+      conditions:
+        - "medium_confidence_detection"
+        - "internal_asset"
+    
+    low:
+      min_score: 0.1
+      conditions:
+        - "low_confidence_detection"
+        - "non_critical_asset"
+    
+    info:
+      min_score: 0.0
+      conditions:
+        - "informational_event"
+  
+  # Incident categorization
+  categories:
+    malware:
+      keywords: ["malware", "trojan", "virus", "ransomware", "backdoor"]
+      severity_modifier: 1.5
+      
+    intrusion:
+      keywords: ["intrusion", "breach", "unauthorized_access", "lateral_movement"]
+      severity_modifier: 2.0
+      
+    data_exfiltration:
+      keywords: ["exfiltration", "data_theft", "unauthorized_transfer"]
+      severity_modifier: 2.5
+      
+    vulnerability_exploit:
+      keywords: ["exploit", "vulnerability", "cve"]
+      severity_modifier: 1.2
+      
+    policy_violation:
+      keywords: ["policy_violation", "compliance", "unauthorized"]
+      severity_modifier: 0.8
+      
+    reconnaissance:
+      keywords: ["scan", "reconnaissance", "discovery", "enumeration"]
+      severity_modifier: 0.5
+  
+  # Automated classification rules
+  classification_rules:
+    - name: "critical_asset_compromise"
+      conditions:
+        - asset_criticality: "critical"
+        - confidence: ">= 0.8"
+      action: "escalate_to_critical"
+      
+    - name: "known_malware_signature"
+      conditions:
+        - detection_type: "signature"
+        - threat_type: "malware"
+        - confidence: ">= 0.9"
+      action: "execute_malware_playbook"
+      
+    - name: "data_exfiltration_attempt"
+      conditions:
+        - event_type: "data_transfer"
+        - data_volume: "> 100MB"
+        - destination: "external"
+      action: "execute_dataloss_playbook"
+
+# Playbook Configuration
+playbooks:
+  # Playbook execution settings
+  execution:
+    default_timeout: 3600  # 1 hour
+    max_concurrent_executions: 10
+    retry_failed_playbooks: true
+    max_retries: 2
+  
+  # Playbook library
+  library:
+    # Critical incident response
+    critical_incident_response:
+      name: "Critical Incident Response"
+      description: "Immediate response to critical security incidents"
+      timeout: 1800  # 30 minutes
+      steps:
+        - "incident_validation"
+        - "stakeholder_notification"
+        - "evidence_collection"
+        - "containment_actions"
+        - "impact_assessment"
+      
+      # Auto-execution triggers
+      triggers:
+        - severity: "critical"
+        - asset_criticality: "critical"
+        - threat_category: "active_breach"
+    
+    # Malware investigation
+    malware_investigation:
+      name: "Malware Investigation and Response"
+      description: "Automated malware analysis and containment"
+      timeout: 2400  # 40 minutes
+      steps:
+        - "sample_collection"
+        - "sandbox_analysis"
+        - "ioc_extraction"
+        - "threat_hunting"
+        - "containment"
+        - "remediation"
+      
+      triggers:
+        - threat_type: "malware"
+        - detection_confidence: ">= 0.8"
+    
+    # Data exfiltration response
+    data_exfiltration_response:
+      name: "Data Exfiltration Response"
+      description: "Response to potential data theft incidents"
+      timeout: 3600  # 1 hour
+      steps:
+        - "data_classification_check"
+        - "transfer_analysis"
+        - "user_investigation"
+        - "data_recovery_assessment"
+        - "legal_notification"
+        - "containment"
+      
+      triggers:
+        - event_type: "data_exfiltration"
+        - data_sensitivity: "high"
+    
+    # Vulnerability response
+    vulnerability_response:
+      name: "Vulnerability Exploitation Response"
+      description: "Response to vulnerability exploitation attempts"
+      timeout: 1800  # 30 minutes
+      steps:
+        - "vulnerability_verification"
+        - "patch_status_check"
+        - "exploitation_assessment"
+        - "emergency_patching"
+        - "system_hardening"
+      
+      triggers:
+        - event_type: "vulnerability_exploit"
+        - cvss_score: ">= 7.0"
+    
+    # Brute force mitigation
+    brute_force_mitigation:
+      name: "Brute Force Attack Mitigation"
+      description: "Response to brute force authentication attacks"
+      timeout: 900  # 15 minutes
+      steps:
+        - "attack_pattern_analysis"
+        - "source_ip_blocking"
+        - "account_lockout"
+        - "monitoring_enhancement"
+        - "password_policy_review"
+      
+      triggers:
+        - attack_type: "brute_force"
+        - failed_attempts: ">= 10"
+
+# Notification Configuration
+notifications:
+  # Notification channels
+  channels:
+    # Email notifications
+    email:
+      enabled: true
+      smtp_server: "smtp.isectech.local"
+      smtp_port: 587
+      username: "${EMAIL_USERNAME}"
+      password: "${EMAIL_PASSWORD}"
+      use_tls: true
+      
+      # Distribution lists
+      distribution_lists:
+        security_team: ["security@isectech.local", "soc@isectech.local"]
+        management: ["ciso@isectech.local", "cto@isectech.local"]
+        operations: ["ops@isectech.local", "devops@isectech.local"]
+    
+    # Slack notifications
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      
+      # Channel mapping
+      channels:
+        critical: "#security-critical"
+        high: "#security-alerts"
+        medium: "#security-monitoring"
+        low: "#security-info"
+    
+    # SMS notifications (for critical incidents)
+    sms:
+      enabled: false
+      provider: "twilio"
+      account_sid: "${TWILIO_ACCOUNT_SID}"
+      auth_token: "${TWILIO_AUTH_TOKEN}"
+      from_number: "${TWILIO_FROM_NUMBER}"
+      
+      # Emergency contacts
+      emergency_contacts:
+        - "+1234567890"  # CISO
+        - "+1234567891"  # Security Manager
+    
+    # PagerDuty integration
+    pagerduty:
+      enabled: false
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      
+      # Escalation rules
+      escalation_rules:
+        critical: "immediate"
+        high: "within_15_minutes"
+  
+  # Notification rules
+  rules:
+    # Critical incident notifications
+    - name: "critical_incident_notification"
+      conditions:
+        severity: "critical"
+      actions:
+        - channel: "email"
+          recipients: "security_team"
+        - channel: "slack"
+          channel: "#security-critical"
+        - channel: "sms"
+          recipients: "emergency_contacts"
+      
+    # High severity notifications
+    - name: "high_severity_notification"
+      conditions:
+        severity: "high"
+      actions:
+        - channel: "email"
+          recipients: "security_team"
+        - channel: "slack"
+          channel: "#security-alerts"
+    
+    # Playbook completion notifications
+    - name: "playbook_completion_notification"
+      conditions:
+        event_type: "playbook_completed"
+      actions:
+        - channel: "slack"
+          channel: "#security-monitoring"
+
+# Redis Configuration
+redis:
+  enabled: true
+  
+  # Connection settings
+  host: "redis-nsm.isectech.local"
+  port: 6379
+  db: 9  # Dedicated DB for SOAR integration
+  password: "${REDIS_PASSWORD}"
+  
+  # Connection pool settings
+  connection_pool_size: 20
+  socket_timeout: 30
+  socket_connect_timeout: 30
+  retry_on_timeout: true
+  max_connections: 50
+  
+  # Queue settings
+  incident_queue_key: "nsm:soar_incidents"
+  playbook_queue_key: "nsm:soar_playbooks"
+  notification_queue_key: "nsm:soar_notifications"
+  queue_timeout: 30
+
+# Database Configuration
+database:
+  # SQLite for incident tracking
+  type: "sqlite"
+  path: "/var/lib/nsm/soar_integration.db"
+  
+  # Connection settings
+  timeout: 30
+  check_same_thread: false
+  
+  # Performance optimization
+  optimization:
+    enable_wal_mode: true
+    enable_foreign_keys: true
+    cache_size_mb: 256
+    temp_store: "memory"
+  
+  # Backup settings
+  backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/soar_integration"
+    compression: true
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_gb: 4
+  max_cpu_cores: 4
+  max_concurrent_connections: 50
+  
+  # Processing limits
+  max_incidents_per_second: 100
+  max_playbook_executions: 20
+  processing_timeout: 120
+  
+  # Caching
+  caching:
+    enabled: true
+    cache_size_mb: 512
+    cache_ttl: 3600  # 1 hour
+    
+    # Cache types
+    incident_cache: true
+    playbook_cache: true
+    connector_cache: true
+
+# Monitoring Configuration
+monitoring:
+  # Health monitoring
+  health_monitoring:
+    enabled: true
+    check_interval: 60  # seconds
+    
+    # Health checks
+    checks:
+      - name: "database_connectivity"
+        type: "database"
+        timeout: 10
+      
+      - name: "redis_connectivity"
+        type: "redis"
+        timeout: 5
+      
+      - name: "soar_connector_health"
+        type: "connector"
+        connectors: ["phantom", "webhook"]
+        timeout: 15
+      
+      - name: "incident_queue_size"
+        type: "queue"
+        threshold: 500  # Alert if queue size exceeds this
+      
+      - name: "playbook_execution_latency"
+        type: "performance"
+        threshold: 300  # seconds
+  
+  # Metrics collection
+  metrics:
+    enabled: true
+    
+    # Performance metrics
+    performance_metrics:
+      - incidents_processed_per_minute
+      - playbooks_executed_per_hour
+      - incident_response_time
+      - playbook_success_rate
+      - notification_delivery_rate
+    
+    # Business metrics
+    business_metrics:
+      - total_incidents_created
+      - incidents_by_severity
+      - incidents_by_category
+      - average_resolution_time
+      - playbook_effectiveness_score
+  
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    port: 9095
+    metrics_path: "/metrics"
+    
+    # Custom metrics
+    custom_metrics:
+      - name: "nsm_soar_incidents_total"
+        type: "counter"
+        description: "Total number of incidents processed"
+        labels: ["severity", "category", "connector"]
+      
+      - name: "nsm_soar_playbook_duration_seconds"
+        type: "histogram"
+        description: "Playbook execution duration"
+        buckets: [60, 300, 600, 1800, 3600, 7200]
+      
+      - name: "nsm_soar_connector_status"
+        type: "gauge"
+        description: "SOAR connector status (1=healthy, 0=unhealthy)"
+        labels: ["connector"]
+  
+  # Alerting
+  alerting:
+    enabled: true
+    
+    # Alert conditions
+    conditions:
+      - name: "high_incident_volume"
+        metric: "incidents_per_minute"
+        threshold: 10
+        duration: 300  # 5 minutes
+        severity: "warning"
+      
+      - name: "playbook_failure_rate"
+        metric: "playbook_failure_rate"
+        threshold: 20  # percent
+        duration: 600  # 10 minutes
+        severity: "critical"
+      
+      - name: "soar_connector_down"
+        metric: "connector_availability"
+        threshold: 0
+        duration: 60  # 1 minute
+        severity: "critical"
+      
+      - name: "high_response_time"
+        metric: "incident_response_time"
+        threshold: 600  # 10 minutes
+        duration: 300  # 5 minutes
+        severity: "warning"
+    
+    # Alert destinations
+    destinations:
+      - type: "webhook"
+        url: "http://alertmanager.isectech.local:9093/api/v1/alerts"
+      
+      - type: "email"
+        recipients: ["ops@isectech.local", "security@isectech.local"]
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enabled: true
+    authentication_required: true
+    api_key_header: "X-API-Key"
+    valid_api_keys: ["${SOAR_INTEGRATION_API_KEY}"]
+    
+    # Rate limiting
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 500
+      burst_size: 50
+  
+  # Data protection
+  data_protection:
+    # Encryption
+    encryption:
+      encrypt_in_transit: true
+      encrypt_at_rest: true
+      encryption_key_file: "/etc/nsm/soar_integration_encryption.key"
+    
+    # Privacy
+    privacy:
+      anonymize_pii: false  # Keep for incident response
+      hash_sensitive_fields: false
+      data_retention_days: 1095  # 3 years for compliance
+    
+    # Access control
+    access_control:
+      rbac_enabled: true
+      rbac_config: "/etc/nsm/rbac_soar_integration.yaml"
+
+# Backup and Recovery
+backup:
+  # Database backup
+  database_backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 90  # Extended retention for incident history
+    backup_path: "/var/backups/nsm/soar_integration"
+    compression: true
+  
+  # Configuration backup
+  configuration_backup:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+  
+  # Recovery procedures
+  recovery:
+    auto_recovery:
+      enabled: true
+      max_attempts: 3
+      backoff_factor: 2
+    
+    recovery_scripts:
+      database_corruption: "/opt/nsm/scripts/recover_soar_db.sh"
+      config_corruption: "/opt/nsm/scripts/recover_soar_config.sh"
+      connector_failure: "/opt/nsm/scripts/recover_soar_connector.sh"
+
+# Logging Configuration
+logging:
+  # Log levels
+  level: "INFO"
+  
+  # Log destinations
+  destinations:
+    - type: "file"
+      path: "/var/log/nsm/soar_integration.log"
+      rotation: "daily"
+      retention_days: 90  # Extended retention for incident investigation
+      max_size_mb: 100
+    
+    - type: "syslog"
+      facility: "local6"
+      server: "syslog.isectech.local:514"
+      format: "rfc3164"
+    
+    - type: "json_file"
+      path: "/var/log/nsm/soar_integration_structured.log"
+      rotation: "daily"
+      retention_days: 90
+  
+  # Log formatting
+  format: "json"
+  include_timestamps: true
+  include_source_info: true
+  include_incident_id: true
+  include_playbook_execution_id: true
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  
+  # Testing
+  test_mode: false
+  synthetic_incidents: false
+  
+  # Experimental features
+  experimental:
+    enable_ai_incident_classification: false
+    enable_adaptive_playbook_selection: false
+    enable_predictive_escalation: false
+
+# Integration Hooks
+hooks:
+  # Pre-incident hooks
+  pre_incident:
+    enabled: true
+    scripts:
+      - "/opt/nsm/scripts/pre_incident_validation.sh"
+  
+  # Post-incident hooks
+  post_incident:
+    enabled: true
+    scripts:
+      - "/opt/nsm/scripts/post_incident_cleanup.sh"
+      - "/opt/nsm/scripts/incident_metrics_update.sh"
+  
+  # Playbook hooks
+  playbook_hooks:
+    pre_execution:
+      enabled: true
+      scripts:
+        - "/opt/nsm/scripts/pre_playbook_validation.sh"
+    
+    post_execution:
+      enabled: true
+      scripts:
+        - "/opt/nsm/scripts/post_playbook_analysis.sh"

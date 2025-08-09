@@ -1,0 +1,41 @@
+# iSECTECH Certificate Rotation and Environment Testing - Python Dependencies
+# Production-grade requirements for Cloud Function deployment
+
+# Google Cloud Libraries
+google-cloud-certificate-manager==1.11.3
+google-cloud-dns==0.35.0
+google-cloud-logging==3.8.0
+google-cloud-pubsub==2.18.4
+google-cloud-secret-manager==2.16.4
+google-cloud-compute==1.14.1
+google-cloud-run==0.10.1
+google-cloud-monitoring==2.16.0
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+
+# Cloud Functions Framework
+functions-framework==3.5.0
+
+# HTTP Requests and Security
+requests==2.31.0
+urllib3==2.0.7
+cryptography==41.0.7
+
+# DNS Resolution and Network Testing
+dnspython==2.4.2
+
+# Email Notifications
+sendgrid==6.10.0
+
+# Data Processing and Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Development and Testing (exclude in production)
+pytest==7.4.3
+pytest-cov==4.1.0
+black==23.11.0
+flake8==6.1.0
+
+# Production Dependencies Only
+# Remove development dependencies when deploying to Cloud Functions

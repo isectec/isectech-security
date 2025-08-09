@@ -1,0 +1,369 @@
+{
+  "version": "1.0",
+  "description": "Performance thresholds and regression guardrails for iSECTECH CI/CD pipeline",
+  "lastUpdated": "2025-08-06T18:40:00Z",
+  
+  "global_thresholds": {
+    "response_times": {
+      "api_endpoints": {
+        "p50_ms": 100,
+        "p95_ms": 500,
+        "p99_ms": 1000,
+        "p99_9_ms": 2000,
+        "max_acceptable_ms": 5000
+      },
+      "database_operations": {
+        "p50_ms": 50,
+        "p95_ms": 200,
+        "p99_ms": 500,
+        "p99_9_ms": 1000,
+        "max_acceptable_ms": 2000
+      },
+      "authentication": {
+        "p50_ms": 200,
+        "p95_ms": 800,
+        "p99_ms": 1500,
+        "p99_9_ms": 3000,
+        "max_acceptable_ms": 5000
+      }
+    },
+    
+    "error_rates": {
+      "baseline_test": {
+        "max_error_rate_percent": 0.5,
+        "warning_threshold_percent": 0.1
+      },
+      "stress_test": {
+        "max_error_rate_percent": 2.0,
+        "warning_threshold_percent": 1.0
+      },
+      "spike_test": {
+        "max_error_rate_percent": 5.0,
+        "warning_threshold_percent": 2.0
+      }
+    },
+    
+    "throughput": {
+      "minimum_rps": 100,
+      "target_rps": 500,
+      "maximum_sustainable_rps": 2000,
+      "burst_capacity_rps": 5000
+    },
+    
+    "resource_utilization": {
+      "cpu_percent": {
+        "warning": 70,
+        "critical": 85,
+        "maximum": 95
+      },
+      "memory_percent": {
+        "warning": 80,
+        "critical": 90,
+        "maximum": 95
+      },
+      "database_connections": {
+        "warning": 70,
+        "critical": 85,
+        "maximum": 95
+      }
+    }
+  },
+  
+  "environment_specific_thresholds": {
+    "development": {
+      "response_time_multiplier": 2.0,
+      "error_rate_multiplier": 2.0,
+      "throughput_multiplier": 0.5,
+      "strictness_level": "relaxed"
+    },
+    "staging": {
+      "response_time_multiplier": 1.2,
+      "error_rate_multiplier": 1.5,
+      "throughput_multiplier": 0.8,
+      "strictness_level": "moderate"
+    },
+    "production": {
+      "response_time_multiplier": 1.0,
+      "error_rate_multiplier": 1.0,
+      "throughput_multiplier": 1.0,
+      "strictness_level": "strict"
+    }
+  },
+  
+  "regression_detection": {
+    "enabled": true,
+    "baseline_window_commits": 10,
+    "comparison_methods": ["statistical", "percentage_change", "trend_analysis"],
+    
+    "percentage_thresholds": {
+      "warning": 10.0,
+      "critical": 20.0,
+      "blocking": 50.0
+    },
+    
+    "statistical_thresholds": {
+      "confidence_level": 95,
+      "min_sample_size": 10,
+      "outlier_detection": true,
+      "variance_tolerance": 2.0
+    },
+    
+    "trend_analysis": {
+      "enabled": true,
+      "trend_window_commits": 20,
+      "degradation_slope_threshold": 5.0,
+      "consecutive_degradations_limit": 3
+    }
+  },
+  
+  "test_scenario_thresholds": {
+    "baseline": {
+      "description": "Standard load test with normal user patterns",
+      "concurrent_users": 50,
+      "duration_seconds": 300,
+      "ramp_up_seconds": 60,
+      "thresholds": {
+        "p95_response_time_ms": 500,
+        "p99_response_time_ms": 1000,
+        "max_error_rate_percent": 0.5,
+        "min_throughput_rps": 100
+      }
+    },
+    
+    "stress": {
+      "description": "High load test to identify system limits",
+      "concurrent_users": 200,
+      "duration_seconds": 600,
+      "ramp_up_seconds": 120,
+      "thresholds": {
+        "p95_response_time_ms": 1000,
+        "p99_response_time_ms": 2000,
+        "max_error_rate_percent": 2.0,
+        "min_throughput_rps": 200
+      }
+    },
+    
+    "spike": {
+      "description": "Sudden load increase test for system resilience",
+      "concurrent_users": 500,
+      "duration_seconds": 180,
+      "ramp_up_seconds": 10,
+      "thresholds": {
+        "p95_response_time_ms": 2000,
+        "p99_response_time_ms": 5000,
+        "max_error_rate_percent": 5.0,
+        "recovery_time_seconds": 60
+      }
+    },
+    
+    "endurance": {
+      "description": "Long-running test for memory leaks and stability",
+      "concurrent_users": 100,
+      "duration_seconds": 3600,
+      "ramp_up_seconds": 300,
+      "thresholds": {
+        "p95_response_time_ms": 800,
+        "p99_response_time_ms": 1500,
+        "max_error_rate_percent": 1.0,
+        "memory_growth_mb_per_hour": 50,
+        "cpu_utilization_increase_percent": 5
+      }
+    }
+  },
+  
+  "endpoint_specific_thresholds": {
+    "/api/auth/login": {
+      "p95_ms": 300,
+      "p99_ms": 800,
+      "max_error_rate_percent": 0.1,
+      "security_considerations": true
+    },
+    
+    "/api/threats": {
+      "p95_ms": 200,
+      "p99_ms": 500,
+      "max_error_rate_percent": 0.5,
+      "database_intensive": true
+    },
+    
+    "/api/events/search": {
+      "p95_ms": 1000,
+      "p99_ms": 2000,
+      "max_error_rate_percent": 1.0,
+      "search_operations": true,
+      "complex_queries": true
+    },
+    
+    "/api/dashboard/summary": {
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_error_rate_percent": 0.2,
+      "cache_dependent": true,
+      "aggregation_heavy": true
+    },
+    
+    "/api/alerts": {
+      "p95_ms": 100,
+      "p99_ms": 300,
+      "max_error_rate_percent": 0.1,
+      "real_time_requirements": true
+    },
+    
+    "/api/compliance/reports": {
+      "p95_ms": 2000,
+      "p99_ms": 5000,
+      "max_error_rate_percent": 1.0,
+      "report_generation": true,
+      "timeout_considerations": 30000
+    }
+  },
+  
+  "business_impact_thresholds": {
+    "user_experience": {
+      "page_load_time_ms": 3000,
+      "interactive_time_ms": 5000,
+      "first_contentful_paint_ms": 1500,
+      "largest_contentful_paint_ms": 2500
+    },
+    
+    "security_operations": {
+      "threat_detection_latency_ms": 500,
+      "alert_generation_time_ms": 1000,
+      "incident_response_time_ms": 2000,
+      "compliance_report_generation_minutes": 5
+    },
+    
+    "system_availability": {
+      "uptime_percentage": 99.9,
+      "mttr_minutes": 5,
+      "mtbf_hours": 168,
+      "error_budget_consumption_percent": 10
+    }
+  },
+  
+  "alerting_configuration": {
+    "channels": {
+      "slack": {
+        "enabled": true,
+        "webhook_env_var": "SLACK_PERFORMANCE_WEBHOOK",
+        "channels": ["#performance-alerts", "#devops"],
+        "severity_levels": ["warning", "critical", "blocking"]
+      },
+      
+      "email": {
+        "enabled": false,
+        "recipients": ["devops@isectech.com", "backend@isectech.com"],
+        "severity_levels": ["critical", "blocking"]
+      },
+      
+      "github_issues": {
+        "enabled": true,
+        "labels": ["performance", "regression", "ci-automation"],
+        "severity_levels": ["critical", "blocking"],
+        "auto_assign": ["performance-team"]
+      },
+      
+      "pagerduty": {
+        "enabled": false,
+        "integration_key_env_var": "PAGERDUTY_INTEGRATION_KEY",
+        "severity_levels": ["critical", "blocking"]
+      }
+    },
+    
+    "escalation_rules": {
+      "warning": {
+        "notify_immediately": true,
+        "escalate_after_minutes": 30,
+        "max_notifications": 3
+      },
+      "critical": {
+        "notify_immediately": true,
+        "escalate_after_minutes": 15,
+        "max_notifications": 5,
+        "create_issue": true
+      },
+      "blocking": {
+        "notify_immediately": true,
+        "escalate_after_minutes": 5,
+        "max_notifications": 10,
+        "create_issue": true,
+        "page_oncall": true,
+        "block_deployment": true
+      }
+    }
+  },
+  
+  "ci_cd_integration": {
+    "pipeline_stages": {
+      "pull_request": {
+        "tests_required": ["baseline"],
+        "regression_check": true,
+        "blocking_threshold": "critical",
+        "comparison_baseline": "target_branch"
+      },
+      
+      "merge_to_main": {
+        "tests_required": ["baseline", "stress"],
+        "regression_check": true,
+        "blocking_threshold": "critical",
+        "comparison_baseline": "previous_commit",
+        "store_as_baseline": true
+      },
+      
+      "release_candidate": {
+        "tests_required": ["baseline", "stress", "endurance"],
+        "regression_check": true,
+        "blocking_threshold": "warning",
+        "comparison_baseline": "previous_release",
+        "comprehensive_report": true
+      },
+      
+      "production_deployment": {
+        "tests_required": ["baseline"],
+        "regression_check": true,
+        "blocking_threshold": "critical",
+        "post_deployment_monitoring": true,
+        "rollback_triggers": true
+      }
+    },
+    
+    "deployment_gates": {
+      "performance_gate": {
+        "enabled": true,
+        "timeout_minutes": 30,
+        "retry_attempts": 2,
+        "failure_action": "block_deployment"
+      },
+      
+      "regression_gate": {
+        "enabled": true,
+        "confidence_level": 95,
+        "sample_size_minimum": 10,
+        "failure_action": "block_deployment"
+      }
+    }
+  },
+  
+  "monitoring_integration": {
+    "prometheus": {
+      "enabled": true,
+      "metrics_retention_days": 15,
+      "alert_rules": true,
+      "custom_metrics": ["business_kpis", "security_metrics"]
+    },
+    
+    "grafana": {
+      "enabled": true,
+      "dashboard_auto_update": true,
+      "annotation_commits": true,
+      "threshold_visualization": true
+    },
+    
+    "influxdb": {
+      "enabled": true,
+      "retention_policy": "30d",
+      "continuous_queries": true,
+      "high_precision_storage": true
+    }
+  }
+}

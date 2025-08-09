@@ -1,0 +1,514 @@
+# Artillery Distributed Load Testing Kubernetes Deployment
+# Supports coordinated distributed load generation for iSECTECH
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artillery-test-config
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: configuration
+data:
+  # Environment-specific Artillery configurations
+  development.yml: |
+    config:
+      target: "http://isectech-api.default.svc.cluster.local:3000"
+      http:
+        timeout: 30
+        pool: 15
+      variables:
+        analyst_token: "dev-analyst-token"
+        admin_token: "dev-admin-token"
+        viewer_token: "dev-viewer-token"
+        environment: "development"
+      ensure:
+        p95: 1000
+        p99: 2000
+        maxErrorRate: 5
+  
+  staging.yml: |
+    config:
+      target: "https://staging.isectech.com"
+      http:
+        timeout: 45
+        pool: 20
+      ensure:
+        p95: 800
+        p99: 1500  
+        maxErrorRate: 2
+  
+  production.yml: |
+    config:
+      target: "https://api.isectech.com"
+      http:
+        timeout: 45
+        pool: 25
+      ensure:
+        p95: 500
+        p99: 1000
+        maxErrorRate: 1
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artillery-coordinator
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: coordinator
+spec:
+  selector:
+    app: artillery-distributed
+    role: coordinator
+  ports:
+    - name: coordination
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artillery-coordinator
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artillery-distributed
+      role: coordinator
+  template:
+    metadata:
+      labels:
+        app: artillery-distributed
+        role: coordinator
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: artillery-distributed
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: artillery-coordinator
+          image: isectech/artillery-distributed:latest
+          imagePullPolicy: Always
+          env:
+            - name: ARTILLERY_DISTRIBUTED_MODE
+              value: "coordinator"
+            - name: ARTILLERY_WORKER_ID
+              value: "coordinator"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: ARTILLERY_PROMETHEUS_ENDPOINT
+              value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091"
+            - name: AWS_REGION
+              value: "us-east-1"
+          ports:
+            - containerPort: 8080
+              name: coordination
+            - containerPort: 9090
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: test-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: test-config
+          configMap:
+            name: artillery-test-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artillery-workers
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: workers
+spec:
+  replicas: 3  # Start with 3 workers
+  selector:
+    matchLabels:
+      app: artillery-distributed
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: artillery-distributed
+        role: worker
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: artillery-distributed
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: artillery-worker
+          image: isectech/artillery-distributed:latest
+          imagePullPolicy: Always
+          env:
+            - name: ARTILLERY_DISTRIBUTED_MODE
+              value: "worker"
+            - name: ARTILLERY_COORDINATOR
+              value: "artillery-coordinator.performance-testing.svc.cluster.local:8080"
+            - name: ARTILLERY_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ARTILLERY_TEST_TYPE
+              value: "comprehensive"
+            - name: ARTILLERY_ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: ARTILLERY_PROMETHEUS_ENDPOINT
+              value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: METRICS_INTERVAL
+              value: "30"
+            # Environment-specific API tokens
+            - name: ANALYST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens  # Reuse same secret
+                  key: staging-analyst-token
+                  optional: true
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-admin-token
+                  optional: true
+            - name: VIEWER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-viewer-token
+                  optional: true
+          ports:
+            - containerPort: 9090
+              name: metrics
+          resources:
+            requests:
+              cpu: 300m
+              memory: 512Mi
+            limits:
+              cpu: 1500m
+              memory: 2Gi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep node || exit 1"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "nc -z artillery-coordinator.performance-testing.svc.cluster.local 8080"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: test-config
+              mountPath: /app/config
+              readOnly: true
+            - name: test-reports
+              mountPath: /app/reports
+      volumes:
+        - name: test-config
+          configMap:
+            name: artillery-test-config
+        - name: test-reports
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: artillery-distributed
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: performance-testing
+  name: artillery-distributed
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: artillery-distributed
+  namespace: performance-testing
+subjects:
+  - kind: ServiceAccount
+    name: artillery-distributed
+    namespace: performance-testing
+roleRef:
+  kind: Role
+  name: artillery-distributed
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: artillery-workers-hpa
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: artillery-workers
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 30
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: artillery-scheduled-tests
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: scheduled-tests
+spec:
+  schedule: "0 2,14,20 * * *"  # Run at 2 AM, 2 PM, and 8 PM daily
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 7200  # Clean up after 2 hours
+      parallelism: 3
+      completions: 3
+      template:
+        metadata:
+          labels:
+            app: artillery-distributed
+            role: scheduled-worker
+        spec:
+          serviceAccountName: artillery-distributed
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+          containers:
+            - name: artillery-scheduled-worker
+              image: isectech/artillery-distributed:latest
+              imagePullPolicy: Always
+              env:
+                - name: ARTILLERY_DISTRIBUTED_MODE
+                  value: "worker"
+                - name: ARTILLERY_WORKER_ID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: ARTILLERY_TEST_TYPE
+                  value: "comprehensive"
+                - name: ARTILLERY_ENVIRONMENT
+                  value: "staging"
+                - name: LOG_LEVEL
+                  value: "info"
+                - name: ARTILLERY_PROMETHEUS_ENDPOINT
+                  value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091"
+                # Custom phases for scheduled tests
+                - name: ARTILLERY_PHASES
+                  value: |
+                    [
+                      {"duration": 300, "arrivalRate": 10, "name": "Baseline Check"},
+                      {"duration": 600, "arrivalRate": 20, "name": "Normal Load"},
+                      {"duration": 300, "arrivalRate": 5, "name": "Cool Down"}
+                    ]
+                - name: ANALYST_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: k6-test-tokens
+                      key: staging-analyst-token
+                - name: ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: k6-test-tokens
+                      key: staging-admin-token
+              resources:
+                requests:
+                  cpu: 400m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              volumeMounts:
+                - name: test-config
+                  mountPath: /app/config
+                  readOnly: true
+                - name: test-reports
+                  mountPath: /app/reports
+          volumes:
+            - name: test-config
+              configMap:
+                name: artillery-test-config
+            - name: test-reports
+              persistentVolumeClaim:
+                claimName: artillery-reports-pvc
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: artillery-reports-pvc
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artillery-metrics
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app: artillery-distributed
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: artillery-workers-pdb
+  namespace: performance-testing
+  labels:
+    app: artillery-distributed
+    component: workers
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: artillery-distributed
+      role: worker
+
+---
+# Resource Quota for the performance testing namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: performance-testing-quota
+  namespace: performance-testing
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "50"
+    limits.memory: 100Gi
+    pods: "50"
+    persistentvolumeclaims: "10"
+    services: "10"

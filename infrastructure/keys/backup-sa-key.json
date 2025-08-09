@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "isectech-protech-project",
+  "private_key_id": "afa9b3fb1467fad96c54f02956ec03d7c158c89b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDR+kF0MiyyYwlg\nSiZcR9E8EslHK6ix54ckyTpr2PLwJWKPgN0sEVNkHUWmQYnFmY/NQUganE8hgYGG\nBU63GQ2uQYJ4iBhdsG2tOVimNPKP7FKbv0HBgYuC9TgqAkjXdtQ+rtQv8k1yTbQB\nIpjNzCnRTouuTYxjeMfd47MSNtiJKWFBP8QJqLk1bJwFrbZgQ9CuXJyERO5Gnse6\nmV+Xftq4XEFmyxjCtyS2/YyE1exO+9ey2r/5DmwJT56LrRO3lpjcmy/u3VmZW0yg\neu6zZz2OTyxrE6jPBVIyQYRPZFt2pcB4sGF7On8ZBJO2LNywQx8pidDFjiUTG3iS\neAgPD+I/AgMBAAECggEACxRLU9g554e2PPBsqb3YWnUbTbgOBKUUymobvQkLeIRg\nePXxtZuMbOHmhOk8XcLGhawGI/FPc5MjxHCPQLX/tMwcGEQGFRt0DgnSlaKBkfqE\nOVeUHqO5OsW5mu3X7haFCHGtHIKKd5eGAfFTYrh9FGAympXY7H64/QpArptaPZJq\n1ukWpxOYEFuvOCjPwwAFY46FuYhpwxmW/wXV+8qbajBuovZwhsDiBQ2ksCI0xopj\nqu4NwfAuX0UgxTIdvCDMvO8z0Tf8+rgHOx0hmjlfKgw+5jeGteNxySRCxja5/5ZZ\nzSPWF9TMhXg1sHfCh+SQXWUrVyV/BC54fFbyOxmlYQKBgQD6hw3eMEnpcuhsWAxU\ncNygtRSew/1xmw5rYcrfF1QoatjMgkALWRxoB2xGEnV7al6wwuijnsrqVXQoNemY\nl6nyuh1kgG4+/rYslk2y4ChEwrYW7bTypdxfDI4BTck/aUtF3C6pOoK0Db1lnmei\nKyjvV+otvVrSZ7VEmFMByGj0xwKBgQDWkHJWXUaXy7cAwQY4DCSttcV0DIVt5mSG\n8YumunWsw/mMoKahPRTU0yCeaZMouzfcqQtg5/bJjbG0pTUfwIhYt74lbBRTtC9r\nUan/ULsX7m+0U5W43oZmvZwfxO/vBJeGpGF/t7GyTDktJ4F9eEmyHekFeF6xdA/V\nTiNahSS+yQKBgFBq+8OfwooCTaNBnCua0udvWQAhr4BBIp7LlGCKT4Rtz8vN35sE\n7r5h65qOoFGOcnjRB/ZFqaMQ7SlfLO3DeVUl8vto0nq8LmQfly9dDvALhIHVqejd\n3uBP2mGGw5vsQ7JYHE5MLtp3Mp2k/GUs74XstYobJ0U07xXmw3ZmC3LPAoGAO6AA\nZgedqmkt/cOmGsUlHDC7Ijioi5XOscFF8Zs3QD9lhbLPG1eCBnJ1ShBEmLkOGP/Q\n7akIZ5I8o9qVHLHAMgc9i+Cw9WHJG6Wh/BVPKKNV32Kq5KjR6JMgY6OymVVJVl0v\nyvIdK1MLQIUN8vQOZrTxIFgG2IFMNRZ1tJ3zTCECgYBjdXRjGU2zjEJONzcpwpCq\nIx1cAaKzEj0goeupuw0dTvQ3I/DlGcE2EgUat2b8VoAzPZLmOkM3ncabPh6BDXYP\ncBwCpZLInAxjw10p+TmIaaahVh1Nj91JkGwXzz4vEpaCkMAirvFfJKlQQIKSkDcd\n4MkPV4YdBKXm8fzo81oOvQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "backup-sa@isectech-protech-project.iam.gserviceaccount.com",
+  "client_id": "105228558005290099604",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/backup-sa%40isectech-protech-project.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

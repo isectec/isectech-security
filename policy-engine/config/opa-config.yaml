@@ -1,0 +1,55 @@
+services:
+  trust_score_api:
+    url: http://trust-score-service:8080
+    response_header_timeout_seconds: 5
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer ${TRUST_SCORE_API_TOKEN}
+
+  rbac_api:
+    url: http://rbac-service:8080
+    response_header_timeout_seconds: 3
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer ${RBAC_API_TOKEN}
+
+bundles:
+  authz:
+    service: bundle_service
+    resource: bundles/authz.tar.gz
+    polling:
+      min_delay_seconds: 10
+      max_delay_seconds: 20
+
+decision_logs:
+  console: true
+  service: decision_log_service
+  partition_name: ${POD_NAME}
+
+status:
+  console: true
+  service: status_service
+  partition_name: ${POD_NAME}
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    query: data.envoy.authz.allow
+    dry_run: false
+
+server:
+  addr: :8181
+  diagnostic:
+    addr: :8282
+
+storage:
+  disk:
+    directory: /tmp/opa
+
+config:
+  files:
+    - /etc/opa/config/config.yaml
+  urls: []
+  keys: []
+
+persist_activation_results: true

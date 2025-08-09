@@ -1,0 +1,437 @@
+# iSECTECH SIEM Threat Intelligence Feeds Configuration
+# Production-grade configuration for threat intelligence integration
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Threat Intelligence Feeds Configuration"
+last_updated: "2024-01-15T10:30:00Z"
+
+# Threat Intelligence Feed Sources
+threat_feeds:
+  # High-confidence commercial feeds
+  - feed_name: "isectech_premium_intel"
+    feed_url: "https://feeds.isectech.com/threat-intel/premium/iocs.json"
+    feed_type: "json"
+    api_key: "${ISECTECH_PREMIUM_API_KEY}"
+    confidence_weight: 1.0
+    update_interval_minutes: 15
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 100000
+    description: "iSECTECH Premium Threat Intelligence - High confidence indicators"
+    priority: 1
+    tags: ["commercial", "high_confidence", "real_time"]
+    
+  # Abuse.ch feeds - High quality open source intelligence
+  - feed_name: "abuse_ch_malware_bazaar"
+    feed_url: "https://bazaar.abuse.ch/export/csv/recent/"
+    feed_type: "csv"
+    confidence_weight: 0.9
+    update_interval_minutes: 60
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 50000
+    description: "Abuse.ch Malware Bazaar - Recent malware samples and IOCs"
+    priority: 2
+    tags: ["open_source", "malware", "hashes"]
+    
+  - feed_name: "abuse_ch_threatfox"
+    feed_url: "https://threatfox.abuse.ch/export/csv/recent/"
+    feed_type: "csv"
+    confidence_weight: 0.9
+    update_interval_minutes: 30
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 75000
+    description: "Abuse.ch ThreatFox - IOCs from various threat research sources"
+    priority: 2
+    tags: ["open_source", "mixed_iocs", "research"]
+    
+  - feed_name: "abuse_ch_feodo_tracker"
+    feed_url: "https://feodotracker.abuse.ch/downloads/ipblocklist.csv"
+    feed_type: "csv"
+    confidence_weight: 0.95
+    update_interval_minutes: 120
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 10000
+    description: "Abuse.ch Feodo Tracker - Botnet command and control servers"
+    priority: 2
+    tags: ["botnet", "c2", "ip_addresses"]
+    
+  # Emerging Threats feeds
+  - feed_name: "emerging_threats_compromised_ips"
+    feed_url: "https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt"
+    feed_type: "txt"
+    confidence_weight: 0.85
+    update_interval_minutes: 240
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 25000
+    description: "Emerging Threats - Known compromised IP addresses"
+    priority: 3
+    tags: ["open_source", "compromised", "ip_addresses"]
+    
+  - feed_name: "emerging_threats_botnet_ips"
+    feed_url: "https://rules.emergingthreats.net/fwrules/emerging-botcc.rules"
+    feed_type: "suricata_rules"
+    confidence_weight: 0.9
+    update_interval_minutes: 360
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 15000
+    description: "Emerging Threats - Botnet command and control IP addresses"
+    priority: 3
+    tags: ["botnet", "c2", "suricata_rules"]
+    
+  # AlienVault OTX (requires API key)
+  - feed_name: "alienvault_otx_community"
+    feed_url: "https://otx.alienvault.com/api/v1/indicators/export"
+    feed_type: "json"
+    api_key: "${ALIENVAULT_OTX_API_KEY}"
+    confidence_weight: 0.8
+    update_interval_minutes: 120
+    enabled: false  # Disabled by default - requires API key
+    verify_ssl: true
+    timeout_seconds: 60
+    max_indicators: 200000
+    description: "AlienVault OTX - Community-driven threat intelligence"
+    priority: 4
+    tags: ["community", "mixed_confidence", "large_volume"]
+    
+  # MISP feeds (requires configuration)
+  - feed_name: "misp_sharing_community"
+    feed_url: "https://misp.isectech.com/attributes/restSearch"
+    feed_type: "misp"
+    api_key: "${MISP_API_KEY}"
+    confidence_weight: 0.85
+    update_interval_minutes: 180
+    enabled: false  # Disabled by default - requires MISP setup
+    verify_ssl: true
+    timeout_seconds: 45
+    max_indicators: 150000
+    description: "MISP Threat Sharing Community - Collaborative threat intelligence"
+    priority: 4
+    tags: ["collaborative", "structured", "contextual"]
+    
+  # Domain reputation feeds
+  - feed_name: "malware_domain_list"
+    feed_url: "https://www.malwaredomainlist.com/hostslist/hosts.txt"
+    feed_type: "txt"
+    confidence_weight: 0.8
+    update_interval_minutes: 360
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 20000
+    description: "Malware Domain List - Known malicious domains"
+    priority: 5
+    tags: ["domains", "malware", "hosts_file"]
+    
+  - feed_name: "phishtank_verified"
+    feed_url: "http://data.phishtank.com/data/online-valid.csv"
+    feed_type: "csv"
+    confidence_weight: 0.9
+    update_interval_minutes: 180
+    enabled: true
+    verify_ssl: false  # PhishTank uses HTTP
+    timeout_seconds: 60
+    max_indicators: 30000
+    description: "PhishTank - Verified phishing URLs"
+    priority: 3
+    tags: ["phishing", "urls", "verified"]
+    
+  # URL reputation
+  - feed_name: "urlhaus_recent"
+    feed_url: "https://urlhaus.abuse.ch/downloads/csv_recent/"
+    feed_type: "csv"
+    confidence_weight: 0.9
+    update_interval_minutes: 90
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 40000
+    description: "URLhaus - Malware URLs and payloads"
+    priority: 2
+    tags: ["urls", "malware", "payloads"]
+    
+  # Ransomware tracking
+  - feed_name: "ransomware_tracker"
+    feed_url: "https://ransomwaretracker.abuse.ch/downloads/RW_IPBL.txt"
+    feed_type: "txt"
+    confidence_weight: 0.95
+    update_interval_minutes: 240
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 5000
+    description: "Ransomware Tracker - Known ransomware infrastructure"
+    priority: 1
+    tags: ["ransomware", "high_priority", "ip_addresses"]
+    
+  # SSL blacklist
+  - feed_name: "ssl_blacklist"
+    feed_url: "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
+    feed_type: "csv"
+    confidence_weight: 0.9
+    update_interval_minutes: 360
+    enabled: true
+    verify_ssl: true
+    timeout_seconds: 30
+    max_indicators: 15000
+    description: "SSL Blacklist - Malicious SSL certificates"
+    priority: 3
+    tags: ["ssl", "certificates", "infrastructure"]
+
+# Indicator type configurations
+indicator_types:
+  ip:
+    validation_regex: "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+    default_ttl_hours: 24
+    max_indicators: 100000
+    priority_weight: 1.2
+    enrichment_fields:
+      - "source.ip"
+      - "destination.ip"
+      - "client.ip"
+      - "server.ip"
+      - "host.ip"
+    
+  domain:
+    validation_regex: "^[a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?\\.[a-zA-Z]{2,}$"
+    default_ttl_hours: 48
+    max_indicators: 75000
+    priority_weight: 1.1
+    enrichment_fields:
+      - "url.domain"
+      - "destination.domain"
+      - "dns.question.name"
+      - "email.sender.domain"
+    
+  url:
+    validation_regex: "^https?://[^\\s/$.?#].[^\\s]*$"
+    default_ttl_hours: 12
+    max_indicators: 50000
+    priority_weight: 1.3
+    enrichment_fields:
+      - "url.original"
+      - "url.full"
+      - "http.request.referrer"
+    
+  hash:
+    validation_regex: "^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$"
+    default_ttl_hours: 168  # 7 days
+    max_indicators: 200000
+    priority_weight: 1.5
+    enrichment_fields:
+      - "file.hash.md5"
+      - "file.hash.sha1"
+      - "file.hash.sha256"
+      - "process.hash.md5"
+      - "process.hash.sha256"
+    
+  email:
+    validation_regex: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+    default_ttl_hours: 24
+    max_indicators: 25000
+    priority_weight: 1.0
+    enrichment_fields:
+      - "user.email"
+      - "email.sender.address"
+      - "email.from.address"
+
+# Feed processing configuration
+processing:
+  # Parallel processing settings
+  max_concurrent_feeds: 5
+  max_concurrent_lookups: 50
+  batch_size: 1000
+  
+  # Error handling
+  max_retries: 3
+  retry_delay_seconds: 30
+  timeout_seconds: 300
+  
+  # Rate limiting
+  requests_per_minute: 100
+  burst_limit: 20
+  
+  # Memory management
+  max_memory_mb: 1024
+  cache_cleanup_interval_hours: 6
+  
+# Quality control
+quality_control:
+  # Confidence scoring
+  minimum_confidence: 30
+  confidence_decay_days: 30
+  
+  # Duplicate handling
+  deduplication_enabled: true
+  merge_duplicates: true
+  
+  # False positive reduction
+  whitelist_enabled: true
+  whitelist_sources:
+    - "internal_assets"
+    - "trusted_domains"
+    - "alexa_top_1m"
+  
+  # Validation rules
+  validate_indicators: true
+  require_source_attribution: true
+  minimum_description_length: 10
+
+# Threat categorization
+threat_categories:
+  malware:
+    priority: 1
+    confidence_bonus: 10
+    tags: ["malicious_software", "infection"]
+    
+  botnet:
+    priority: 1
+    confidence_bonus: 15
+    tags: ["command_control", "compromised"]
+    
+  phishing:
+    priority: 2
+    confidence_bonus: 10
+    tags: ["social_engineering", "credential_theft"]
+    
+  ransomware:
+    priority: 1
+    confidence_bonus: 20
+    tags: ["extortion", "encryption", "critical"]
+    
+  apt:
+    priority: 1
+    confidence_bonus: 25
+    tags: ["advanced_persistent_threat", "nation_state"]
+    
+  spam:
+    priority: 3
+    confidence_bonus: 0
+    tags: ["unwanted_email", "bulk"]
+    
+  suspicious:
+    priority: 4
+    confidence_bonus: -5
+    tags: ["potentially_unwanted", "investigation_required"]
+
+# Storage and caching
+storage:
+  # Database configuration
+  database_type: "postgresql"  # postgresql, redis, elasticsearch
+  connection_url: "${THREAT_INTEL_DB_URL}"
+  
+  # Caching
+  cache_enabled: true
+  cache_type: "redis"  # redis, memory, file
+  cache_url: "${REDIS_URL}"
+  cache_ttl_seconds: 3600
+  cache_max_size: 1000000
+  
+  # Persistence
+  persist_indicators: true
+  backup_enabled: true
+  backup_interval_hours: 12
+  retention_days: 90
+
+# API configuration
+api:
+  # REST API for lookups
+  enabled: true
+  bind_address: "0.0.0.0"
+  port: 8080
+  
+  # Authentication
+  api_key_required: true
+  api_keys:
+    - name: "siem_enrichment"
+      key: "${THREAT_INTEL_API_KEY}"
+      permissions: ["read", "lookup"]
+    - name: "feed_management"
+      key: "${THREAT_INTEL_ADMIN_KEY}"
+      permissions: ["read", "write", "admin"]
+  
+  # Rate limiting
+  rate_limit_per_minute: 1000
+  rate_limit_burst: 100
+  
+  # Response format
+  default_format: "json"
+  include_metadata: true
+  include_confidence: true
+
+# Monitoring and alerting
+monitoring:
+  # Metrics collection
+  metrics_enabled: true
+  metrics_endpoint: "/metrics"
+  metrics_format: "prometheus"
+  
+  # Health checks
+  health_check_enabled: true
+  health_check_endpoint: "/health"
+  health_check_interval_seconds: 30
+  
+  # Alerting
+  alerts_enabled: true
+  alert_thresholds:
+    feed_failure_count: 3
+    high_confidence_indicators: 100
+    processing_latency_seconds: 300
+    
+  # Logging
+  log_level: "INFO"
+  log_format: "json"
+  audit_logging: true
+
+# Integration settings
+integrations:
+  # SIEM platforms
+  elasticsearch:
+    enabled: true
+    hosts: ["${ELASTICSEARCH_HOSTS}"]
+    index_template: "threat-intel-indicators"
+    
+  splunk:
+    enabled: false
+    hec_url: "${SPLUNK_HEC_URL}"
+    hec_token: "${SPLUNK_HEC_TOKEN}"
+    
+  # Notification systems
+  slack:
+    enabled: true
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#security-alerts"
+    
+  email:
+    enabled: true
+    smtp_server: "${SMTP_SERVER}"
+    from_address: "siem-alerts@isectech.com"
+    to_addresses: ["security-team@isectech.com"]
+
+# Compliance and governance
+compliance:
+  # Data handling
+  data_classification: "TLP:AMBER"
+  retention_policy: "90_days"
+  sharing_restrictions: ["no_third_party"]
+  
+  # Audit requirements
+  audit_trail_enabled: true
+  change_tracking: true
+  access_logging: true
+  
+  # Privacy
+  pii_detection: true
+  anonymization: false
+  consent_required: false

@@ -1,0 +1,127 @@
+# iSECTECH Elasticsearch Configuration
+# Production-grade Elasticsearch cluster configuration for centralized logging
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLUSTER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+cluster.name: isectech-logging-cluster
+node.name: ${HOSTNAME}
+node.roles: [master, data, ingest, ml, remote_cluster_client]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# Security and CORS
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+http.cors.allow-methods: "GET, POST, PUT, DELETE, OPTIONS, HEAD"
+http.cors.allow-headers: "X-Requested-With, Content-Type, Content-Length, Authorization"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISCOVERY AND CLUSTER FORMATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+discovery.type: single-node
+cluster.initial_master_nodes: ["${HOSTNAME}"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PATH CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+path.repo: ["/usr/share/elasticsearch/backups"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MEMORY AND PERFORMANCE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+bootstrap.memory_lock: true
+indices.memory.index_buffer_size: 20%
+indices.memory.min_index_buffer_size: 96mb
+
+# Thread pool settings
+thread_pool.search.size: 8
+thread_pool.search.queue_size: 1000
+thread_pool.write.size: 8
+thread_pool.write.queue_size: 200
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INDEX MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Index lifecycle management
+action.auto_create_index: "+logs-*,+metrics-*,+traces-*,-*"
+indices.lifecycle.rollover.only_if_has_documents: true
+
+# Index templates and mappings
+index.number_of_shards: 1
+index.number_of_replicas: 0
+index.refresh_interval: 30s
+index.translog.durability: async
+index.translog.sync_interval: 30s
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.keystore.path: certs/elastic-certificates.p12
+xpack.security.transport.ssl.truststore.path: certs/elastic-certificates.p12
+
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.keystore.path: certs/elastic-certificates.p12
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MONITORING AND ALERTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.monitoring.enabled: true
+xpack.monitoring.collection.enabled: true
+xpack.monitoring.elasticsearch.collection.enabled: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MACHINE LEARNING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.ml.enabled: true
+xpack.ml.max_model_memory_limit: 2gb
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WATCHER (ALERTING)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.watcher.enabled: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+logger.org.elasticsearch.discovery: WARN
+logger.org.elasticsearch.cluster.service: INFO
+logger.org.elasticsearch.indices.recovery: DEBUG
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOM ISECTECH SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Custom retention policies for different log types
+cluster.routing.allocation.disk.threshold.enabled: true
+cluster.routing.allocation.disk.watermark.low: 85%
+cluster.routing.allocation.disk.watermark.high: 90%
+cluster.routing.allocation.disk.watermark.flood_stage: 95%
+
+# Index patterns for iSECTECH logs
+index.mapping.total_fields.limit: 2000
+index.mapping.depth.limit: 20
+index.mapping.nested_fields.limit: 100

@@ -1,0 +1,171 @@
+# iSECTECH Uptime Kuma Configuration
+# Production-grade uptime monitoring and status page
+
+version: '3.8'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORKS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  monitoring:
+    external: true
+  isectech-network:
+    external: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOLUMES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+volumes:
+  uptime_kuma_data:
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVICES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # Uptime Kuma - Uptime monitoring and status page
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.8
+    container_name: isectech-uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - UPTIME_KUMA_PORT=3001
+      - UPTIME_KUMA_HOST=0.0.0.0
+      - NODE_ENV=production
+      - TZ=UTC
+      # Database configuration (SQLite by default)
+      - DATABASE_URL=sqlite:///app/data/kuma.db
+      # Security settings
+      - UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN=false
+      - UPTIME_KUMA_CLOUDFLARED_TOKEN=${CLOUDFLARED_TOKEN}
+    networks:
+      - monitoring
+      - isectech-network
+    healthcheck:
+      test: ["CMD-SHELL", "node extra/healthcheck.js"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma.rule=Host(`status.isectech.com`)"
+      - "traefik.http.routers.uptime-kuma.tls=true"
+      - "traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+      - "traefik.http.routers.uptime-kuma.middlewares=secure-headers@file"
+
+  # Additional monitoring tools
+  
+  # Blackbox Exporter for external endpoint monitoring
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: isectech-blackbox-exporter
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox-exporter/config.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+      - '--web.listen-address=:9115'
+      - '--log.level=info'
+    networks:
+      - monitoring
+      - isectech-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9115/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9115"
+
+  # Smokeping for network latency monitoring
+  smokeping:
+    image: linuxserver/smokeping:3.7.3
+    container_name: isectech-smokeping
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - ./smokeping/config:/config
+      - ./smokeping/data:/data
+    ports:
+      - "8081:80"
+    networks:
+      - monitoring
+      - isectech-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.smokeping.rule=Host(`latency.isectech.com`)"
+      - "traefik.http.routers.smokeping.tls=true"
+      - "traefik.http.services.smokeping.loadbalancer.server.port=80"
+
+  # StatusPal for customer-facing status page
+  statuspal-agent:
+    image: statuspal/statuspal-agent:latest
+    container_name: isectech-statuspal-agent
+    restart: unless-stopped
+    environment:
+      - STATUSPAL_API_KEY=${STATUSPAL_API_KEY}
+      - STATUSPAL_PAGE_ID=${STATUSPAL_PAGE_ID}
+      - MONITOR_INTERVAL=60
+    volumes:
+      - ./statuspal/config.yml:/app/config.yml:ro
+    networks:
+      - monitoring
+      - isectech-network
+    depends_on:
+      - uptime-kuma
+
+  # Dead Man's Snitch for cron job monitoring
+  deadmanssnitch-agent:
+    image: alpine:3.18
+    container_name: isectech-deadmanssnitch-agent
+    restart: unless-stopped
+    environment:
+      - SNITCH_URL=${DEADMANSSNITCH_URL}
+      - CHECK_INTERVAL=300
+    command: |
+      sh -c '
+        apk add --no-cache curl
+        while true; do
+          curl -fsS -m 10 --retry 5 $$SNITCH_URL || echo "Failed to ping Dead Mans Snitch"
+          sleep $$CHECK_INTERVAL
+        done
+      '
+    networks:
+      - monitoring
+
+  # Synthetic monitoring with Playwright
+  synthetic-monitoring:
+    build:
+      context: ./synthetic-monitoring
+      dockerfile: Dockerfile
+    container_name: isectech-synthetic-monitoring
+    restart: unless-stopped
+    environment:
+      - TARGET_URL=https://isectech.com
+      - CHECK_INTERVAL=300
+      - ALERT_WEBHOOK=${SYNTHETIC_ALERT_WEBHOOK}
+    volumes:
+      - ./synthetic-monitoring/tests:/app/tests:ro
+      - ./synthetic-monitoring/screenshots:/app/screenshots
+    networks:
+      - monitoring
+      - isectech-network
+    depends_on:
+      - uptime-kuma

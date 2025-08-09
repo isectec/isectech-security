@@ -1,0 +1,508 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-honeypot
+  namespace: deception
+  labels:
+    app: mongodb-honeypot
+    honeypot-type: database
+    database-type: mongodb
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: mongodb-honeypot
+  template:
+    metadata:
+      labels:
+        app: mongodb-honeypot
+        honeypot-type: database
+        database-type: mongodb
+      annotations:
+        security.isectech.com/purpose: "mongodb-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9216"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: mongodb-honeypot
+        image: isectech/mongodb-honeypot:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 27017
+          name: mongodb
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "mongodb"
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: "isectech_admin"
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: mongo.password
+        - name: MONGO_INITDB_DATABASE
+          value: "isectech_analytics"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: FAKE_COLLECTIONS_CONFIG
+          value: |
+            {
+              "user_behavior_analytics": {
+                "document_count": 100000,
+                "time_range": "90d",
+                "data_types": ["login_patterns", "access_behavior", "anomaly_scores"]
+              },
+              "threat_detection_ml": {
+                "document_count": 50000,
+                "data_types": ["model_predictions", "feature_vectors", "confidence_scores"]
+              },
+              "security_logs": {
+                "document_count": 500000,
+                "time_range": "30d",
+                "log_types": ["authentication", "authorization", "data_access", "api_calls"]
+              },
+              "compliance_reports": {
+                "document_count": 1000,
+                "report_types": ["SOC2", "PCI_DSS", "GDPR", "HIPAA"]
+              }
+            }
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 999
+        livenessProbe:
+          tcpSocket:
+            port: 27017
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - mongo
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
+        - name: mongo-config
+          mountPath: /data/configdb
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      - name: mongodb-exporter
+        image: percona/mongodb_exporter:0.40.0
+        args:
+        - --mongodb.uri=mongodb://isectech_admin:$(MONGO_PASSWORD)@localhost:27017
+        - --web.listen-address=:9216
+        - --collect-all
+        ports:
+        - containerPort: 9216
+          name: metrics
+        env:
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: mongo.password
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: mongo-data
+        emptyDir: {}
+      - name: mongo-config
+        emptyDir: {}
+      - name: init-scripts
+        configMap:
+          name: mongodb-honeypot-init
+          defaultMode: 0755
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - mongodb-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-honeypot-service
+  namespace: deception
+  labels:
+    app: mongodb-honeypot
+    service-type: honeypot
+    database-type: mongodb
+spec:
+  selector:
+    app: mongodb-honeypot
+  ports:
+  - name: mongodb
+    port: 27017
+    targetPort: 27017
+    protocol: TCP
+  - name: metrics
+    port: 9216
+    targetPort: 9216
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-honeypot-init
+  namespace: deception
+  labels:
+    app: mongodb-honeypot
+data:
+  001-create-collections.js: |
+    // Initialize MongoDB honeypot with realistic isectech data
+    
+    // Switch to main analytics database
+    use isectech_analytics
+    
+    // User Behavior Analytics Collection
+    db.user_behavior_analytics.insertMany([
+      {
+        "user_id": "usr_7f8a9b2c4d1e5f6g",
+        "customer_id": "tenant_main",
+        "session_id": "sess_abc123def456",
+        "timestamp": new Date(),
+        "event_type": "login_success",
+        "source_ip": "192.168.1.100",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "geolocation": {
+          "country": "US",
+          "city": "San Francisco",
+          "coordinates": [-122.4194, 37.7749]
+        },
+        "risk_score": 0.15,
+        "anomaly_flags": [],
+        "behavioral_patterns": {
+          "typical_login_time": "09:00-17:00",
+          "usual_locations": ["San Francisco", "Palo Alto"],
+          "device_fingerprint": "fp_a1b2c3d4e5f6",
+          "access_patterns": ["dashboard", "reports", "settings"]
+        }
+      },
+      {
+        "user_id": "usr_3e4f5g6h7i8j9k0l",
+        "customer_id": "tenant_main",
+        "session_id": "sess_def456ghi789",
+        "timestamp": new Date(Date.now() - 3600000),
+        "event_type": "suspicious_login",
+        "source_ip": "198.51.100.42",
+        "user_agent": "curl/7.68.0",
+        "geolocation": {
+          "country": "RU",
+          "city": "Moscow",
+          "coordinates": [37.6173, 55.7558]
+        },
+        "risk_score": 0.87,
+        "anomaly_flags": ["unusual_location", "non_browser_agent", "off_hours"],
+        "behavioral_patterns": {
+          "deviation_score": 0.92,
+          "unusual_patterns": ["api_enumeration", "rapid_requests", "privilege_escalation_attempts"]
+        }
+      }
+    ])
+    
+    // Threat Detection ML Models Collection
+    db.threat_detection_ml.insertMany([
+      {
+        "model_id": "ml_user_anomaly_v2.1",
+        "model_type": "isolation_forest",
+        "training_date": new Date(Date.now() - 86400000 * 7),
+        "feature_set": [
+          "login_frequency",
+          "access_time_patterns",
+          "geographic_variance", 
+          "device_consistency",
+          "api_usage_patterns",
+          "privilege_requests"
+        ],
+        "performance_metrics": {
+          "precision": 0.94,
+          "recall": 0.89,
+          "f1_score": 0.915,
+          "false_positive_rate": 0.03
+        },
+        "model_artifacts": {
+          "model_path": "/ml/models/user_anomaly_v2.1.pkl",
+          "scaler_path": "/ml/scalers/user_features_scaler.pkl",
+          "feature_importance": {
+            "geographic_variance": 0.28,
+            "access_time_patterns": 0.24,
+            "api_usage_patterns": 0.19,
+            "device_consistency": 0.16,
+            "login_frequency": 0.13
+          }
+        },
+        "deployment_status": "production",
+        "last_prediction_batch": new Date()
+      },
+      {
+        "prediction_id": "pred_" + Math.random().toString(36).substr(2, 9),
+        "model_id": "ml_user_anomaly_v2.1",
+        "timestamp": new Date(),
+        "input_features": {
+          "user_id": "usr_suspicious_001",
+          "login_frequency_24h": 47,
+          "geographic_distance_km": 8934.2,
+          "device_fingerprint_changed": true,
+          "access_time_variance": 0.85,
+          "api_calls_per_minute": 23.4
+        },
+        "prediction_output": {
+          "anomaly_score": 0.91,
+          "risk_classification": "high",
+          "confidence": 0.87,
+          "contributing_factors": [
+            "geographic_anomaly",
+            "excessive_api_usage", 
+            "device_inconsistency"
+          ]
+        },
+        "response_actions": [
+          "require_additional_authentication",
+          "limit_api_rate",
+          "alert_security_team"
+        ]
+      }
+    ])
+    
+    // Security Logs Collection
+    db.security_logs.insertMany([
+      {
+        "log_id": "log_" + Math.random().toString(36).substr(2, 16),
+        "timestamp": new Date(),
+        "event_type": "api_authentication",
+        "customer_id": "tenant_main",
+        "user_id": "usr_7f8a9b2c4d1e5f6g",
+        "source_ip": "192.168.1.100",
+        "endpoint": "/api/v1/security/alerts",
+        "method": "GET",
+        "status_code": 200,
+        "response_time_ms": 145,
+        "user_agent": "isectech-webapp/1.0.0",
+        "authentication": {
+          "method": "jwt",
+          "token_id": "jwt_abc123def456",
+          "mfa_used": true,
+          "session_duration_minutes": 480
+        },
+        "authorization": {
+          "required_permissions": ["security.alerts.read"],
+          "granted": true,
+          "role": "security_analyst"
+        },
+        "request_metadata": {
+          "headers": {
+            "Authorization": "Bearer eyJ...[truncated]",
+            "Content-Type": "application/json",
+            "X-Tenant-ID": "tenant_main"
+          },
+          "query_params": {
+            "limit": 50,
+            "severity": "high,critical",
+            "time_range": "24h"
+          }
+        }
+      },
+      {
+        "log_id": "log_" + Math.random().toString(36).substr(2, 16),
+        "timestamp": new Date(Date.now() - 1800000),
+        "event_type": "privilege_escalation_attempt",
+        "customer_id": "tenant_main", 
+        "user_id": "usr_3e4f5g6h7i8j9k0l",
+        "source_ip": "203.0.113.45",
+        "endpoint": "/api/v1/admin/users",
+        "method": "POST",
+        "status_code": 403,
+        "response_time_ms": 89,
+        "user_agent": "python-requests/2.28.1",
+        "authentication": {
+          "method": "api_key",
+          "token_id": "api_key_suspicious",
+          "mfa_used": false
+        },
+        "authorization": {
+          "required_permissions": ["admin.users.create"],
+          "granted": false,
+          "role": "analyst",
+          "escalation_attempt": true
+        },
+        "security_alerts": [
+          "privilege_escalation_attempt",
+          "role_boundary_violation",
+          "suspicious_api_usage"
+        ],
+        "response_actions": [
+          "request_blocked",
+          "alert_generated",
+          "session_flagged"
+        ]
+      }
+    ])
+    
+    // Compliance Reports Collection
+    db.compliance_reports.insertMany([
+      {
+        "report_id": "rpt_soc2_2024_q1",
+        "report_type": "SOC2_Type_II",
+        "customer_id": "tenant_main",
+        "reporting_period": {
+          "start_date": new Date("2024-01-01"),
+          "end_date": new Date("2024-03-31")
+        },
+        "auditor": {
+          "firm_name": "SecureAudit LLC",
+          "lead_auditor": "Jane Smith, CPA",
+          "certification_number": "SOC2-12345"
+        },
+        "trust_service_criteria": {
+          "security": {
+            "status": "compliant",
+            "findings": 0,
+            "recommendations": 2,
+            "control_effectiveness": 0.98
+          },
+          "availability": {
+            "status": "compliant", 
+            "uptime_percentage": 99.97,
+            "sla_compliance": true
+          },
+          "confidentiality": {
+            "status": "compliant",
+            "data_classification_coverage": 100,
+            "encryption_compliance": true
+          },
+          "privacy": {
+            "status": "compliant_with_exceptions",
+            "gdpr_compliance": true,
+            "data_retention_policy_adherence": 98.5
+          }
+        },
+        "control_testing_results": {
+          "total_controls": 47,
+          "controls_tested": 47,
+          "controls_effective": 45,
+          "exceptions": 2,
+          "remediation_timeline": "60 days"
+        },
+        "sensitive_data_inventory": {
+          "pii_records": 15247,
+          "financial_data_points": 8934,
+          "authentication_credentials": 1203,
+          "encryption_key_count": 156
+        },
+        "attestation_opinion": "unqualified",
+        "next_assessment_date": new Date("2024-06-30"),
+        "executive_summary": "The organization has maintained effective controls over security, availability, and confidentiality throughout the examination period."
+      }
+    ])
+    
+    // Create indexes for performance and realism
+    db.user_behavior_analytics.createIndex({ "user_id": 1 })
+    db.user_behavior_analytics.createIndex({ "timestamp": 1 })
+    db.user_behavior_analytics.createIndex({ "customer_id": 1 })
+    db.user_behavior_analytics.createIndex({ "risk_score": 1 })
+    
+    db.threat_detection_ml.createIndex({ "model_id": 1 })
+    db.threat_detection_ml.createIndex({ "timestamp": 1 })
+    db.threat_detection_ml.createIndex({ "prediction_output.anomaly_score": 1 })
+    
+    db.security_logs.createIndex({ "timestamp": 1 })
+    db.security_logs.createIndex({ "customer_id": 1 })
+    db.security_logs.createIndex({ "event_type": 1 })
+    db.security_logs.createIndex({ "source_ip": 1 })
+    
+    db.compliance_reports.createIndex({ "customer_id": 1 })
+    db.compliance_reports.createIndex({ "report_type": 1 })
+    db.compliance_reports.createIndex({ "reporting_period.end_date": 1 })
+    
+    print("MongoDB honeypot initialization completed with realistic isectech data")
+    
+  002-create-users.js: |
+    // Create MongoDB users with realistic roles
+    use admin
+    
+    // Create application users
+    db.createUser({
+      user: "analytics_reader",
+      pwd: "secure_analytics_2024!",
+      roles: [
+        { role: "read", db: "isectech_analytics" },
+        { role: "read", db: "isectech_security" }
+      ]
+    })
+    
+    db.createUser({
+      user: "ml_service",
+      pwd: "ml_service_key_2024!",
+      roles: [
+        { role: "readWrite", db: "isectech_analytics" },
+        { role: "read", db: "isectech_security" }
+      ]
+    })
+    
+    db.createUser({
+      user: "backup_service", 
+      pwd: "backup_svc_pwd_2024!",
+      roles: [
+        { role: "backup", db: "admin" },
+        { role: "read", db: "isectech_analytics" },
+        { role: "read", db: "isectech_security" }
+      ]
+    })
+    
+    print("MongoDB honeypot users created successfully")

@@ -1,0 +1,487 @@
+# Workload-Specific Security Policies for iSECTECH
+# Security contexts tailored for different types of workloads
+
+---
+# Security Context for Web Applications (Frontend/API)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-app-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/workload-type: web-app
+data:
+  web-app-pod-security-context.yaml: |
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1001  # nginx/app user
+      runAsGroup: 1001
+      fsGroup: 1001
+      fsGroupChangePolicy: "OnRootMismatch"
+      seccompProfile:
+        type: RuntimeDefault
+      supplementalGroups: [1001]
+  
+  web-app-container-security-context.yaml: |
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - NET_BIND_SERVICE  # Only if binding to port < 1024
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1001
+      runAsGroup: 1001
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# Security Context for Database Applications
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: database-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/workload-type: database
+data:
+  database-pod-security-context.yaml: |
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999   # Common database user ID
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: "Always"
+      seccompProfile:
+        type: RuntimeDefault
+      supplementalGroups: [999]
+  
+  database-container-security-context.yaml: |
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - CHOWN      # For file ownership changes
+        - DAC_OVERRIDE  # For database file access
+        - SETGID     # For group changes
+        - SETUID     # For user changes
+      readOnlyRootFilesystem: false  # Databases need write access
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# Security Context for AI/ML Services
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-ml-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/workload-type: ai-ml
+data:
+  ai-ml-pod-security-context.yaml: |
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      fsGroupChangePolicy: "OnRootMismatch"
+      seccompProfile:
+        type: RuntimeDefault
+      supplementalGroups: [1000]
+  
+  ai-ml-container-security-context.yaml: |
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# Security Context for Monitoring Applications
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-security-context
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/workload-type: monitoring
+data:
+  monitoring-pod-security-context.yaml: |
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534  # nobody user for monitoring
+      runAsGroup: 65534
+      fsGroup: 65534
+      fsGroupChangePolicy: "OnRootMismatch"
+      seccompProfile:
+        type: RuntimeDefault
+  
+  monitoring-container-security-context.yaml: |
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - NET_BIND_SERVICE  # For binding to monitoring ports
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# PodSecurityPolicy for Restricted Workloads (fallback for older K8s)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: restricted-workload-psp
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/profile: restricted
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  allowedCapabilities: []
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: true
+  seccompProfile:
+    defaultProfileName: 'runtime/default'
+
+---
+# PodSecurityPolicy for Baseline Workloads
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: baseline-workload-psp
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+    security.isectech.com/profile: baseline
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  allowedCapabilities:
+    - NET_BIND_SERVICE
+    - CHOWN
+    - DAC_OVERRIDE
+    - SETGID
+    - SETUID
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+  seccompProfile:
+    defaultProfileName: 'runtime/default'
+
+---
+# ClusterRole for restricted PSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: restricted-psp-user
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - restricted-workload-psp
+
+---
+# ClusterRole for baseline PSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: baseline-psp-user
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - baseline-workload-psp
+
+---
+# RoleBinding for restricted services namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restricted-psp-binding
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+roleRef:
+  kind: ClusterRole
+  name: restricted-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: isectech-services
+
+---
+# RoleBinding for restricted data namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restricted-psp-binding
+  namespace: isectech-data
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+roleRef:
+  kind: ClusterRole
+  name: restricted-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: isectech-data
+
+---
+# RoleBinding for restricted AI services namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restricted-psp-binding
+  namespace: isectech-ai
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+roleRef:
+  kind: ClusterRole
+  name: restricted-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: isectech-ai
+
+---
+# RoleBinding for baseline API Gateway namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: baseline-psp-binding
+  namespace: isectech-api-gateway
+  labels:
+    app.kubernetes.io/name: workload-security-policies
+    app.kubernetes.io/component: security
+roleRef:
+  kind: ClusterRole
+  name: baseline-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: isectech-api-gateway
+
+---
+# Deployment example with workload-specific security context
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app-secure-example
+  namespace: pss-test
+  labels:
+    app: web-app-secure-example
+    security.isectech.com/workload-type: web-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web-app-secure-example
+  template:
+    metadata:
+      labels:
+        app: web-app-secure-example
+        security.isectech.com/workload-type: web-app
+    spec:
+      # Web application pod security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
+        supplementalGroups: [1001]
+      containers:
+      - name: web-app
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 8080
+          name: http
+        # Web application container security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: var-cache
+          mountPath: /var/cache/nginx
+        - name: var-run
+          mountPath: /var/run
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+            ephemeral-storage: "1Gi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+            ephemeral-storage: "100Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 10
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: "100Mi"
+      - name: var-cache
+        emptyDir:
+          sizeLimit: "100Mi"
+      - name: var-run
+        emptyDir:
+          sizeLimit: "100Mi"
+      - name: nginx-config
+        configMap:
+          name: web-app-nginx-config
+          defaultMode: 0644
+
+---
+# Nginx config for web app example
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-app-nginx-config
+  namespace: pss-test
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        access_log /dev/stdout combined;
+        
+        sendfile on;
+        tcp_nopush on;
+        keepalive_timeout 65;
+        gzip on;
+        
+        # Use non-privileged port
+        server {
+            listen 8080;
+            server_name _;
+            root /usr/share/nginx/html;
+            index index.html;
+            
+            location / {
+                try_files $uri $uri/ =404;
+            }
+            
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+    }

@@ -1,0 +1,294 @@
+{{/* iSECTECH Alertmanager Templates */}}
+{{/* Production-grade alert notification templates */}}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+{{/* SLACK TEMPLATES */}}
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+
+{{ define "slack.isectech.title" }}
+{{ if eq .Status "firing" }}🚨{{ else }}✅{{ end }} {{ .GroupLabels.alertname }}{{ if .GroupLabels.service }} - {{ .GroupLabels.service }}{{ end }}
+{{ end }}
+
+{{ define "slack.isectech.text" }}
+{{ if eq .Status "firing" }}
+*🔥 ALERT FIRING*
+{{ range .Alerts.Firing }}
+*Summary:* {{ .Annotations.summary }}
+*Description:* {{ .Annotations.description }}
+*Severity:* `{{ .Labels.severity | toUpper }}`
+*Environment:* `{{ .Labels.environment }}`
+*Service:* `{{ .Labels.service }}`
+{{ if .Labels.instance }}*Instance:* `{{ .Labels.instance }}`{{ end }}
+{{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+*Started:* {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+{{ end }}
+{{ end }}
+
+{{ if .Alerts.Resolved }}
+*✅ ALERTS RESOLVED*
+{{ range .Alerts.Resolved }}
+*Summary:* {{ .Annotations.summary }}
+*Duration:* {{ .StartsAt.Format "15:04:05" }} - {{ .EndsAt.Format "15:04:05" }} ({{ .EndsAt.Sub .StartsAt }})
+{{ end }}
+{{ end }}
+
+*Links:*
+• <{{ .ExternalURL }}|Alertmanager>
+• <https://grafana.isectech.com|Grafana Dashboards>
+• <https://prometheus.isectech.com|Prometheus>
+{{ end }}
+
+{{ define "slack.isectech.critical" }}
+<!channel> 🚨 *CRITICAL ALERT* 🚨
+
+{{ range .Alerts.Firing }}
+*🔥 {{ .Annotations.summary }}*
+
+*Description:* {{ .Annotations.description }}
+*Service:* `{{ .Labels.service }}`
+*Environment:* `{{ .Labels.environment }}`
+{{ if .Labels.instance }}*Instance:* `{{ .Labels.instance }}`{{ end }}
+{{ if .Annotations.runbook_url }}*📖 Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+
+*Immediate Actions Required:*
+{{ if .Annotations.immediate_actions }}{{ .Annotations.immediate_actions }}{{ else }}
+1. Check service health and logs
+2. Verify infrastructure status
+3. Contact on-call engineer if needed
+{{ end }}
+
+*Started:* {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+{{ end }}
+
+*Quick Links:*
+• <https://grafana.isectech.com/d/service-overview|Service Dashboard>
+• <https://kibana.isectech.com|Logs>
+• <{{ .ExternalURL }}|Alertmanager>
+{{ end }}
+
+{{ define "slack.isectech.security" }}
+🛡️ *SECURITY ALERT* 🛡️
+
+{{ range .Alerts.Firing }}
+*Event:* {{ .Annotations.summary }}
+*Details:* {{ .Annotations.description }}
+
+*Security Context:*
+{{ if .Labels.source_ip }}*Source IP:* `{{ .Labels.source_ip }}`{{ end }}
+{{ if .Labels.user_id }}*User ID:* `{{ .Labels.user_id }}`{{ end }}
+{{ if .Labels.event_type }}*Event Type:* `{{ .Labels.event_type }}`{{ end }}
+{{ if .Labels.severity }}*Risk Level:* `{{ .Labels.severity | toUpper }}`{{ end }}
+
+*Occurred:* {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+{{ end }}
+
+*Security Team Actions:*
+1. Review security logs immediately
+2. Check for additional suspicious activity
+3. Consider IP blocking if necessary
+4. Document incident details
+
+*Links:*
+• <https://kibana.isectech.com/app/security|Security Dashboard>
+• <https://grafana.isectech.com/d/security-overview|Security Metrics>
+{{ end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+{{/* EMAIL TEMPLATES */}}
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+
+{{ define "email.isectech.subject" }}
+[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}{{ if .GroupLabels.service }} - {{ .GroupLabels.service }}{{ end }} ({{ .GroupLabels.environment }})
+{{ end }}
+
+{{ define "email.isectech.html" }}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>iSECTECH Alert Notification</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { background-color: {{ if eq .Status "firing" }}#d32f2f{{ else }}#2e7d32{{ end }}; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; }
+        .alert { border-left: 4px solid {{ if eq .Status "firing" }}#d32f2f{{ else }}#2e7d32{{ end }}; padding: 15px; margin: 10px 0; background-color: #f8f9fa; }
+        .label { background-color: #e0e0e0; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 2px; display: inline-block; }
+        .critical { background-color: #ffebee; border-color: #d32f2f; }
+        .warning { background-color: #fff8e1; border-color: #ff8f00; }
+        .info { background-color: #e3f2fd; border-color: #1976d2; }
+        .footer { background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #666; }
+        .links { margin-top: 15px; }
+        .links a { display: inline-block; margin: 5px 10px; padding: 8px 15px; background-color: #1976d2; color: white; text-decoration: none; border-radius: 4px; }
+        .timestamp { color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ if eq .Status "firing" }}🚨 Alert Notification{{ else }}✅ Alert Resolved{{ end }}</h1>
+            <h2>{{ .GroupLabels.alertname }}</h2>
+        </div>
+        
+        <div class="content">
+            {{ if .Alerts.Firing }}
+            <h3>🔥 Firing Alerts ({{ .Alerts.Firing | len }})</h3>
+            {{ range .Alerts.Firing }}
+            <div class="alert {{ .Labels.severity }}">
+                <h4>{{ .Annotations.summary }}</h4>
+                <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+                
+                <div>
+                    {{ range .Labels.SortedPairs }}
+                    <span class="label">{{ .Name }}: {{ .Value }}</span>
+                    {{ end }}
+                </div>
+                
+                {{ if .Annotations.runbook_url }}
+                <p><strong>Runbook:</strong> <a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a></p>
+                {{ end }}
+                
+                <p class="timestamp"><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</p>
+            </div>
+            {{ end }}
+            {{ end }}
+            
+            {{ if .Alerts.Resolved }}
+            <h3>✅ Resolved Alerts ({{ .Alerts.Resolved | len }})</h3>
+            {{ range .Alerts.Resolved }}
+            <div class="alert">
+                <h4>{{ .Annotations.summary }}</h4>
+                <p><strong>Duration:</strong> {{ .EndsAt.Sub .StartsAt }}</p>
+                <p class="timestamp">{{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }} - {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}</p>
+            </div>
+            {{ end }}
+            {{ end }}
+            
+            <div class="links">
+                <a href="{{ .ExternalURL }}">View in Alertmanager</a>
+                <a href="https://grafana.isectech.com">Grafana Dashboards</a>
+                <a href="https://prometheus.isectech.com">Prometheus</a>
+                <a href="https://kibana.isectech.com">Logs (Kibana)</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>iSECTECH Monitoring System | Generated at {{ .GroupLabels.timestamp }}</p>
+            <p>For support, contact: <a href="mailto:ops-team@isectech.com">ops-team@isectech.com</a></p>
+        </div>
+    </div>
+</body>
+</html>
+{{ end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+{{/* PAGERDUTY TEMPLATES */}}
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+
+{{ define "pagerduty.isectech.description" }}
+{{ .GroupLabels.alertname }}: {{ range .Alerts.Firing }}{{ .Annotations.summary }}{{ end }}
+{{ end }}
+
+{{ define "pagerduty.isectech.details" }}
+{
+  "alert_count": {{ .Alerts.Firing | len }},
+  "environment": "{{ .GroupLabels.environment }}",
+  "service": "{{ .GroupLabels.service }}",
+  "cluster": "{{ .GroupLabels.cluster }}",
+  "severity": "{{ .GroupLabels.severity }}",
+  "alerts": [
+    {{ range $i, $alert := .Alerts.Firing }}
+    {{ if $i }},{{ end }}
+    {
+      "summary": "{{ $alert.Annotations.summary }}",
+      "description": "{{ $alert.Annotations.description }}",
+      "instance": "{{ $alert.Labels.instance }}",
+      "started_at": "{{ $alert.StartsAt.Format "2006-01-02T15:04:05Z" }}",
+      "generator_url": "{{ $alert.GeneratorURL }}",
+      "runbook_url": "{{ $alert.Annotations.runbook_url }}"
+    }
+    {{ end }}
+  ],
+  "links": {
+    "alertmanager": "{{ .ExternalURL }}",
+    "grafana": "https://grafana.isectech.com",
+    "prometheus": "https://prometheus.isectech.com",
+    "kibana": "https://kibana.isectech.com"
+  }
+}
+{{ end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+{{/* WEBHOOK TEMPLATES */}}
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+
+{{ define "webhook.isectech.payload" }}
+{
+  "alert_group": {
+    "alertname": "{{ .GroupLabels.alertname }}",
+    "status": "{{ .Status }}",
+    "environment": "{{ .GroupLabels.environment }}",
+    "service": "{{ .GroupLabels.service }}",
+    "cluster": "{{ .GroupLabels.cluster }}",
+    "timestamp": "{{ .GroupLabels.timestamp }}"
+  },
+  "firing_alerts": [
+    {{ range $i, $alert := .Alerts.Firing }}
+    {{ if $i }},{{ end }}
+    {
+      "summary": "{{ $alert.Annotations.summary }}",
+      "description": "{{ $alert.Annotations.description }}",
+      "severity": "{{ $alert.Labels.severity }}",
+      "instance": "{{ $alert.Labels.instance }}",
+      "labels": {
+        {{ range $j, $label := $alert.Labels.SortedPairs }}
+        {{ if $j }},{{ end }}
+        "{{ $label.Name }}": "{{ $label.Value }}"
+        {{ end }}
+      },
+      "annotations": {
+        {{ range $j, $annotation := $alert.Annotations.SortedPairs }}
+        {{ if $j }},{{ end }}
+        "{{ $annotation.Name }}": "{{ $annotation.Value }}"
+        {{ end }}
+      },
+      "started_at": "{{ $alert.StartsAt.Format "2006-01-02T15:04:05Z" }}",
+      "generator_url": "{{ $alert.GeneratorURL }}"
+    }
+    {{ end }}
+  ],
+  "resolved_alerts": [
+    {{ range $i, $alert := .Alerts.Resolved }}
+    {{ if $i }},{{ end }}
+    {
+      "summary": "{{ $alert.Annotations.summary }}",
+      "duration": "{{ $alert.EndsAt.Sub $alert.StartsAt }}",
+      "started_at": "{{ $alert.StartsAt.Format "2006-01-02T15:04:05Z" }}",
+      "ended_at": "{{ $alert.EndsAt.Format "2006-01-02T15:04:05Z" }}"
+    }
+    {{ end }}
+  ],
+  "metadata": {
+    "alertmanager_url": "{{ .ExternalURL }}",
+    "grafana_url": "https://grafana.isectech.com",
+    "prometheus_url": "https://prometheus.isectech.com",
+    "generated_at": "{{ now.Format "2006-01-02T15:04:05Z" }}"
+  }
+}
+{{ end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+{{/* UTILITY TEMPLATES */}}
+{{/* ═══════════════════════════════════════════════════════════════════════════════ */}}
+
+{{ define "isectech.severity_emoji" }}
+{{ if eq . "critical" }}🔥{{ else if eq . "warning" }}⚠️{{ else if eq . "info" }}ℹ️{{ else }}📊{{ end }}
+{{ end }}
+
+{{ define "isectech.status_emoji" }}
+{{ if eq . "firing" }}🚨{{ else }}✅{{ end }}
+{{ end }}
+
+{{ define "isectech.service_emoji" }}
+{{ if eq . "frontend" }}💻{{ else if eq . "backend" }}⚙️{{ else if eq . "database" }}💾{{ else if eq . "ai" }}🤖{{ else if eq . "security" }}🛡️{{ else }}📊{{ end }}
+{{ end }}

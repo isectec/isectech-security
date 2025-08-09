@@ -1,0 +1,136 @@
+# iSECTECH Canary Deployment Configuration
+# Production-grade canary deployment with automated rollback triggers
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canary-deployment-config
+  namespace: isectech-production
+  labels:
+    app: isectech-platform
+    deployment-strategy: canary
+data:
+  # Canary deployment configuration
+  canary-config.yaml: |
+    canary:
+      # Traffic splitting configuration
+      traffic:
+        initial_percentage: 5
+        increment_percentage: 10
+        max_percentage: 100
+        increment_interval: "5m"
+        
+      # Success criteria for promotion
+      success_criteria:
+        duration: "10m"
+        metrics:
+          - name: "success_rate"
+            threshold: 99.5
+            query: "sum(rate(http_requests_total{status!~'5..'}[5m])) / sum(rate(http_requests_total[5m])) * 100"
+          - name: "error_rate"
+            threshold: 0.5
+            query: "sum(rate(http_requests_total{status=~'5..'}[5m])) / sum(rate(http_requests_total[5m])) * 100"
+          - name: "latency_p95"
+            threshold: 500
+            query: "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"
+          - name: "availability"
+            threshold: 99.9
+            query: "avg_over_time(up[5m]) * 100"
+            
+      # Rollback triggers
+      rollback_triggers:
+        automatic: true
+        conditions:
+          - metric: "error_rate"
+            threshold: 2.0
+            duration: "2m"
+          - metric: "latency_p95"  
+            threshold: 1000
+            duration: "3m"
+          - metric: "availability"
+            threshold: 99.0
+            duration: "1m"
+            
+      # Notification configuration
+      notifications:
+        channels:
+          - type: "slack"
+            webhook_url_secret: "slack-webhook-url"
+          - type: "email"
+            addresses: ["devops@isectech.com", "security@isectech.com"]
+          - type: "pagerduty"
+            integration_key_secret: "pagerduty-integration-key"
+            
+        events:
+          - "deployment_started"
+          - "traffic_increased"
+          - "promotion_successful"
+          - "rollback_triggered"
+          - "deployment_failed"
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: canary-routing
+  namespace: isectech-production
+  labels:
+    app: isectech-platform
+spec:
+  hosts:
+  - api.isectech.com
+  gateways:
+  - isectech-gateway
+  http:
+  - match:
+    - headers:
+        canary:
+          exact: "true"
+    route:
+    - destination:
+        host: isectech-backend
+        subset: canary
+      weight: 100
+  - route:
+    - destination:
+        host: isectech-backend
+        subset: stable
+      weight: 95
+    - destination:
+        host: isectech-backend
+        subset: canary
+      weight: 5
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: canary-destinations
+  namespace: isectech-production
+spec:
+  host: isectech-backend
+  subsets:
+  - name: stable
+    labels:
+      version: stable
+    trafficPolicy:
+      connectionPool:
+        tcp:
+          maxConnections: 100
+        http:
+          http1MaxPendingRequests: 50
+          maxRequestsPerConnection: 10
+  - name: canary
+    labels:
+      version: canary
+    trafficPolicy:
+      connectionPool:
+        tcp:
+          maxConnections: 50
+        http:
+          http1MaxPendingRequests: 25
+          maxRequestsPerConnection: 5
+      outlierDetection:
+        consecutiveErrors: 3
+        interval: 30s
+        baseEjectionTime: 30s

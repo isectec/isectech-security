@@ -1,0 +1,525 @@
+# ML System Alerting Rules
+#
+# Comprehensive Prometheus alerting rules for ML/AI system monitoring
+# Task 85.10: Document, Monitor, and Report System Performance
+
+groups:
+  - name: ml_model_performance_alerts
+    interval: 30s
+    rules:
+      # Model Inference Performance
+      - alert: MLModelInferenceLatencyHigh
+        expr: histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model inference latency detected"
+          description: "Model {{ $labels.model_id }} has P95 inference latency of {{ $value }}s (threshold: 50ms)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-latency"
+          dashboard_url: "https://grafana.isectech.internal/d/ml-system/ml-system-dashboard?var-model_id={{ $labels.model_id }}"
+
+      - alert: MLModelInferenceLatencyCritical
+        expr: histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[5m])) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "Critical ML model inference latency"
+          description: "Model {{ $labels.model_id }} has P95 inference latency of {{ $value }}s (critical threshold: 100ms)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-latency-critical"
+
+      - alert: MLModelThroughputLow
+        expr: rate(ml_model_inferences_total[5m]) < 10
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Low ML model throughput"
+          description: "Model {{ $labels.model_id }} throughput is {{ $value }} inferences/sec (threshold: 10/sec)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-throughput"
+
+      # Model Quality Alerts
+      - alert: MLModelAccuracyDegradation
+        expr: ml_model_accuracy < 0.85
+        for: 3m
+        labels:
+          severity: high
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model accuracy degradation detected"
+          description: "Model {{ $labels.model_id }} accuracy is {{ $value | humanizePercentage }} (threshold: 85%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-accuracy-degradation"
+
+      - alert: MLModelAccuracyCritical
+        expr: ml_model_accuracy < 0.7
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "Critical ML model accuracy degradation"
+          description: "Model {{ $labels.model_id }} accuracy is {{ $value | humanizePercentage }} (critical threshold: 70%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-accuracy-critical"
+
+      - alert: MLModelHealthScoreLow
+        expr: ml_model_health_score < 70
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model health score degraded"
+          description: "Model {{ $labels.model_id }} health score is {{ $value }}/100 (threshold: 70)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-health"
+
+      - alert: MLModelHealthScoreCritical
+        expr: ml_model_health_score < 50
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Critical ML model health score"
+          description: "Model {{ $labels.model_id }} health score is {{ $value }}/100 (critical threshold: 50)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-health-critical"
+
+  - name: ml_drift_detection_alerts
+    interval: 1m
+    rules:
+      # Model Drift Alerts
+      - alert: MLModelDriftDetected
+        expr: ml_model_drift_score > 0.1
+        for: 2m
+        labels:
+          severity: high
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model drift detected"
+          description: "Model {{ $labels.model_id }} showing {{ $labels.drift_type }} drift with score {{ $value }} (threshold: 0.1)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-drift"
+
+      - alert: MLModelDriftCritical
+        expr: ml_model_drift_score > 0.2
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "Critical ML model drift detected"
+          description: "Model {{ $labels.model_id }} showing critical {{ $labels.drift_type }} drift with score {{ $value }} (critical threshold: 0.2)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-drift-critical"
+
+      - alert: MLFeatureDriftHigh
+        expr: ml_feature_drift_score > 0.15
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High feature drift detected"
+          description: "Feature {{ $labels.feature_name }} in model {{ $labels.model_id }} showing drift score {{ $value }} (threshold: 0.15)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-feature-drift"
+
+      - alert: MLPredictionDriftDetected
+        expr: ml_prediction_drift_score > 0.12
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML prediction drift detected"
+          description: "Model {{ $labels.model_id }} showing prediction drift with score {{ $value }} (threshold: 0.12)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-prediction-drift"
+
+      - alert: MLDriftDetectionFrequencyHigh
+        expr: rate(ml_data_drift_detections_total[1h]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High frequency of drift detections"
+          description: "Model {{ $labels.model_id }} triggering {{ $value }} drift alerts per hour (threshold: 5/hour)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-drift-frequency"
+
+  - name: ml_resource_utilization_alerts
+    interval: 30s
+    rules:
+      # Resource Utilization Alerts
+      - alert: MLModelCpuUsageHigh
+        expr: ml_model_cpu_usage_percent > 80
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High CPU usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}% CPU (threshold: 80%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-cpu"
+
+      - alert: MLModelCpuUsageCritical
+        expr: ml_model_cpu_usage_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Critical CPU usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}% CPU (critical threshold: 95%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-cpu-critical"
+
+      - alert: MLModelMemoryUsageHigh
+        expr: ml_model_memory_usage_bytes / 1024 / 1024 / 1024 > 8
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High memory usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}GB memory (threshold: 8GB)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-memory"
+
+      - alert: MLModelMemoryUsageCritical
+        expr: ml_model_memory_usage_bytes / 1024 / 1024 / 1024 > 16
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Critical memory usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}GB memory (critical threshold: 16GB)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-memory-critical"
+
+      - alert: MLModelGpuUsageHigh
+        expr: ml_model_gpu_usage_percent > 85
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High GPU usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}% GPU {{ $labels.gpu_id }} (threshold: 85%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-gpu"
+
+      - alert: MLModelGpuMemoryHigh
+        expr: ml_model_gpu_memory_bytes / 1024 / 1024 / 1024 > 8
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High GPU memory usage by ML model"
+          description: "Model {{ $labels.model_id }} using {{ $value }}GB GPU memory (threshold: 8GB)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-gpu-memory"
+
+  - name: ml_error_and_sla_alerts
+    interval: 30s
+    rules:
+      # Error Rate Alerts
+      - alert: MLModelErrorRateHigh
+        expr: rate(ml_model_errors_total[5m]) / rate(ml_model_inferences_total[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model error rate"
+          description: "Model {{ $labels.model_id }} error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-errors"
+
+      - alert: MLModelErrorRateCritical
+        expr: rate(ml_model_errors_total[5m]) / rate(ml_model_inferences_total[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "Critical ML model error rate"
+          description: "Model {{ $labels.model_id }} error rate is {{ $value | humanizePercentage }} (critical threshold: 5%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-errors-critical"
+
+      - alert: MLModelTimeoutsHigh
+        expr: rate(ml_model_timeouts_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model timeout rate"
+          description: "Model {{ $labels.model_id }} experiencing {{ $value }} timeouts/sec"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-timeouts"
+
+      # SLA Violation Alerts
+      - alert: MLModelSLAViolations
+        expr: increase(ml_model_sla_violations_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: high
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model SLA violations detected"
+          description: "Model {{ $labels.model_id }} has {{ $value }} {{ $labels.sla_type }} SLA violations in last 5 minutes"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-sla-violations"
+
+      - alert: MLModelSLAViolationsCritical
+        expr: increase(ml_model_sla_violations_total[1m]) > 10
+        for: 0m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "Critical ML model SLA violations"
+          description: "Model {{ $labels.model_id }} has {{ $value }} {{ $labels.sla_type }} SLA violations in last minute"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-sla-violations-critical"
+
+  - name: ml_queue_and_capacity_alerts
+    interval: 30s
+    rules:
+      # Queue and Capacity Alerts
+      - alert: MLModelQueueDepthHigh
+        expr: ml_model_queue_depth > 100
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model queue depth"
+          description: "Model {{ $labels.model_id }} queue depth is {{ $value }} (threshold: 100)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-queue-depth"
+
+      - alert: MLModelQueueDepthCritical
+        expr: ml_model_queue_depth > 500
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Critical ML model queue depth"
+          description: "Model {{ $labels.model_id }} queue depth is {{ $value }} (critical threshold: 500)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-queue-depth-critical"
+
+      - alert: MLModelQueueWaitTimeHigh
+        expr: histogram_quantile(0.95, rate(ml_model_queue_wait_duration_seconds_bucket[5m])) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model queue wait time"
+          description: "Model {{ $labels.model_id }} P95 queue wait time is {{ $value }}s (threshold: 1s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-queue-wait-time"
+
+      - alert: MLConcurrentInferencesHigh
+        expr: ml_concurrent_inferences > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High concurrent ML inferences"
+          description: "Model {{ $labels.model_id }} has {{ $value }} concurrent inferences (threshold: 50)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-concurrent-inferences"
+
+  - name: ml_training_and_deployment_alerts
+    interval: 1m
+    rules:
+      # Training and Deployment Alerts
+      - alert: MLModelTrainingFailure
+        expr: increase(ml_model_retraining_total{status="failure"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: high
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model training failure"
+          description: "Model {{ $labels.model_id }} training failed (trigger: {{ $labels.trigger_reason }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-training-failure"
+
+      - alert: MLModelTrainingDurationLong
+        expr: histogram_quantile(0.95, rate(ml_model_training_duration_seconds_bucket[1h])) > 7200
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model training taking too long"
+          description: "Model {{ $labels.model_id }} P95 training duration is {{ $value | humanizeDuration }} (threshold: 2h)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-training-duration"
+
+      - alert: MLModelRetrainingFrequencyHigh
+        expr: rate(ml_model_retraining_total[24h]) > 3
+        for: 1h
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "High ML model retraining frequency"
+          description: "Model {{ $labels.model_id }} being retrained {{ $value }} times per day (threshold: 3/day)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-retraining-frequency"
+
+      - alert: MLModelDeploymentFailure
+        expr: histogram_quantile(0.95, rate(ml_model_deployment_duration_seconds_bucket[1h])) > 600
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Slow ML model deployment"
+          description: "Model {{ $labels.model_id }} P95 deployment duration is {{ $value | humanizeDuration }} (threshold: 10min)"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-deployment-duration"
+
+  - name: ml_system_health_alerts
+    interval: 1m
+    rules:
+      # System Health Alerts
+      - alert: MLSystemDown
+        expr: up{job="ml-system-monitor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_system
+          team: ai_ml_engineering
+          page: "true"
+        annotations:
+          summary: "ML monitoring system is down"
+          description: "ML system monitoring service is not responding"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-system-down"
+
+      - alert: MLModelsNotRegistered
+        expr: count(count by (model_id) (ml_model_inferences_total)) == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "No ML models registered for monitoring"
+          description: "No ML models are currently registered in the monitoring system"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-models-not-registered"
+
+      - alert: MLModelNoActivity
+        expr: increase(ml_model_inferences_total[1h]) == 0
+        for: 2h
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "ML model showing no activity"
+          description: "Model {{ $labels.model_id }} has had no inferences in the last 2 hours"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-model-no-activity"
+
+  - name: ml_tenant_specific_alerts
+    interval: 30s
+    rules:
+      # Tenant-specific alerts
+      - alert: MLTenantModelPerformanceDegradation
+        expr: |
+          (
+            ml_model_accuracy{tenant_id!="unknown"} 
+            < on(model_id) group_left(tenant_id) 
+            avg_over_time(ml_model_accuracy[24h]) * 0.9
+          )
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Tenant model performance degradation"
+          description: "Model {{ $labels.model_id }} for tenant {{ $labels.tenant_id }} accuracy dropped to {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-tenant-performance"
+
+      - alert: MLTenantResourceUsageUneven
+        expr: |
+          (
+            ml_model_cpu_usage_percent 
+            > on() group_left() 
+            (avg(ml_model_cpu_usage_percent) * 2)
+          )
+        for: 10m
+        labels:
+          severity: warning
+          component: ml_system
+          team: ai_ml_engineering
+        annotations:
+          summary: "Uneven ML resource usage across tenants"
+          description: "Model {{ $labels.model_id }} using {{ $value }}% CPU, significantly higher than average"
+          runbook_url: "https://docs.isectech.internal/runbooks/ml-resource-uneven"
+
+  - name: ml_recording_rules
+    interval: 30s
+    rules:
+      # Recording rules for efficient queries
+      - record: ml:inference_rate_5m
+        expr: rate(ml_model_inferences_total[5m])
+
+      - record: ml:inference_success_rate_5m
+        expr: |
+          rate(ml_model_inferences_total{status="success"}[5m]) / 
+          rate(ml_model_inferences_total[5m])
+
+      - record: ml:inference_error_rate_5m
+        expr: |
+          rate(ml_model_inferences_total{status="failure"}[5m]) / 
+          rate(ml_model_inferences_total[5m])
+
+      - record: ml:p95_inference_latency_5m
+        expr: histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[5m]))
+
+      - record: ml:p99_inference_latency_5m
+        expr: histogram_quantile(0.99, rate(ml_model_inference_duration_seconds_bucket[5m]))
+
+      - record: ml:avg_model_health_score_5m
+        expr: avg(ml_model_health_score) by (model_id, tenant_id)
+
+      - record: ml:max_drift_score_5m
+        expr: max(ml_model_drift_score) by (model_id, tenant_id)
+
+      - record: ml:resource_efficiency_score_5m
+        expr: |
+          (
+            (100 - ml_model_cpu_usage_percent) * 0.4 +
+            (100 - (ml_model_memory_usage_bytes / 1024 / 1024 / 1024 / 16 * 100)) * 0.3 +
+            ml:inference_rate_5m * 10 * 0.3
+          )

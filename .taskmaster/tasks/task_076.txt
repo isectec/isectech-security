@@ -1,0 +1,116 @@
+# Task ID: 76
+# Title: Implement Service Mesh Security with Istio mTLS
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Deploy Istio service mesh with strict mTLS enforcement to secure all service-to-service communication as part of the Zero Trust Architecture foundation.
+# Details:
+1. Install Istio v1.18+ using istioctl or Helm charts
+2. Configure strict mTLS mode across all namespaces
+3. Create PeerAuthentication resources to enforce mTLS
+4. Implement DestinationRule resources for outbound traffic policies
+5. Configure AuthorizationPolicy resources for service-level access control
+6. Set up Istio Gateway and VirtualService resources for ingress traffic
+7. Implement certificate rotation and management
+8. Configure Istio telemetry for security monitoring
+
+Code example for strict mTLS PeerAuthentication:
+```yaml
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+```
+
+Use Istio 1.18+ with Envoy proxy for sidecar injection. Implement with minimal performance impact by optimizing resource requests/limits for Istio components.
+
+# Test Strategy:
+1. Verify mTLS enforcement using istioctl authn tls-check command
+2. Attempt plaintext communication between services to confirm rejection
+3. Test certificate rotation and validate continued operation
+4. Perform penetration testing to verify encryption of all service traffic
+5. Monitor performance metrics to ensure minimal latency impact
+6. Validate logging of all authentication events
+7. Test failover scenarios and certificate expiration handling
+
+# Subtasks:
+## 1. Install and Configure Istio v1.18+ with Envoy Sidecar Injection [done]
+### Dependencies: None
+### Description: Deploy Istio version 1.18 or higher on the Kubernetes cluster using istioctl or Helm charts, ensuring Envoy sidecar injection is enabled for all workloads.
+### Details:
+Follow official Istio installation guides to set up the control plane and enable automatic sidecar injection for all namespaces targeted for service mesh security.
+<info added on 2025-08-06T13:16:20.948Z>
+Successfully implemented comprehensive Istio v1.18+ installation with Envoy sidecar injection. 
+
+**Implementation Details:**
+- Created comprehensive Istio installation configuration (istio-installation.yaml) with production-grade settings
+- Configured IstioOperator with strict mTLS enforcement, resource optimization, and security context policies
+- Implemented high-availability deployment with 3 replicas for istiod and ingress gateway
+- Added pod anti-affinity rules to ensure distribution across nodes
+- Configured extension providers for Prometheus, Jaeger, and access logging integration
+- Created automated installation script (install-istio-service-mesh.sh) with comprehensive validation
+- Implemented namespace preparation with automatic sidecar injection labels
+- Added security contexts with non-root users and capability dropping
+- Configured telemetry collection for security monitoring
+- Created validation script (validate-istio-security.sh) for comprehensive security testing
+
+**Security Enhancements:**
+- Strict mTLS mode enforced globally via PeerAuthentication
+- Custom CA certificate support for enterprise PKI integration  
+- Resource limits and security contexts for all Istio components
+- Automated certificate rotation via Istio CA
+- Comprehensive logging and monitoring integration
+
+**Files Created:**
+- /infrastructure/kubernetes/istio-installation.yaml (main installation config)
+- /infrastructure/kubernetes/istio-namespace-preparation.yaml (namespace setup)
+- /infrastructure/scripts/install-istio-service-mesh.sh (installation automation)
+- /infrastructure/scripts/validate-istio-security.sh (security validation)
+</info added on 2025-08-06T13:16:20.948Z>
+
+## 2. Enable Strict mTLS Globally Across All Namespaces [done]
+### Dependencies: 76.1
+### Description: Configure Istio to enforce strict mutual TLS (mTLS) for all service-to-service communication within the mesh.
+### Details:
+Apply a PeerAuthentication resource with mTLS mode set to STRICT at the mesh or namespace level to ensure all traffic is encrypted and authenticated.
+
+## 3. Create and Apply PeerAuthentication Resources [done]
+### Dependencies: 76.2
+### Description: Define and deploy PeerAuthentication resources to enforce mTLS at the desired granularity (mesh, namespace, or workload level).
+### Details:
+Write and apply YAML manifests for PeerAuthentication, specifying STRICT mode to guarantee mTLS enforcement for all relevant namespaces and workloads.
+
+## 4. Implement DestinationRule Resources for Outbound Traffic Policies [done]
+### Dependencies: 76.3
+### Description: Create DestinationRule resources to specify TLS settings and traffic policies for outbound connections from services within the mesh.
+### Details:
+Define DestinationRule manifests that enforce ISTIO_MUTUAL TLS mode for all service subsets, ensuring consistent mTLS for outbound traffic.
+
+## 5. Configure AuthorizationPolicy Resources for Service-Level Access Control [done]
+### Dependencies: 76.4
+### Description: Define and apply AuthorizationPolicy resources to restrict service-to-service access based on identity and other attributes.
+### Details:
+Write AuthorizationPolicy manifests to implement least privilege access, specifying allowed principals and actions for each service.
+
+## 6. Set Up Istio Gateway and VirtualService Resources for Secure Ingress Traffic [done]
+### Dependencies: 76.5
+### Description: Deploy Istio Gateway and VirtualService resources to securely manage ingress traffic into the mesh, enforcing TLS at the edge.
+### Details:
+Configure Gateway resources with TLS settings and VirtualService routing rules to control and secure external access to internal services.
+
+## 7. Implement Certificate Rotation and Management [done]
+### Dependencies: 76.6
+### Description: Set up automated certificate issuance, renewal, and rotation for all mTLS certificates used by Istio and Envoy sidecars.
+### Details:
+Leverage Istio’s built-in certificate authority and Secret Discovery Service (SDS) to automate certificate lifecycle management and minimize manual intervention.
+
+## 8. Configure Istio Telemetry for Security Monitoring [done]
+### Dependencies: 76.7
+### Description: Enable and customize Istio telemetry features to monitor mTLS status, policy enforcement, and detect anomalous or unauthorized traffic.
+### Details:
+Integrate Istio telemetry with observability tools (e.g., Prometheus, Grafana, Kiali) to collect and visualize security metrics and alerts.
+

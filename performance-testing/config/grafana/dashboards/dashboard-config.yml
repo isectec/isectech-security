@@ -1,0 +1,13 @@
+# Grafana Dashboard Provisioning Configuration
+# Auto-loads performance testing dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'iSECTECH Load Testing'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

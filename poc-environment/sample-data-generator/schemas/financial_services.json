@@ -1,0 +1,188 @@
+{
+  "industry": "financial_services",
+  "description": "Cybersecurity sample data tailored for financial services organizations",
+  "compliance_frameworks": ["sox", "pci_dss", "ffiec", "gdpr", "basel_iii"],
+  "security_scenarios": [
+    {
+      "name": "payment_fraud_detection",
+      "description": "Credit card and payment fraud scenarios with suspicious transaction patterns",
+      "event_types": [
+        "suspicious_transaction",
+        "card_not_present_fraud",
+        "account_takeover", 
+        "money_laundering_indicators",
+        "velocity_fraud"
+      ],
+      "threat_actors": ["financial_cybercriminals", "insider_threats", "nation_state"],
+      "attack_vectors": ["web_application", "mobile_banking", "atm_network", "wire_transfer"]
+    },
+    {
+      "name": "regulatory_compliance_monitoring",
+      "description": "Compliance violations and regulatory monitoring events",
+      "event_types": [
+        "aml_violation",
+        "kyc_failure",
+        "suspicious_activity_report",
+        "data_retention_violation",
+        "privacy_breach"
+      ],
+      "regulations": ["sox", "pci_dss", "ffiec", "gdpr", "ccpa"],
+      "monitoring_controls": ["transaction_monitoring", "customer_screening", "data_governance"]
+    },
+    {
+      "name": "trading_platform_security",
+      "description": "High-frequency trading platform security events and market manipulation attempts",
+      "event_types": [
+        "market_manipulation",
+        "insider_trading_detection",
+        "algo_trading_anomaly",
+        "price_fixing_indicators",
+        "order_book_manipulation"
+      ],
+      "systems": ["trading_engine", "market_data_feed", "risk_management", "order_management"],
+      "latency_requirements": "microsecond"
+    },
+    {
+      "name": "core_banking_security",
+      "description": "Core banking system security monitoring and threat detection",
+      "event_types": [
+        "unauthorized_account_access",
+        "privilege_escalation",
+        "database_tampering",
+        "wire_fraud_attempt",
+        "customer_data_exfiltration"
+      ],
+      "systems": ["core_banking", "customer_portal", "teller_system", "loan_origination"],
+      "criticality": "tier_1"
+    }
+  ],
+  "asset_types": [
+    {
+      "type": "trading_workstation",
+      "description": "High-performance trading terminals",
+      "os": ["windows_10", "linux"],
+      "software": ["bloomberg_terminal", "refinitiv_eikon", "trading_algorithms"],
+      "security_controls": ["endpoint_protection", "application_whitelisting", "privileged_access"]
+    },
+    {
+      "type": "core_banking_server",
+      "description": "Critical banking application servers",
+      "os": ["aix", "linux", "windows_server"],
+      "software": ["temenos_t24", "finastra", "oracle_flexcube"],
+      "security_controls": ["database_encryption", "application_firewall", "privileged_monitoring"]
+    },
+    {
+      "type": "payment_gateway",
+      "description": "Payment processing infrastructure",
+      "os": ["linux", "windows_server"],
+      "software": ["payment_processor", "tokenization_service", "fraud_detection"],
+      "security_controls": ["pci_compliance", "tokenization", "fraud_monitoring"]
+    },
+    {
+      "type": "customer_portal",
+      "description": "Online banking and mobile applications",
+      "technology": ["web_application", "mobile_app"],
+      "frameworks": ["angular", "react", "spring_boot"],
+      "security_controls": ["multi_factor_auth", "session_management", "input_validation"]
+    }
+  ],
+  "threat_intelligence": {
+    "threat_groups": [
+      "fin7", "carbanak", "lazarus_group", "silence", "dridex_gang"
+    ],
+    "attack_patterns": [
+      "business_email_compromise",
+      "swift_network_compromise",
+      "atm_jackpotting",
+      "pos_malware",
+      "banking_trojan"
+    ],
+    "indicators_of_compromise": [
+      {
+        "type": "ip_address",
+        "values": ["203.0.113.0/24", "198.51.100.0/24"],
+        "description": "Known command and control servers"
+      },
+      {
+        "type": "domain",
+        "values": ["suspicious-bank.com", "fake-payment-gateway.net"],
+        "description": "Phishing domains targeting financial institutions"
+      },
+      {
+        "type": "file_hash",
+        "values": ["d41d8cd98f00b204e9800998ecf8427e", "098f6bcd4621d373cade4e832627b4f6"],
+        "description": "Banking malware file hashes"
+      }
+    ]
+  },
+  "data_volumes": {
+    "standard": {
+      "security_events_per_day": 50000,
+      "network_connections_per_day": 1000000,
+      "user_transactions_per_day": 100000,
+      "vulnerabilities": 150,
+      "incidents_per_month": 25
+    },
+    "enterprise": {
+      "security_events_per_day": 500000,
+      "network_connections_per_day": 10000000,
+      "user_transactions_per_day": 1000000,
+      "vulnerabilities": 500,
+      "incidents_per_month": 100
+    },
+    "premium": {
+      "security_events_per_day": 2000000,
+      "network_connections_per_day": 50000000,
+      "user_transactions_per_day": 5000000,
+      "vulnerabilities": 1000,
+      "incidents_per_month": 250
+    }
+  },
+  "sample_users": [
+    {
+      "role": "trader",
+      "department": "trading",
+      "access_level": "high_privilege",
+      "typical_activities": ["market_data_access", "order_placement", "portfolio_management"],
+      "risk_profile": "high"
+    },
+    {
+      "role": "teller",
+      "department": "branch_operations",
+      "access_level": "standard",
+      "typical_activities": ["customer_transactions", "account_inquiries", "cash_handling"],
+      "risk_profile": "medium"
+    },
+    {
+      "role": "compliance_officer",
+      "department": "compliance",
+      "access_level": "read_only",
+      "typical_activities": ["regulatory_reporting", "audit_review", "policy_enforcement"],
+      "risk_profile": "low"
+    },
+    {
+      "role": "it_administrator",
+      "department": "information_technology",
+      "access_level": "privileged",
+      "typical_activities": ["system_maintenance", "user_management", "security_monitoring"],
+      "risk_profile": "high"
+    }
+  ],
+  "regulatory_requirements": {
+    "sox": {
+      "description": "Sarbanes-Oxley Act compliance",
+      "key_controls": ["financial_reporting", "internal_controls", "audit_trails"],
+      "retention_period": "7_years"
+    },
+    "pci_dss": {
+      "description": "Payment Card Industry Data Security Standard",
+      "key_controls": ["cardholder_data_protection", "secure_networks", "access_control"],
+      "assessment_frequency": "annual"
+    },
+    "ffiec": {
+      "description": "Federal Financial Institutions Examination Council",
+      "key_controls": ["cybersecurity_framework", "business_continuity", "vendor_management"],
+      "examination_cycle": "12_to_18_months"
+    }
+  }
+}

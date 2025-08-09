@@ -1,0 +1,723 @@
+# Automated Testing Pipeline for CI/CD Integration
+# 
+# This pipeline provides comprehensive automated testing including:
+# - DR drills validation
+# - Mobile testing across platforms
+# - API rate limiting performance benchmarking
+# - Security testing integration
+# - Performance monitoring and alerting
+
+name: Comprehensive Testing Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'release/*']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run DR drills daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - dr-drills
+          - mobile
+          - rate-limiting
+          - security
+          - performance
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+          - development
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  GO_VERSION: '1.21'
+  REDIS_VERSION: '7.0'
+  POSTGRES_VERSION: '15'
+
+jobs:
+  # Environment Setup and Validation
+  setup-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      test-matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      environment-url: ${{ steps.setup-env.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test environment
+        id: setup-env
+        run: |
+          case "${{ inputs.environment || 'staging' }}" in
+            staging)
+              echo "url=https://staging.isectech.com" >> $GITHUB_OUTPUT
+              echo "DB_HOST=${{ secrets.STAGING_DB_HOST }}" >> $GITHUB_ENV
+              ;;
+            production)
+              echo "url=https://api.isectech.com" >> $GITHUB_OUTPUT
+              echo "DB_HOST=${{ secrets.PROD_DB_HOST }}" >> $GITHUB_ENV
+              ;;
+            development)
+              echo "url=http://localhost:8080" >> $GITHUB_OUTPUT
+              echo "DB_HOST=localhost" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Generate test matrix
+        id: generate-matrix
+        run: |
+          if [[ "${{ inputs.test_suite || 'all' }}" == "all" ]]; then
+            echo 'matrix=["dr-drills","mobile","rate-limiting","security","performance"]' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix=["${{ inputs.test_suite }}"]' >> $GITHUB_OUTPUT
+          fi
+
+  # Infrastructure Setup
+  setup-infrastructure:
+    runs-on: ubuntu-latest
+    needs: setup-environment
+    services:
+      redis:
+        image: redis:${{ env.REDIS_VERSION }}
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+        ports:
+          - 6379:6379
+
+      postgres:
+        image: postgres:${{ env.POSTGRES_VERSION }}
+        env:
+          POSTGRES_DB: isectech_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          go mod download
+          pip install -r requirements.txt
+
+      - name: Build applications
+        run: |
+          npm run build
+          go build -o bin/ ./...
+
+      - name: Start test services
+        run: |
+          docker-compose -f docker-compose.test.yml up -d
+          sleep 30 # Wait for services to be ready
+
+      - name: Verify infrastructure health
+        run: |
+          npm run test:infrastructure-health
+
+  # Disaster Recovery Drills Testing
+  dr-drills-testing:
+    runs-on: ubuntu-latest
+    needs: [setup-environment, setup-infrastructure]
+    if: contains(needs.setup-environment.outputs.test-matrix, 'dr-drills')
+    strategy:
+      matrix:
+        scenario: [
+          'primary-region-failure',
+          'secondary-region-failure', 
+          'database-failure',
+          'network-partition',
+          'cascading-failure',
+          'data-corruption'
+        ]
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup DR test environment
+        run: |
+          echo "Setting up multi-region test infrastructure..."
+          # Initialize chaos engineering tools
+          kubectl apply -f infrastructure/dr-drills/chaos-experiments.yaml
+          
+      - name: Execute DR drill - ${{ matrix.scenario }}
+        env:
+          TEST_API_URL: ${{ needs.setup-environment.outputs.environment-url }}
+          CHAOS_ENGINEERING_ENABLED: true
+          RTO_TARGET_MINUTES: 15
+          RPO_TARGET_MINUTES: 60
+        run: |
+          npm test -- __tests__/dr-drills/data-recovery-validation.test.ts \
+            --testNamePattern="${{ matrix.scenario }}" \
+            --maxWorkers=1 \
+            --timeout=1800000 # 30 minute timeout
+
+      - name: Validate RTO/RPO compliance
+        run: |
+          node -e "
+            const results = require('./test-results/dr-drill-results.json');
+            const rto = results['${{ matrix.scenario }}'].rtoMeasured;
+            const rpo = results['${{ matrix.scenario }}'].rpoMeasured;
+            
+            console.log(\`RTO: \${rto} minutes (target: 15)\`);
+            console.log(\`RPO: \${rpo} minutes (target: 60)\`);
+            
+            if (rto > 15) {
+              console.error('RTO target exceeded');
+              process.exit(1);
+            }
+            
+            if (rpo > 60) {
+              console.error('RPO target exceeded');
+              process.exit(1);
+            }
+            
+            console.log('DR drill passed compliance checks');
+          "
+
+      - name: Upload DR drill results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dr-drill-results-${{ matrix.scenario }}
+          path: |
+            test-results/
+            logs/dr-drill-*.log
+
+  # Mobile Testing Suite
+  mobile-testing:
+    runs-on: ubuntu-latest
+    needs: [setup-environment, setup-infrastructure]
+    if: contains(needs.setup-environment.outputs.test-matrix, 'mobile')
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+        device: ['iPhone 12', 'Pixel 5', 'iPad Pro', 'Galaxy S9+']
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npx playwright install ${{ matrix.browser }}
+
+      - name: Start mobile test server
+        run: |
+          npm run start:test &
+          sleep 10
+          
+      - name: Run mobile functionality tests
+        env:
+          TEST_API_URL: ${{ needs.setup-environment.outputs.environment-url }}
+          DEVICE_NAME: ${{ matrix.device }}
+          BROWSER_NAME: ${{ matrix.browser }}
+        run: |
+          npm test -- __tests__/mobile/mobile-comprehensive.test.tsx \
+            --maxWorkers=2 \
+            --timeout=300000
+
+      - name: Run PWA functionality tests
+        run: |
+          npm test -- __tests__/mobile/pwa-functionality.test.ts \
+            --maxWorkers=2 \
+            --timeout=300000
+
+      - name: Run cross-platform tests
+        run: |
+          npx playwright test __tests__/mobile/cross-platform-testing.spec.ts \
+            --project=${{ matrix.browser }} \
+            --grep="${{ matrix.device }}"
+
+      - name: Validate mobile performance metrics
+        run: |
+          node scripts/validate-mobile-performance.js \
+            --device="${{ matrix.device }}" \
+            --browser="${{ matrix.browser }}" \
+            --max-load-time=3000 \
+            --min-fps=30
+
+      - name: Upload mobile test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-test-results-${{ matrix.browser }}-${{ matrix.device }}
+          path: |
+            test-results/
+            playwright-report/
+            logs/mobile-*.log
+
+  # API Rate Limiting Performance Testing
+  rate-limiting-testing:
+    runs-on: ubuntu-latest
+    needs: [setup-environment, setup-infrastructure]
+    if: contains(needs.setup-environment.outputs.test-matrix, 'rate-limiting')
+    strategy:
+      matrix:
+        test-type: [
+          'basic-rate-limiting',
+          'high-volume-load',
+          'distributed-attack',
+          'circuit-breaker',
+          'failover-testing'
+        ]
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup rate limiting test environment
+        run: |
+          # Start Kong Gateway
+          docker run -d --name kong-test \
+            -e "KONG_DATABASE=off" \
+            -e "KONG_DECLARATIVE_CONFIG=/kong.yml" \
+            -e "KONG_PROXY_ACCESS_LOG=/dev/stdout" \
+            -e "KONG_ADMIN_ACCESS_LOG=/dev/stdout" \
+            -e "KONG_PROXY_ERROR_LOG=/dev/stderr" \
+            -e "KONG_ADMIN_ERROR_LOG=/dev/stderr" \
+            -e "KONG_ADMIN_LISTEN=0.0.0.0:8001" \
+            -p 8000:8000 \
+            -p 8001:8001 \
+            -v $(pwd)/api-gateway/kong/kong.yml:/kong.yml \
+            kong:latest
+          
+          sleep 30 # Wait for Kong to start
+
+      - name: Execute rate limiting tests - ${{ matrix.test-type }}
+        env:
+          TEST_API_URL: http://localhost:8000
+          REDIS_URL: redis://localhost:6379
+          MAX_RPS_TARGET: 100000
+        run: |
+          case "${{ matrix.test-type }}" in
+            basic-rate-limiting)
+              npm test -- __tests__/api-gateway/rate-limiting-comprehensive.test.ts \
+                --testNamePattern="Basic Rate Limiting"
+              ;;
+            high-volume-load)
+              npm test -- __tests__/api-gateway/rate-limiting-comprehensive.test.ts \
+                --testNamePattern="High-Load Performance" \
+                --timeout=600000
+              ;;
+            distributed-attack)
+              npm test -- __tests__/api-gateway/rate-limiting-comprehensive.test.ts \
+                --testNamePattern="Distributed Attack"
+              ;;
+            circuit-breaker)
+              npm test -- __tests__/api-gateway/rate-limiting-comprehensive.test.ts \
+                --testNamePattern="Circuit Breaker"
+              ;;
+            failover-testing)
+              npm test -- __tests__/api-gateway/rate-limiting-comprehensive.test.ts \
+                --testNamePattern="Failover Mechanism"
+              ;;
+          esac
+
+      - name: Execute advanced load testing
+        if: matrix.test-type == 'high-volume-load'
+        run: |
+          npm test -- __tests__/api-gateway/load-testing-framework.test.ts \
+            --timeout=900000 # 15 minutes
+
+      - name: Validate performance benchmarks
+        run: |
+          node scripts/validate-rate-limiting-performance.js \
+            --test-type="${{ matrix.test-type }}" \
+            --min-rps=1000 \
+            --max-latency=500 \
+            --min-blocking-rate=0.9
+
+      - name: Generate performance report
+        run: |
+          node scripts/generate-performance-report.js \
+            --input=test-results/rate-limiting-results.json \
+            --output=reports/rate-limiting-performance.html
+
+      - name: Upload rate limiting test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rate-limiting-results-${{ matrix.test-type }}
+          path: |
+            test-results/
+            reports/
+            logs/rate-limiting-*.log
+
+  # Security Testing Integration
+  security-testing:
+    runs-on: ubuntu-latest
+    needs: [setup-environment, setup-infrastructure]
+    if: contains(needs.setup-environment.outputs.test-matrix, 'security')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup security testing tools
+        run: |
+          # Install OWASP ZAP
+          docker pull owasp/zap2docker-stable
+          
+          # Install Nuclei
+          curl -L https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei_2.9.4_linux_amd64.zip -o nuclei.zip
+          unzip nuclei.zip
+          sudo mv nuclei /usr/local/bin/
+
+      - name: Run comprehensive API authorization matrix tests
+        env:
+          TARGET_URL: ${{ needs.setup-environment.outputs.environment-url }}
+          TEST_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+        run: |
+          npm test -- __tests__/security/comprehensive-api-authorization-matrix.test.ts \
+            --maxWorkers=2 \
+            --timeout=300000
+        continue-on-error: false
+
+      - name: Run security regression automation tests
+        env:
+          TARGET_URL: ${{ needs.setup-environment.outputs.environment-url }}
+          TEST_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+          BUILD_ID: ${{ github.run_id }}
+          CI: true
+        run: |
+          npm test -- __tests__/security/security-regression-automation.test.ts \
+            --maxWorkers=1 \
+            --timeout=600000
+        continue-on-error: false
+
+      - name: Run OWASP security tests
+        env:
+          TARGET_URL: ${{ needs.setup-environment.outputs.environment-url }}
+        run: |
+          npm test -- __tests__/security/owasp-top10-tests.test.ts
+
+      - name: Run vulnerability assessment
+        run: |
+          npm test -- __tests__/security/vulnerability-assessment.test.ts
+
+      - name: Run penetration testing suite
+        run: |
+          npm test -- __tests__/security/continuous-vulnerability-assessment.test.ts
+
+      - name: Check for critical security issues
+        run: |
+          # Check if security regression tests found critical issues
+          if [ -f "test-results/security-regression-report-${{ github.run_id }}.json" ]; then
+            CRITICAL_ISSUES=$(node -e "const report = require('./test-results/security-regression-report-${{ github.run_id }}.json'); console.log(report.summary.criticalIssues);")
+            BLOCK_DEPLOYMENT=$(node -e "const report = require('./test-results/security-regression-report-${{ github.run_id }}.json'); console.log(report.blockDeployment);")
+            
+            echo "Critical issues found: $CRITICAL_ISSUES"
+            echo "Block deployment: $BLOCK_DEPLOYMENT"
+            
+            if [ "$BLOCK_DEPLOYMENT" = "true" ]; then
+              echo "🚨 CRITICAL SECURITY ISSUES DETECTED - BLOCKING DEPLOYMENT"
+              exit 1
+            fi
+          fi
+
+      - name: Generate security report
+        run: |
+          node scripts/generate-security-report.js \
+            --output=reports/security-assessment.html
+
+      - name: Upload security test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-test-results
+          path: |
+            test-results/
+            reports/
+            logs/security-*.log
+
+  # Performance Monitoring and Benchmarking
+  performance-benchmarking:
+    runs-on: ubuntu-latest
+    needs: [setup-environment, setup-infrastructure]
+    if: contains(needs.setup-environment.outputs.test-matrix, 'performance')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup performance monitoring
+        run: |
+          # Start Prometheus for metrics collection
+          docker run -d --name prometheus \
+            -p 9090:9090 \
+            -v $(pwd)/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml \
+            prom/prometheus
+          
+          # Start Grafana for dashboards
+          docker run -d --name grafana \
+            -p 3000:3000 \
+            grafana/grafana
+          
+          sleep 30
+
+      - name: Run performance benchmark suite
+        env:
+          PROMETHEUS_URL: http://localhost:9090
+          GRAFANA_URL: http://localhost:3000
+        run: |
+          npm test -- __tests__/performance/comprehensive-performance.test.ts \
+            --timeout=1800000 # 30 minutes
+
+      - name: Run load testing scenarios
+        run: |
+          npm run test:load -- \
+            --scenarios=scenarios/production-load.yml \
+            --duration=300 \
+            --max-rps=10000
+
+      - name: Collect performance metrics
+        run: |
+          node scripts/collect-performance-metrics.js \
+            --prometheus-url=http://localhost:9090 \
+            --duration=300 \
+            --output=reports/performance-metrics.json
+
+      - name: Generate performance dashboard
+        run: |
+          node scripts/generate-performance-dashboard.js \
+            --metrics=reports/performance-metrics.json \
+            --output=reports/performance-dashboard.html
+
+      - name: Validate SLA compliance
+        run: |
+          node scripts/validate-sla-compliance.js \
+            --metrics=reports/performance-metrics.json \
+            --sla-config=config/sla-requirements.json
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-benchmark-results
+          path: |
+            test-results/
+            reports/
+            logs/performance-*.log
+
+  # Results Aggregation and Reporting
+  aggregate-results:
+    runs-on: ubuntu-latest
+    needs: [dr-drills-testing, mobile-testing, rate-limiting-testing, security-testing, performance-benchmarking]
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Aggregate test results
+        run: |
+          node scripts/aggregate-test-results.js \
+            --input-dir=artifacts \
+            --output=reports/comprehensive-test-report.json
+
+      - name: Generate executive summary
+        run: |
+          node scripts/generate-executive-summary.js \
+            --results=reports/comprehensive-test-report.json \
+            --output=reports/executive-summary.html \
+            --template=templates/executive-summary.handlebars
+
+      - name: Calculate test coverage metrics
+        run: |
+          node scripts/calculate-coverage-metrics.js \
+            --results=reports/comprehensive-test-report.json \
+            --output=reports/coverage-metrics.json
+
+      - name: Generate security summary
+        run: |
+          if [ -f "test-results/comprehensive-authorization-matrix-report.json" ] && [ -f "test-results/security-regression-report-${{ github.run_id }}.json" ]; then
+            node -e "
+              const authReport = require('./test-results/comprehensive-authorization-matrix-report.json');
+              const regressionReport = require('./test-results/security-regression-report-${{ github.run_id }}.json');
+              
+              console.log('\\n=== SECURITY TEST SUMMARY ===');
+              console.log('Authorization Matrix:');
+              console.log('  Endpoints tested: ' + authReport.summary.totalEndpoints);
+              console.log('  Success rate: ' + authReport.summary.overallSuccessRate.toFixed(2) + '%');
+              console.log('  Security score: ' + authReport.securityAnalysis.securityScore + '/100');
+              
+              console.log('\\nSecurity Regression:');
+              console.log('  Overall score: ' + regressionReport.overallScore.toFixed(2) + '/100');
+              console.log('  Tests passed: ' + regressionReport.summary.passed + '/' + regressionReport.summary.totalTests);
+              console.log('  Critical issues: ' + regressionReport.summary.criticalIssues);
+              console.log('  New vulnerabilities: ' + regressionReport.summary.newVulnerabilities);
+              console.log('  Regression detected: ' + (regressionReport.regressionDetected ? 'YES' : 'NO'));
+              console.log('  Block deployment: ' + (regressionReport.blockDeployment ? 'YES' : 'NO'));
+              
+              console.log('\\n=== COMPLIANCE STATUS ===');
+              Object.entries(regressionReport.complianceStatus).forEach(([framework, status]) => {
+                console.log('  ' + framework + ': ' + status.status + ' (' + status.score.toFixed(1) + '/100)');
+              });
+            "
+          fi
+
+      - name: Send notifications
+        if: failure()
+        run: |
+          # Check if security tests failed specifically
+          SECURITY_FAILURE="false"
+          if [ -f "test-results/security-regression-report-${{ github.run_id }}.json" ]; then
+            SECURITY_FAILURE=$(node -e "const report = require('./test-results/security-regression-report-${{ github.run_id }}.json'); console.log(report.blockDeployment || report.summary.criticalIssues > 0);")
+          fi
+          
+          ALERT_ICON="🚨"
+          ALERT_PRIORITY="CRITICAL"
+          if [ "$SECURITY_FAILURE" = "true" ]; then
+            ALERT_ICON="🔥"
+            ALERT_PRIORITY="SECURITY CRITICAL"
+          fi
+          
+          curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"$ALERT_ICON [$ALERT_PRIORITY] Testing pipeline failed\",
+              \"blocks\": [{
+                \"type\": \"section\",
+                \"text\": {
+                  \"type\": \"mrkdwn\",
+                  \"text\": \"*$ALERT_PRIORITY: Testing Pipeline Failed*\n\nWorkflow: ${{ github.workflow }}\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n\nSecurity Issue: $SECURITY_FAILURE\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>\"
+                }
+              }]
+            }"
+
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-test-report
+          path: reports/
+          retention-days: 30
+
+      - name: Publish test results
+        if: success()
+        run: |
+          echo "✅ All tests passed successfully"
+          echo "📊 Test results published to artifacts"
+          
+          # Send success notification with security metrics
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            SECURITY_SCORE="N/A"
+            AUTH_SUCCESS_RATE="N/A"
+            
+            if [ -f "test-results/security-regression-report-${{ github.run_id }}.json" ]; then
+              SECURITY_SCORE=$(node -e "const report = require('./test-results/security-regression-report-${{ github.run_id }}.json'); console.log(report.overallScore.toFixed(1));")
+            fi
+            
+            if [ -f "test-results/comprehensive-authorization-matrix-report.json" ]; then
+              AUTH_SUCCESS_RATE=$(node -e "const report = require('./test-results/comprehensive-authorization-matrix-report.json'); console.log(report.summary.overallSuccessRate.toFixed(1));")
+            fi
+            
+            curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H 'Content-type: application/json' \
+              --data "{
+                \"text\": \"✅ Comprehensive testing pipeline succeeded\",
+                \"blocks\": [{
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Comprehensive Testing Pipeline Success*\n\nWorkflow: ${{ github.workflow }}\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n\n📊 *Security Metrics:*\nSecurity Score: ${SECURITY_SCORE}%\nAuth Success Rate: ${AUTH_SUCCESS_RATE}%\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>\"
+                  }
+                }]
+              }" || true
+          fi
+
+  # Cleanup
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [aggregate-results]
+    if: always()
+    
+    steps:
+      - name: Cleanup test resources
+        run: |
+          echo "Cleaning up test infrastructure..."
+          docker stop $(docker ps -aq) || true
+          docker rm $(docker ps -aq) || true

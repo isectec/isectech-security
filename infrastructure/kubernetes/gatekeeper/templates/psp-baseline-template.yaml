@@ -1,0 +1,25 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8spspbaseline
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPBaseline
+      validation:
+        openAPIV3Schema:
+          properties:
+            parameters:
+              type: object
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spspbaseline
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          ctr := input.review.object.spec.containers[_]
+          ctr.securityContext.runAsNonRoot != true
+          msg := "containers must run as non-root"
+        }

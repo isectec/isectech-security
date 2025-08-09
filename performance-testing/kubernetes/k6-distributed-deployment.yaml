@@ -1,0 +1,498 @@
+# k6 Distributed Load Testing Kubernetes Deployment
+# Supports horizontal scaling and distributed load generation for iSECTECH
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: performance-testing
+  labels:
+    name: performance-testing
+    purpose: load-testing
+    security.isectech.com/monitoring: "enabled"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-test-config
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: configuration
+data:
+  # Environment-specific configurations
+  development.env: |
+    API_BASE_URL=http://isectech-api.default.svc.cluster.local:3000
+    ANALYST_TOKEN=dev-analyst-token
+    ADMIN_TOKEN=dev-admin-token
+    VIEWER_TOKEN=dev-viewer-token
+    ENVIRONMENT=development
+    LOG_LEVEL=info
+  
+  staging.env: |
+    API_BASE_URL=https://staging.isectech.com
+    ENVIRONMENT=staging
+    LOG_LEVEL=info
+  
+  production.env: |
+    API_BASE_URL=https://api.isectech.com
+    ENVIRONMENT=production
+    LOG_LEVEL=warn
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k6-test-tokens
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: secrets
+type: Opaque
+stringData:
+  staging-analyst-token: "staging-analyst-jwt-token-here"
+  staging-admin-token: "staging-admin-jwt-token-here" 
+  staging-viewer-token: "staging-viewer-jwt-token-here"
+  production-analyst-token: "production-analyst-jwt-token-here"
+  production-admin-token: "production-admin-jwt-token-here"
+  production-viewer-token: "production-viewer-jwt-token-here"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k6-coordinator
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: coordinator
+spec:
+  selector:
+    app: k6-distributed
+    role: coordinator
+  ports:
+    - name: coordination
+      port: 6565
+      targetPort: 6565
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k6-coordinator
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k6-distributed
+      role: coordinator
+  template:
+    metadata:
+      labels:
+        app: k6-distributed
+        role: coordinator
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: k6-distributed
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        runAsGroup: 12345
+        fsGroup: 12345
+      containers:
+        - name: k6-coordinator
+          image: isectech/k6-distributed:latest
+          imagePullPolicy: Always
+          env:
+            - name: K6_DISTRIBUTED_MODE
+              value: "coordinator"
+            - name: K6_WORKER_ID
+              value: "coordinator"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: K6_PROMETHEUS_REMOTE_URL
+              value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091/metrics/job/k6"
+            - name: K6_INFLUX_DB
+              value: "http://influxdb.monitoring.svc.cluster.local:8086/k6_metrics"
+          ports:
+            - containerPort: 6565
+              name: coordination
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: test-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: test-config
+          configMap:
+            name: k6-test-config
+
+---
+apiVersion: apps/v1
+kind: Deployment  
+metadata:
+  name: k6-workers
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: workers
+spec:
+  replicas: 4  # Start with 4 workers, can be scaled
+  selector:
+    matchLabels:
+      app: k6-distributed
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: k6-distributed
+        role: worker
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: k6-distributed
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        runAsGroup: 12345
+        fsGroup: 12345
+      containers:
+        - name: k6-worker
+          image: isectech/k6-distributed:latest
+          imagePullPolicy: Always
+          env:
+            - name: K6_DISTRIBUTED_MODE
+              value: "worker"
+            - name: K6_MASTER_HOST
+              value: "k6-coordinator.performance-testing.svc.cluster.local"
+            - name: K6_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K6_TEST_TYPE
+              value: "baseline"  # Can be overridden
+            - name: K6_ENVIRONMENT
+              value: "development"  # Can be overridden
+            - name: LOG_LEVEL
+              value: "info"
+            - name: K6_PROMETHEUS_REMOTE_URL
+              value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091/metrics/job/k6"
+            - name: K6_INFLUX_DB
+              value: "http://influxdb.monitoring.svc.cluster.local:8086/k6_metrics"
+            # Environment-specific API tokens
+            - name: ANALYST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-analyst-token
+                  optional: true
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens  
+                  key: staging-admin-token
+                  optional: true
+            - name: VIEWER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-viewer-token
+                  optional: true
+          ports:
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep k6 || exit 1"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh  
+                - -c
+                - "nc -z k6-coordinator.performance-testing.svc.cluster.local 6565"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: test-config
+              mountPath: /app/config
+              readOnly: true
+            - name: test-reports
+              mountPath: /app/reports
+      volumes:
+        - name: test-config
+          configMap:
+            name: k6-test-config
+        - name: test-reports
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k6-distributed
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: performance-testing
+  name: k6-distributed
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k6-distributed
+  namespace: performance-testing
+subjects:
+  - kind: ServiceAccount
+    name: k6-distributed
+    namespace: performance-testing
+roleRef:
+  kind: Role
+  name: k6-distributed
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: k6-workers-hpa
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: k6-workers
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource  
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-load-test-job
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: job
+spec:
+  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  parallelism: 4
+  completions: 4
+  template:
+    metadata:
+      labels:
+        app: k6-distributed
+        role: job-worker
+    spec:
+      serviceAccountName: k6-distributed
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        runAsGroup: 12345
+        fsGroup: 12345
+      containers:
+        - name: k6-job-worker
+          image: isectech/k6-distributed:latest
+          imagePullPolicy: Always
+          env:
+            - name: K6_DISTRIBUTED_MODE
+              value: "worker"
+            - name: K6_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K6_TEST_TYPE
+              value: "stress"  # Override for specific test types
+            - name: K6_ENVIRONMENT  
+              value: "staging"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: K6_PROMETHEUS_REMOTE_URL
+              value: "http://prometheus-pushgateway.monitoring.svc.cluster.local:9091/metrics/job/k6-job"
+            - name: ANALYST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-analyst-token
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: k6-test-tokens
+                  key: staging-admin-token
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          volumeMounts:
+            - name: test-config
+              mountPath: /app/config
+              readOnly: true
+            - name: test-reports
+              mountPath: /app/reports
+      volumes:
+        - name: test-config
+          configMap:
+            name: k6-test-config
+        - name: test-reports
+          persistentVolumeClaim:
+            claimName: k6-reports-pvc
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k6-reports-pvc
+  namespace: performance-testing
+  labels:
+    app: k6-distributed
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd  # Adjust based on your cluster
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k6-distributed-network-policy
+  namespace: performance-testing
+spec:
+  podSelector:
+    matchLabels:
+      app: k6-distributed
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: k6-distributed
+      ports:
+        - protocol: TCP
+          port: 6565
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to: []  # Allow all egress for load testing
+      ports:
+        - protocol: TCP
+          port: 53  # DNS
+        - protocol: UDP
+          port: 53  # DNS
+        - protocol: TCP
+          port: 443  # HTTPS
+        - protocol: TCP
+          port: 80   # HTTP
+        - protocol: TCP
+          port: 3000 # Application
+        - protocol: TCP
+          port: 8086 # InfluxDB
+        - protocol: TCP  
+          port: 9091 # Prometheus Pushgateway

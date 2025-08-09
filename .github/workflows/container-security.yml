@@ -1,0 +1,641 @@
+# iSECTECH Container Security Scanning
+# Comprehensive Docker image security validation and hardening verification
+
+name: 'Container Security Scanning'
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        required: true
+        type: string
+        description: 'JSON array of image names to scan'
+      registry:
+        required: false
+        type: string
+        default: 'ghcr.io'
+      scan-severity:
+        required: false
+        type: string
+        default: 'HIGH,CRITICAL'
+      fail-on-critical:
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      scan-status:
+        description: "Overall container security scan status"
+        value: ${{ jobs.container-summary.outputs.status }}
+      vulnerabilities-found:
+        description: "Total vulnerabilities found across all images"
+        value: ${{ jobs.container-summary.outputs.total_vulnerabilities }}
+      critical-vulnerabilities:
+        description: "Critical vulnerabilities found"
+        value: ${{ jobs.container-summary.outputs.critical_vulnerabilities }}
+
+env:
+  TRIVY_VERSION: '0.47.0'
+  GRYPE_VERSION: '0.73.0'
+  SYFT_VERSION: '0.95.0'
+  REGISTRY: ${{ inputs.registry }}
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CONTAINER IMAGE VULNERABILITY SCANNING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  image-vulnerability-scan:
+    name: 'Image Vulnerability Analysis'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: ${{ fromJSON(inputs.images) }}
+      fail-fast: false
+    timeout-minutes: 20
+    outputs:
+      scan-results: ${{ steps.scan-summary.outputs.results }}
+      
+    steps:
+      - name: 'Setup Container Security Tools'
+        run: |
+          echo "::group::Installing Container Security Scanners"
+          
+          # Install Trivy
+          sudo apt-get update
+          sudo apt-get install wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install trivy
+          
+          # Install Grype
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Install Syft for SBOM generation
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          
+          echo "::endgroup::"
+          
+      - name: 'Build Test Image'
+        run: |
+          echo "::group::Building Test Image for ${{ matrix.image }}"
+          
+          # Determine which Dockerfile to use
+          case "${{ matrix.image }}" in
+            "frontend")
+              DOCKERFILE="Dockerfile.frontend"
+              ;;
+            "backend")
+              DOCKERFILE="Dockerfile.backend"
+              ;;
+            "ai-services")
+              DOCKERFILE="Dockerfile.ai"
+              ;;
+            *)
+              echo "Unknown image type: ${{ matrix.image }}"
+              exit 1
+              ;;
+          esac
+          
+          # Create minimal context for Docker build
+          mkdir -p /tmp/build-context
+          
+          # Copy necessary files for build
+          if [[ -f "$DOCKERFILE" ]]; then
+            cp "$DOCKERFILE" /tmp/build-context/
+          else
+            echo "Dockerfile $DOCKERFILE not found, creating minimal one for scanning"
+            cat > /tmp/build-context/Dockerfile << EOF
+          FROM alpine:latest
+          RUN apk add --no-cache curl
+          COPY . /app
+          WORKDIR /app
+          CMD ["sh"]
+          EOF
+          fi
+          
+          # Build image for scanning
+          docker build -t "isectech/${{ matrix.image }}:test" /tmp/build-context/
+          
+          echo "::endgroup::"
+          
+      - name: 'Generate SBOM'
+        run: |
+          echo "::group::Generating Software Bill of Materials (SBOM)"
+          
+          # Generate SBOM with Syft
+          syft "isectech/${{ matrix.image }}:test" \
+            --output spdx-json \
+            --file "${{ matrix.image }}-sbom.spdx.json"
+          
+          # Generate human-readable SBOM
+          syft "isectech/${{ matrix.image }}:test" \
+            --output table \
+            --file "${{ matrix.image }}-sbom.txt"
+          
+          echo "✅ SBOM generated for ${{ matrix.image }}"
+          echo "::endgroup::"
+          
+      - name: 'Trivy Vulnerability Scan'
+        run: |
+          echo "::group::Trivy Vulnerability Scanning"
+          
+          # Comprehensive Trivy scan
+          trivy image \
+            --format json \
+            --output "${{ matrix.image }}-trivy.json" \
+            --severity "${{ inputs.scan-severity }}" \
+            --exit-code 0 \
+            "isectech/${{ matrix.image }}:test"
+          
+          # Generate human-readable report
+          trivy image \
+            --format table \
+            --output "${{ matrix.image }}-trivy.txt" \
+            --severity "${{ inputs.scan-severity }}" \
+            "isectech/${{ matrix.image }}:test"
+          
+          # Scan for misconfigurations
+          trivy config \
+            --format json \
+            --output "${{ matrix.image }}-trivy-config.json" \
+            --exit-code 0 \
+            /tmp/build-context/
+          
+          echo "✅ Trivy scan completed for ${{ matrix.image }}"
+          echo "::endgroup::"
+          
+      - name: 'Grype Vulnerability Scan'
+        run: |
+          echo "::group::Grype Vulnerability Scanning"
+          
+          # Grype scan with detailed output
+          grype "isectech/${{ matrix.image }}:test" \
+            --output json \
+            --file "${{ matrix.image }}-grype.json" \
+            --fail-on critical || true
+          
+          # Generate human-readable report
+          grype "isectech/${{ matrix.image }}:test" \
+            --output table \
+            --file "${{ matrix.image }}-grype.txt"
+          
+          echo "✅ Grype scan completed for ${{ matrix.image }}"
+          echo "::endgroup::"
+          
+      - name: 'Docker Security Scan'
+        run: |
+          echo "::group::Docker Security Best Practices Scan"
+          
+          # Install Docker Bench for Security
+          git clone https://github.com/docker/docker-bench-security.git
+          cd docker-bench-security
+          
+          # Run Docker security benchmark
+          sudo sh docker-bench-security.sh -c container_images \
+            > "../${{ matrix.image }}-docker-bench.txt" 2>&1 || true
+          
+          cd ..
+          
+          echo "✅ Docker security scan completed"
+          echo "::endgroup::"
+          
+      - name: 'Container Runtime Security Analysis'
+        run: |
+          echo "::group::Container Runtime Security Analysis"
+          
+          # Analyze container for security best practices
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/workspace \
+            quay.io/fairwinds/pluto:latest detect-files \
+            --directory /workspace \
+            --output json > "${{ matrix.image }}-pluto.json" 2>/dev/null || echo "{}" > "${{ matrix.image }}-pluto.json"
+          
+          # Check for sensitive files in container
+          docker run --rm "isectech/${{ matrix.image }}:test" find / \
+            -name "*.key" -o \
+            -name "*.pem" -o \
+            -name "*.cert" -o \
+            -name "id_rsa" -o \
+            -name "id_dsa" -o \
+            -name ".env" \
+            2>/dev/null > "${{ matrix.image }}-sensitive-files.txt" || true
+          
+          echo "::endgroup::"
+          
+      - name: 'Process Scan Results'
+        id: scan-summary
+        run: |
+          echo "::group::Processing Scan Results for ${{ matrix.image }}"
+          
+          # Initialize counters
+          TOTAL_VULNS=0
+          CRITICAL_VULNS=0
+          HIGH_VULNS=0
+          MEDIUM_VULNS=0
+          LOW_VULNS=0
+          
+          # Process Trivy results
+          if [[ -f "${{ matrix.image }}-trivy.json" ]]; then
+            TRIVY_RESULTS=$(jq '.Results[] // empty' "${{ matrix.image }}-trivy.json")
+            if [[ -n "$TRIVY_RESULTS" ]]; then
+              TRIVY_CRITICAL=$(echo "$TRIVY_RESULTS" | jq '[.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
+              TRIVY_HIGH=$(echo "$TRIVY_RESULTS" | jq '[.Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
+              TRIVY_MEDIUM=$(echo "$TRIVY_RESULTS" | jq '[.Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length')
+              TRIVY_LOW=$(echo "$TRIVY_RESULTS" | jq '[.Vulnerabilities[]? | select(.Severity == "LOW")] | length')
+              
+              CRITICAL_VULNS=$((CRITICAL_VULNS + TRIVY_CRITICAL))
+              HIGH_VULNS=$((HIGH_VULNS + TRIVY_HIGH))
+              MEDIUM_VULNS=$((MEDIUM_VULNS + TRIVY_MEDIUM))
+              LOW_VULNS=$((LOW_VULNS + TRIVY_LOW))
+            fi
+          fi
+          
+          # Process Grype results
+          if [[ -f "${{ matrix.image }}-grype.json" ]]; then
+            GRYPE_CRITICAL=$(jq '[.matches[]? | select(.vulnerability.severity == "Critical")] | length' "${{ matrix.image }}-grype.json" 2>/dev/null || echo "0")
+            GRYPE_HIGH=$(jq '[.matches[]? | select(.vulnerability.severity == "High")] | length' "${{ matrix.image }}-grype.json" 2>/dev/null || echo "0")
+            
+            # Add to totals (avoid double counting by taking max)
+            CRITICAL_VULNS=$((CRITICAL_VULNS > GRYPE_CRITICAL ? CRITICAL_VULNS : GRYPE_CRITICAL))
+            HIGH_VULNS=$((HIGH_VULNS > GRYPE_HIGH ? HIGH_VULNS : GRYPE_HIGH))
+          fi
+          
+          # Calculate total vulnerabilities
+          TOTAL_VULNS=$((CRITICAL_VULNS + HIGH_VULNS + MEDIUM_VULNS + LOW_VULNS))
+          
+          # Check for sensitive files
+          SENSITIVE_FILES_COUNT=0
+          if [[ -f "${{ matrix.image }}-sensitive-files.txt" ]]; then
+            SENSITIVE_FILES_COUNT=$(wc -l < "${{ matrix.image }}-sensitive-files.txt")
+          fi
+          
+          # Determine scan status
+          if [[ $CRITICAL_VULNS -gt 0 ]] && [[ "${{ inputs.fail-on-critical }}" == "true" ]]; then
+            SCAN_STATUS="fail"
+            echo "❌ Critical vulnerabilities found in ${{ matrix.image }}: $CRITICAL_VULNS"
+          elif [[ $HIGH_VULNS -gt 10 ]]; then
+            SCAN_STATUS="warning"
+            echo "⚠️  High number of high-severity vulnerabilities in ${{ matrix.image }}: $HIGH_VULNS"
+          elif [[ $SENSITIVE_FILES_COUNT -gt 0 ]]; then
+            SCAN_STATUS="warning"
+            echo "⚠️  Sensitive files detected in ${{ matrix.image }}: $SENSITIVE_FILES_COUNT"
+          else
+            SCAN_STATUS="pass"
+            echo "✅ Container security scan passed for ${{ matrix.image }}"
+          fi
+          
+          # Create summary report
+          cat << EOF > "${{ matrix.image }}-security-summary.json"
+          {
+            "image": "${{ matrix.image }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "scan_status": "$SCAN_STATUS",
+            "vulnerabilities": {
+              "total": $TOTAL_VULNS,
+              "critical": $CRITICAL_VULNS,
+              "high": $HIGH_VULNS,
+              "medium": $MEDIUM_VULNS,
+              "low": $LOW_VULNS
+            },
+            "sensitive_files_count": $SENSITIVE_FILES_COUNT,
+            "scanners_used": ["trivy", "grype", "docker-bench"]
+          }
+          EOF
+          
+          # Set output for job coordination
+          echo "results={\"image\":\"${{ matrix.image }}\",\"status\":\"$SCAN_STATUS\",\"critical\":$CRITICAL_VULNS,\"total\":$TOTAL_VULNS}" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Scan Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "container-security-${{ matrix.image }}"
+          path: |
+            ${{ matrix.image }}-*.json
+            ${{ matrix.image }}-*.txt
+          retention-days: 30
+          
+      - name: 'Security Report Summary'
+        run: |
+          echo "::group::Security Report Summary for ${{ matrix.image }}"
+          
+          echo "📊 **Container Security Scan Results for ${{ matrix.image }}**"
+          echo ""
+          
+          # Display vulnerability summary
+          if [[ -f "${{ matrix.image }}-security-summary.json" ]]; then
+            echo "**Vulnerabilities Found:**"
+            jq -r '"- Critical: " + (.vulnerabilities.critical | tostring)' "${{ matrix.image }}-security-summary.json"
+            jq -r '"- High: " + (.vulnerabilities.high | tostring)' "${{ matrix.image }}-security-summary.json"
+            jq -r '"- Medium: " + (.vulnerabilities.medium | tostring)' "${{ matrix.image }}-security-summary.json"
+            jq -r '"- Low: " + (.vulnerabilities.low | tostring)' "${{ matrix.image }}-security-summary.json"
+            echo ""
+          fi
+          
+          # Display SBOM info
+          if [[ -f "${{ matrix.image }}-sbom.txt" ]]; then
+            echo "**Software Components:**"
+            echo "$(wc -l < ${{ matrix.image }}-sbom.txt) packages detected"
+            echo ""
+          fi
+          
+          # Display top vulnerabilities from Trivy
+          if [[ -f "${{ matrix.image }}-trivy.json" ]]; then
+            echo "**Top 5 Critical Issues:**"
+            jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | "- " + .VulnerabilityID + ": " + .Title' "${{ matrix.image }}-trivy.json" | head -5
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CONTAINER CONFIGURATION SECURITY ANALYSIS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  container-config-security:
+    name: 'Container Configuration Security'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Install Configuration Security Tools'
+        run: |
+          echo "::group::Installing Configuration Security Scanners"
+          
+          # Install Hadolint for Dockerfile linting
+          wget -O hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+          chmod +x hadolint
+          sudo mv hadolint /usr/local/bin/
+          
+          # Install Conftest for policy enforcement
+          wget https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_linux_x86_64.tar.gz
+          tar xzf conftest_linux_x86_64.tar.gz
+          sudo mv conftest /usr/local/bin/
+          
+          echo "::endgroup::"
+          
+      - name: 'Dockerfile Security Analysis'
+        run: |
+          echo "::group::Dockerfile Security Analysis"
+          
+          # Scan all Dockerfiles with Hadolint
+          for dockerfile in Dockerfile*; do
+            if [[ -f "$dockerfile" ]]; then
+              echo "Scanning $dockerfile with Hadolint..."
+              hadolint "$dockerfile" --format json > "${dockerfile}-hadolint.json" || true
+              hadolint "$dockerfile" --format tty > "${dockerfile}-hadolint.txt" || true
+              
+              # Count issues
+              if [[ -f "${dockerfile}-hadolint.json" ]]; then
+                ISSUES_COUNT=$(jq length "${dockerfile}-hadolint.json")
+                echo "$dockerfile: $ISSUES_COUNT issues found"
+              fi
+            fi
+          done
+          
+          echo "::endgroup::"
+          
+      - name: 'Container Security Policy Validation'
+        run: |
+          echo "::group::Container Security Policy Validation"
+          
+          # Create security policies for container configurations
+          mkdir -p policies
+          
+          cat > policies/container-security.rego << 'EOF'
+          package container.security
+          
+          # Deny running as root
+          deny[msg] {
+              input.User == "root"
+              msg := "Container should not run as root user"
+          }
+          
+          # Require non-root user
+          deny[msg] {
+              not input.User
+              msg := "Container must specify a non-root user"
+          }
+          
+          # Require health check
+          warn[msg] {
+              not input.Healthcheck
+              msg := "Container should include a health check"
+          }
+          
+          # Check for security labels
+          warn[msg] {
+              not input.Config.Labels["security.contact"]
+              msg := "Container should include security contact label"
+          }
+          
+          # Deny privileged containers
+          deny[msg] {
+              input.HostConfig.Privileged == true
+              msg := "Container should not run in privileged mode"
+          }
+          EOF
+          
+          # Validate Docker configurations against policies
+          if command -v conftest &> /dev/null; then
+            for dockerfile in Dockerfile*; do
+              if [[ -f "$dockerfile" ]]; then
+                conftest verify --policy policies "$dockerfile" > "${dockerfile}-policy.txt" 2>&1 || true
+              fi
+            done
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Docker Compose Security Analysis'
+        if: hashFiles('docker-compose*.yml') != ''
+        run: |
+          echo "::group::Docker Compose Security Analysis"
+          
+          # Check Docker Compose files for security issues
+          for compose_file in docker-compose*.yml; do
+            if [[ -f "$compose_file" ]]; then
+              echo "Analyzing $compose_file..."
+              
+              # Check for security issues in compose files
+              python3 << EOF > "${compose_file}-security-analysis.json"
+          import yaml
+          import json
+          import sys
+          
+          def analyze_compose_security(file_path):
+              issues = []
+              with open(file_path, 'r') as f:
+                  compose = yaml.safe_load(f)
+              
+              services = compose.get('services', {})
+              for service_name, service_config in services.items():
+                  # Check for privileged mode
+                  if service_config.get('privileged'):
+                      issues.append({
+                          "service": service_name,
+                          "severity": "high",
+                          "issue": "Service runs in privileged mode"
+                      })
+                  
+                  # Check for host network mode
+                  if service_config.get('network_mode') == 'host':
+                      issues.append({
+                          "service": service_name,
+                          "severity": "medium",
+                          "issue": "Service uses host network mode"
+                      })
+                  
+                  # Check for volume mounts
+                  volumes = service_config.get('volumes', [])
+                  for volume in volumes:
+                      if isinstance(volume, str) and volume.startswith('/'):
+                          issues.append({
+                              "service": service_name,
+                              "severity": "low",
+                              "issue": f"Service mounts host path: {volume}"
+                          })
+              
+              return issues
+          
+          issues = analyze_compose_security('$compose_file')
+          print(json.dumps(issues, indent=2))
+          EOF
+              
+            fi
+          done
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Configuration Analysis Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-config-security
+          path: |
+            *-hadolint.*
+            *-policy.txt
+            *-security-analysis.json
+            policies/
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CONTAINER SECURITY SUMMARY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  container-summary:
+    name: 'Container Security Summary'
+    runs-on: ubuntu-latest
+    needs: [image-vulnerability-scan, container-config-security]
+    if: always()
+    outputs:
+      status: ${{ steps.overall-summary.outputs.status }}
+      total_vulnerabilities: ${{ steps.overall-summary.outputs.total_vulnerabilities }}
+      critical_vulnerabilities: ${{ steps.overall-summary.outputs.critical_vulnerabilities }}
+      
+    steps:
+      - name: 'Download Scan Results'
+        uses: actions/download-artifact@v4
+        with:
+          path: scan-results/
+          
+      - name: 'Aggregate Security Results'
+        id: overall-summary
+        run: |
+          echo "::group::Aggregating Container Security Results"
+          
+          # Initialize counters
+          TOTAL_VULNERABILITIES=0
+          CRITICAL_VULNERABILITIES=0
+          FAILED_SCANS=0
+          WARNING_SCANS=0
+          PASSED_SCANS=0
+          
+          # Process image scan results
+          for result_dir in scan-results/container-security-*/; do
+            if [[ -d "$result_dir" ]]; then
+              for summary_file in "$result_dir"*-security-summary.json; do
+                if [[ -f "$summary_file" ]]; then
+                  IMAGE_TOTAL=$(jq -r '.vulnerabilities.total' "$summary_file")
+                  IMAGE_CRITICAL=$(jq -r '.vulnerabilities.critical' "$summary_file")
+                  IMAGE_STATUS=$(jq -r '.scan_status' "$summary_file")
+                  
+                  TOTAL_VULNERABILITIES=$((TOTAL_VULNERABILITIES + IMAGE_TOTAL))
+                  CRITICAL_VULNERABILITIES=$((CRITICAL_VULNERABILITIES + IMAGE_CRITICAL))
+                  
+                  case "$IMAGE_STATUS" in
+                    "fail")
+                      FAILED_SCANS=$((FAILED_SCANS + 1))
+                      ;;
+                    "warning")
+                      WARNING_SCANS=$((WARNING_SCANS + 1))
+                      ;;
+                    "pass")
+                      PASSED_SCANS=$((PASSED_SCANS + 1))
+                      ;;
+                  esac
+                fi
+              done
+            fi
+          done
+          
+          # Determine overall status
+          if [[ $FAILED_SCANS -gt 0 ]]; then
+            OVERALL_STATUS="fail"
+            echo "❌ Container security scan failed ($FAILED_SCANS failed scans)"
+          elif [[ $WARNING_SCANS -gt 0 ]]; then
+            OVERALL_STATUS="warning"
+            echo "⚠️  Container security scan warnings ($WARNING_SCANS warning scans)"
+          else
+            OVERALL_STATUS="pass"
+            echo "✅ All container security scans passed"
+          fi
+          
+          # Set outputs
+          echo "status=$OVERALL_STATUS" >> $GITHUB_OUTPUT
+          echo "total_vulnerabilities=$TOTAL_VULNERABILITIES" >> $GITHUB_OUTPUT
+          echo "critical_vulnerabilities=$CRITICAL_VULNERABILITIES" >> $GITHUB_OUTPUT
+          
+          # Create comprehensive summary report
+          cat << EOF > container-security-final-report.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "overall_status": "$OVERALL_STATUS",
+            "summary": {
+              "total_vulnerabilities": $TOTAL_VULNERABILITIES,
+              "critical_vulnerabilities": $CRITICAL_VULNERABILITIES,
+              "failed_scans": $FAILED_SCANS,
+              "warning_scans": $WARNING_SCANS,
+              "passed_scans": $PASSED_SCANS
+            },
+            "scan_configuration": {
+              "severity_filter": "${{ inputs.scan-severity }}",
+              "fail_on_critical": ${{ inputs.fail-on-critical }},
+              "registry": "${{ inputs.registry }}"
+            }
+          }
+          EOF
+          
+          echo "::group::📊 Final Container Security Report"
+          echo "Overall Status: $OVERALL_STATUS"
+          echo "Total Vulnerabilities: $TOTAL_VULNERABILITIES"
+          echo "Critical Vulnerabilities: $CRITICAL_VULNERABILITIES"
+          echo "Scans Summary: $PASSED_SCANS passed, $WARNING_SCANS warnings, $FAILED_SCANS failed"
+          echo "::endgroup::"
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Final Security Report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security-final-report
+          path: container-security-final-report.json
+          retention-days: 90

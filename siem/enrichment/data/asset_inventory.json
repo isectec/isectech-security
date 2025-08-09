@@ -1,0 +1,348 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2024-01-15T10:30:00Z",
+  "asset_count": 150,
+  "assets": [
+    {
+      "asset_id": "ASSET-001",
+      "hostname": "WORKSTATION01",
+      "ip_addresses": ["192.168.1.100", "10.0.1.100"],
+      "asset_type": "workstation",
+      "operating_system": "Windows 11 Enterprise",
+      "owner": "john.doe@isectech.com",
+      "business_unit": "Engineering",
+      "criticality": "medium",
+      "location": "New York Office - Floor 3",
+      "compliance_tags": ["SOX", "ISO27001"],
+      "last_updated": "2024-01-15T09:00:00Z",
+      "additional_info": {
+        "domain": "ISECTECH",
+        "patches_up_to_date": true,
+        "antivirus_status": "active",
+        "backup_status": "enabled",
+        "encryption_status": "bitlocker_enabled"
+      }
+    },
+    {
+      "asset_id": "ASSET-002",
+      "hostname": "SERVER01",
+      "ip_addresses": ["192.168.1.50", "10.0.1.50"],
+      "asset_type": "server",
+      "operating_system": "Windows Server 2022",
+      "owner": "infrastructure@isectech.com",
+      "business_unit": "IT Operations",
+      "criticality": "high",
+      "location": "Data Center Rack A-15",
+      "compliance_tags": ["SOX", "PCI-DSS", "HIPAA"],
+      "last_updated": "2024-01-15T08:30:00Z",
+      "additional_info": {
+        "domain": "ISECTECH",
+        "service_role": "Active Directory Domain Controller",
+        "backup_status": "enabled",
+        "monitoring_status": "active",
+        "cluster_member": true
+      }
+    },
+    {
+      "asset_id": "ASSET-003",
+      "hostname": "DB-PROD-01",
+      "ip_addresses": ["192.168.2.100", "10.0.2.100"],
+      "asset_type": "database_server",
+      "operating_system": "Red Hat Enterprise Linux 8",
+      "owner": "database.admin@isectech.com",
+      "business_unit": "IT Operations",
+      "criticality": "critical",
+      "location": "Data Center Rack B-10",
+      "compliance_tags": ["SOX", "PCI-DSS", "HIPAA", "GDPR"],
+      "last_updated": "2024-01-15T07:00:00Z",
+      "additional_info": {
+        "database_type": "PostgreSQL 15",
+        "contains_pii": true,
+        "contains_financial_data": true,
+        "backup_frequency": "hourly",
+        "encryption_at_rest": true,
+        "encryption_in_transit": true
+      }
+    },
+    {
+      "asset_id": "ASSET-004",
+      "hostname": "WEB-PROD-01",
+      "ip_addresses": ["192.168.3.10", "10.0.3.10", "203.0.113.10"],
+      "asset_type": "web_server",
+      "operating_system": "Ubuntu Server 22.04 LTS",
+      "owner": "web.admin@isectech.com",
+      "business_unit": "Product Development",
+      "criticality": "high",
+      "location": "Data Center Rack C-05",
+      "compliance_tags": ["SOX", "PCI-DSS"],
+      "last_updated": "2024-01-15T06:45:00Z",
+      "additional_info": {
+        "web_server": "Nginx 1.22",
+        "application_framework": "Django 4.2",
+        "ssl_certificate_expiry": "2024-12-31T23:59:59Z",
+        "load_balancer_member": true,
+        "cdn_enabled": true
+      }
+    },
+    {
+      "asset_id": "ASSET-005",
+      "hostname": "FIREWALL-01",
+      "ip_addresses": ["192.168.255.1", "10.0.255.1"],
+      "asset_type": "network_device",
+      "operating_system": "Palo Alto PAN-OS 11.0",
+      "owner": "network.admin@isectech.com",
+      "business_unit": "IT Security",
+      "criticality": "critical",
+      "location": "Data Center Network Rack",
+      "compliance_tags": ["SOX", "ISO27001", "PCI-DSS"],
+      "last_updated": "2024-01-15T05:30:00Z",
+      "additional_info": {
+        "device_model": "PA-3260",
+        "throughput_capacity": "20 Gbps",
+        "ha_status": "active",
+        "threat_prevention": "enabled",
+        "url_filtering": "enabled"
+      }
+    },
+    {
+      "asset_id": "ASSET-006",
+      "hostname": "LAPTOP-FINANCE-01",
+      "ip_addresses": ["192.168.1.150"],
+      "asset_type": "laptop",
+      "operating_system": "macOS Ventura 13.6",
+      "owner": "finance.user@isectech.com",
+      "business_unit": "Finance",
+      "criticality": "high",
+      "location": "Remote - Finance Team",
+      "compliance_tags": ["SOX", "PCI-DSS"],
+      "last_updated": "2024-01-15T04:15:00Z",
+      "additional_info": {
+        "device_model": "MacBook Pro 14-inch",
+        "filevault_enabled": true,
+        "mdm_enrolled": true,
+        "vpn_client": "installed",
+        "last_check_in": "2024-01-15T10:00:00Z"
+      }
+    },
+    {
+      "asset_id": "ASSET-007",
+      "hostname": "SWITCH-CORE-01",
+      "ip_addresses": ["192.168.255.10"],
+      "asset_type": "network_device",
+      "operating_system": "Cisco IOS XE 17.09",
+      "owner": "network.admin@isectech.com",
+      "business_unit": "IT Operations",
+      "criticality": "critical",
+      "location": "Data Center Network Rack",
+      "compliance_tags": ["SOX", "ISO27001"],
+      "last_updated": "2024-01-15T03:00:00Z",
+      "additional_info": {
+        "device_model": "Catalyst 9600",
+        "port_count": 48,
+        "stack_member": true,
+        "spanning_tree_mode": "rapid-pvst",
+        "vlan_count": 25
+      }
+    },
+    {
+      "asset_id": "ASSET-008",
+      "hostname": "BACKUP-SERVER-01",
+      "ip_addresses": ["192.168.4.10", "10.0.4.10"],
+      "asset_type": "backup_server",
+      "operating_system": "Windows Server 2022",
+      "owner": "backup.admin@isectech.com",
+      "business_unit": "IT Operations",
+      "criticality": "high",
+      "location": "Data Center Rack D-12",
+      "compliance_tags": ["SOX", "HIPAA", "GDPR"],
+      "last_updated": "2024-01-15T02:30:00Z",
+      "additional_info": {
+        "backup_software": "Veeam Backup & Replication",
+        "storage_capacity": "50 TB",
+        "retention_policy": "90 days",
+        "offsite_replication": true,
+        "encryption_enabled": true
+      }
+    },
+    {
+      "asset_id": "ASSET-009",
+      "hostname": "SECURITY-APPLIANCE-01",
+      "ip_addresses": ["192.168.100.10", "10.0.100.10"],
+      "asset_type": "security_appliance",
+      "operating_system": "CrowdStrike Falcon Sensor 7.10",
+      "owner": "security.admin@isectech.com",
+      "business_unit": "IT Security",
+      "criticality": "critical",
+      "location": "Data Center Security Rack",
+      "compliance_tags": ["SOX", "ISO27001", "PCI-DSS"],
+      "last_updated": "2024-01-15T01:45:00Z",
+      "additional_info": {
+        "appliance_type": "EDR Sensor Management",
+        "protected_endpoints": 500,
+        "threat_detection": "active",
+        "behavioral_analysis": "enabled",
+        "cloud_connected": true
+      }
+    },
+    {
+      "asset_id": "ASSET-010",
+      "hostname": "MOBILE-DEVICE-001",
+      "ip_addresses": ["192.168.50.100"],
+      "asset_type": "mobile_device",
+      "operating_system": "iOS 17.2",
+      "owner": "executive@isectech.com",
+      "business_unit": "Executive",
+      "criticality": "medium",
+      "location": "Mobile - Executive Team",
+      "compliance_tags": ["SOX", "GDPR"],
+      "last_updated": "2024-01-15T01:00:00Z",
+      "additional_info": {
+        "device_model": "iPhone 15 Pro",
+        "mdm_enrolled": true,
+        "passcode_required": true,
+        "remote_wipe_capable": true,
+        "app_management": "enabled"
+      }
+    }
+  ],
+  "asset_categories": {
+    "workstation": {
+      "description": "End-user workstations and desktop computers",
+      "default_criticality": "medium",
+      "required_compliance": ["ISO27001"],
+      "monitoring_level": "standard"
+    },
+    "server": {
+      "description": "Physical and virtual servers",
+      "default_criticality": "high",
+      "required_compliance": ["SOX", "ISO27001"],
+      "monitoring_level": "enhanced"
+    },
+    "database_server": {
+      "description": "Database servers containing sensitive data",
+      "default_criticality": "critical",
+      "required_compliance": ["SOX", "PCI-DSS", "HIPAA", "GDPR"],
+      "monitoring_level": "maximum"
+    },
+    "web_server": {
+      "description": "Web servers hosting applications",
+      "default_criticality": "high",
+      "required_compliance": ["SOX", "PCI-DSS"],
+      "monitoring_level": "enhanced"
+    },
+    "network_device": {
+      "description": "Network infrastructure devices",
+      "default_criticality": "critical",
+      "required_compliance": ["SOX", "ISO27001"],
+      "monitoring_level": "enhanced"
+    },
+    "laptop": {
+      "description": "Portable laptop computers",
+      "default_criticality": "medium",
+      "required_compliance": ["ISO27001"],
+      "monitoring_level": "standard"
+    },
+    "mobile_device": {
+      "description": "Mobile phones and tablets",
+      "default_criticality": "low",
+      "required_compliance": ["GDPR"],
+      "monitoring_level": "basic"
+    },
+    "security_appliance": {
+      "description": "Security-focused appliances and sensors",
+      "default_criticality": "critical",
+      "required_compliance": ["SOX", "ISO27001", "PCI-DSS"],
+      "monitoring_level": "maximum"
+    },
+    "backup_server": {
+      "description": "Backup and recovery systems",
+      "default_criticality": "high",
+      "required_compliance": ["SOX", "HIPAA", "GDPR"],
+      "monitoring_level": "enhanced"
+    }
+  },
+  "criticality_levels": {
+    "critical": {
+      "description": "Assets critical to business operations",
+      "max_downtime_minutes": 15,
+      "incident_response_time": "immediate",
+      "backup_frequency": "real-time",
+      "monitoring_interval": "1 minute"
+    },
+    "high": {
+      "description": "Important assets with significant business impact",
+      "max_downtime_minutes": 60,
+      "incident_response_time": "15 minutes",
+      "backup_frequency": "hourly",
+      "monitoring_interval": "5 minutes"
+    },
+    "medium": {
+      "description": "Standard business assets",
+      "max_downtime_minutes": 240,
+      "incident_response_time": "1 hour",
+      "backup_frequency": "daily",
+      "monitoring_interval": "15 minutes"
+    },
+    "low": {
+      "description": "Non-critical assets with minimal impact",
+      "max_downtime_minutes": 1440,
+      "incident_response_time": "4 hours",
+      "backup_frequency": "weekly",
+      "monitoring_interval": "1 hour"
+    }
+  },
+  "compliance_requirements": {
+    "SOX": {
+      "full_name": "Sarbanes-Oxley Act",
+      "description": "Financial reporting and internal controls",
+      "data_retention_years": 7,
+      "access_controls_required": true,
+      "audit_logging_required": true
+    },
+    "PCI-DSS": {
+      "full_name": "Payment Card Industry Data Security Standard",
+      "description": "Credit card data protection",
+      "data_retention_years": 3,
+      "encryption_required": true,
+      "network_segmentation_required": true
+    },
+    "HIPAA": {
+      "full_name": "Health Insurance Portability and Accountability Act",
+      "description": "Healthcare data protection",
+      "data_retention_years": 6,
+      "access_controls_required": true,
+      "encryption_required": true
+    },
+    "GDPR": {
+      "full_name": "General Data Protection Regulation",
+      "description": "EU personal data protection",
+      "data_retention_years": 2,
+      "consent_required": true,
+      "data_portability_required": true
+    },
+    "ISO27001": {
+      "full_name": "Information Security Management Systems",
+      "description": "Information security best practices",
+      "risk_assessment_required": true,
+      "security_controls_required": true,
+      "annual_review_required": true
+    }
+  },
+  "data_sources": {
+    "asset_discovery": [
+      "Network scanning tools",
+      "Active Directory",
+      "DHCP logs",
+      "DNS records",
+      "Cloud provider APIs"
+    ],
+    "asset_verification": [
+      "Agent-based inventory",
+      "Configuration management databases",
+      "Service catalogs",
+      "Manual audits"
+    ],
+    "update_frequency": "every 4 hours",
+    "last_full_scan": "2024-01-15T06:00:00Z"
+  }
+}

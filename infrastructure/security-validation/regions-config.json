@@ -1,0 +1,91 @@
+{
+  "regions": [
+    {
+      "name": "us-east-1",
+      "primary_endpoint": "https://api-us-east-1.isectech.com",
+      "api_endpoints": [
+        "https://api-us-east-1.isectech.com",
+        "https://auth-us-east-1.isectech.com",
+        "https://data-us-east-1.isectech.com"
+      ],
+      "load_balancer": "https://lb-us-east-1.isectech.com",
+      "dns_records": [
+        "api-us-east-1.isectech.com",
+        "auth-us-east-1.isectech.com",
+        "data-us-east-1.isectech.com"
+      ],
+      "expected_certificates": [
+        "*.isectech.com",
+        "api-us-east-1.isectech.com"
+      ],
+      "data_residency_zone": "us-east-1",
+      "compliance_requirements": [
+        "SOC2",
+        "FedRAMP",
+        "FISMA"
+      ]
+    },
+    {
+      "name": "eu-west-1",
+      "primary_endpoint": "https://api-eu-west-1.isectech.com",
+      "api_endpoints": [
+        "https://api-eu-west-1.isectech.com",
+        "https://auth-eu-west-1.isectech.com",
+        "https://data-eu-west-1.isectech.com"
+      ],
+      "load_balancer": "https://lb-eu-west-1.isectech.com",
+      "dns_records": [
+        "api-eu-west-1.isectech.com",
+        "auth-eu-west-1.isectech.com",
+        "data-eu-west-1.isectech.com"
+      ],
+      "expected_certificates": [
+        "*.isectech.com",
+        "api-eu-west-1.isectech.com"
+      ],
+      "data_residency_zone": "eu-west-1",
+      "compliance_requirements": [
+        "GDPR",
+        "ISO27001",
+        "SOC2"
+      ]
+    },
+    {
+      "name": "ap-southeast-1",
+      "primary_endpoint": "https://api-ap-southeast-1.isectech.com",
+      "api_endpoints": [
+        "https://api-ap-southeast-1.isectech.com",
+        "https://auth-ap-southeast-1.isectech.com",
+        "https://data-ap-southeast-1.isectech.com"
+      ],
+      "load_balancer": "https://lb-ap-southeast-1.isectech.com",
+      "dns_records": [
+        "api-ap-southeast-1.isectech.com",
+        "auth-ap-southeast-1.isectech.com",
+        "data-ap-southeast-1.isectech.com"
+      ],
+      "expected_certificates": [
+        "*.isectech.com",
+        "api-ap-southeast-1.isectech.com"
+      ],
+      "data_residency_zone": "ap-southeast-1",
+      "compliance_requirements": [
+        "PDPA",
+        "SOC2",
+        "ISO27001"
+      ]
+    }
+  ],
+  "test_config": {
+    "timeout_seconds": 30,
+    "max_concurrent_tests": 10,
+    "retry_attempts": 3,
+    "rate_limit_delay": 1.0,
+    "skip_destructive_tests": true,
+    "enable_deep_scanning": true,
+    "custom_headers": {
+      "X-Security-Test": "true",
+      "User-Agent": "iSECTECH-Security-Scanner/1.0"
+    }
+  }
+}

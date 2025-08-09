@@ -1,0 +1,39 @@
+{
+  "title": "iSECTECH PDP Overview",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Decision Latency (ms)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(isectech_pdp_decision_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(isectech_pdp_decision_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Decisions per Minute",
+      "targets": [{ "expr": "sum(rate(isectech_pdp_decisions_total[1m]))", "legendFormat": "dpm" }]
+    },
+    {
+      "type": "gauge",
+      "title": "Cache Hit Ratio (5m)",
+      "targets": [
+        {
+          "expr": "sum(rate(isectech_pdp_cache_hits_total[5m])) / (sum(rate(isectech_pdp_cache_hits_total[5m])) + sum(rate(isectech_pdp_cache_misses_total[5m])))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors",
+      "targets": [{ "expr": "sum(rate(isectech_pdp_errors_total[5m]))", "legendFormat": "errors" }]
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" }
+}

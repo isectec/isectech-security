@@ -1,0 +1,261 @@
+# Elasticsearch Configuration for iSECTECH Production Environment
+# This configuration implements a high-availability Elasticsearch setup
+# optimized for cybersecurity search, analytics, and compliance
+
+elasticsearch:
+  # Connection settings
+  addresses:
+    - "${ELASTICSEARCH_HOST_1:-https://es-node-01:9200}"
+    - "${ELASTICSEARCH_HOST_2:-https://es-node-02:9200}"
+    - "${ELASTICSEARCH_HOST_3:-https://es-node-03:9200}"
+  username: "${ELASTICSEARCH_USERNAME:-elastic}"
+  password: "${ELASTICSEARCH_PASSWORD}"
+  api_key: "${ELASTICSEARCH_API_KEY}"
+  cloud_id: "${ELASTICSEARCH_CLOUD_ID}"
+  
+  # Connection timeouts
+  dial_timeout: 30s
+  request_timeout: 90s
+  keep_alive: 30s
+  max_idle_conns: 100
+  max_idle_conns_per_host: 10
+  
+  # Cluster configuration
+  cluster:
+    name: "isectech-production"
+    discover_nodes_on_start: true
+    discover_nodes_interval: 5m
+    enable_sniffer: true
+    enable_healthcheck: true
+    healthcheck_interval: 30s
+  
+  # Index configuration
+  indices:
+    default_shards: 1
+    default_replicas: 1
+    refresh_interval: "5s"
+    max_result_window: 10000
+    templates:
+      security-events:
+        index_patterns: ["security-events-*"]
+        priority: 100
+        version: 1
+        composed_of: ["security-events-mappings", "security-events-settings"]
+        metadata:
+          description: "Template for iSECTECH security events"
+          version: "1.0.0"
+      threat-intelligence:
+        index_patterns: ["threat-intel-*"]
+        priority: 100
+        version: 1
+        composed_of: ["threat-intel-mappings", "threat-intel-settings"]
+        metadata:
+          description: "Template for iSECTECH threat intelligence"
+          version: "1.0.0"
+      audit-logs:
+        index_patterns: ["audit-logs-*"]
+        priority: 100
+        version: 1
+        composed_of: ["audit-logs-mappings", "audit-logs-settings"]
+        metadata:
+          description: "Template for iSECTECH audit logs"
+          version: "1.0.0"
+      vulnerability-scans:
+        index_patterns: ["vuln-scans-*"]
+        priority: 100
+        version: 1
+        composed_of: ["vuln-scans-mappings", "vuln-scans-settings"]
+        metadata:
+          description: "Template for iSECTECH vulnerability scans"
+          version: "1.0.0"
+      compliance-reports:
+        index_patterns: ["compliance-*"]
+        priority: 100
+        version: 1
+        composed_of: ["compliance-mappings", "compliance-settings"]
+        metadata:
+          description: "Template for iSECTECH compliance reports"
+          version: "1.0.0"
+  
+  # Index Lifecycle Management
+  ilm:
+    enabled: true
+    poll_interval: 10m
+    policies:
+      security-events-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "10GB"
+                  max_age: "1d"
+                set_priority:
+                  priority: 100
+            warm:
+              min_age: "2d"
+              actions:
+                set_priority:
+                  priority: 50
+                allocate:
+                  number_of_replicas: 0
+                readonly: {}
+            cold:
+              min_age: "30d"
+              actions:
+                set_priority:
+                  priority: 0
+                allocate:
+                  number_of_replicas: 0
+            delete:
+              min_age: "365d"
+      threat-intel-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "5GB"
+                  max_age: "7d"
+            warm:
+              min_age: "7d"
+              actions:
+                allocate:
+                  number_of_replicas: 0
+                readonly: {}
+            cold:
+              min_age: "90d"
+            delete:
+              min_age: "2y"
+      audit-logs-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "20GB"
+                  max_age: "1d"
+            warm:
+              min_age: "1d"
+              actions:
+                allocate:
+                  number_of_replicas: 1
+                readonly: {}
+            cold:
+              min_age: "90d"
+              actions:
+                allocate:
+                  number_of_replicas: 0
+            delete:
+              min_age: "7y"
+      vuln-scans-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "2GB"
+                  max_age: "30d"
+            warm:
+              min_age: "30d"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "180d"
+            delete:
+              min_age: "3y"
+      compliance-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "1GB"
+                  max_age: "90d"
+            warm:
+              min_age: "90d"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "1y"
+            delete:
+              min_age: "7y"
+  
+  # Cross-cluster replication (for DR)
+  ccr:
+    enabled: "${ELASTICSEARCH_CCR_ENABLED:-false}"
+    remote_clusters:
+      dr-cluster:
+        seeds:
+          - "${DR_ELASTICSEARCH_HOST_1:-es-dr-01:9300}"
+          - "${DR_ELASTICSEARCH_HOST_2:-es-dr-02:9300}"
+          - "${DR_ELASTICSEARCH_HOST_3:-es-dr-03:9300}"
+        mode: "sniff"
+    follower_indices:
+      security-events-follower:
+        remote_cluster: "dr-cluster"
+        leader_index: "security-events-*"
+        max_read_request_operation_count: 5120
+        max_outstanding_read_requests: 12
+        max_read_request_size: "32mb"
+        max_write_request_operation_count: 5120
+        max_outstanding_write_requests: 9
+        max_write_request_size: "9mb"
+        max_write_buffer_count: 10000
+        max_write_buffer_size: "512mb"
+        max_retry_delay: "500ms"
+        read_poll_timeout: "1m"
+      audit-logs-follower:
+        remote_cluster: "dr-cluster"
+        leader_index: "audit-logs-*"
+        max_read_request_operation_count: 5120
+        max_outstanding_read_requests: 12
+        max_read_request_size: "32mb"
+        max_write_request_operation_count: 5120
+        max_outstanding_write_requests: 9
+        max_write_request_size: "9mb"
+        max_write_buffer_count: 10000
+        max_write_buffer_size: "512mb"
+        max_retry_delay: "500ms"
+        read_poll_timeout: "1m"
+  
+  # Security settings
+  security:
+    enable_tls: true
+    tls_config:
+      cert_file: "/etc/elasticsearch/certs/elasticsearch.crt"
+      key_file: "/etc/elasticsearch/certs/elasticsearch.key"
+      ca_file: "/etc/elasticsearch/certs/ca.crt"
+      insecure_skip_verify: false
+      server_name: "${ELASTICSEARCH_SERVER_NAME:-elasticsearch}"
+    enable_authentication: true
+    enable_authorization: true
+    field_level_security: true
+    document_level_security: true
+    audit_logging:
+      enabled: true
+      log_level: "info"
+      include_requests: false
+      include_responses: false
+      excluded_users: ["elastic", "kibana_system", "logstash_system"]
+      excluded_roles: ["monitoring_user", "beats_system"]
+  
+  # Monitoring and observability
+  enable_metrics: true
+  enable_tracing: true
+  slow_query_threshold: 5s
+  
+  # Circuit breaker settings
+  circuit_breaker:
+    max_requests: 10
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 5
+  
+  # Retry settings
+  retry_config:
+    max_attempts: 3
+    initial_interval: 500ms
+    max_interval: 10s
+    multiplier: 2.0
+    retry_on_status: [429, 502, 503, 504]

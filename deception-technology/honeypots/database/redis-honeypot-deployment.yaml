@@ -1,0 +1,435 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-honeypot
+  namespace: deception
+  labels:
+    app: redis-honeypot
+    honeypot-type: database
+    database-type: redis
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: redis-honeypot
+  template:
+    metadata:
+      labels:
+        app: redis-honeypot
+        honeypot-type: database
+        database-type: redis
+      annotations:
+        security.isectech.com/purpose: "redis-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: redis-honeypot
+        image: isectech/redis-honeypot:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "redis"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: redis.password
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: FAKE_DATA_KEYS
+          value: |
+            {
+              "sessions": {
+                "key_pattern": "session:*",
+                "key_count": 5000,
+                "ttl_minutes": 480,
+                "data_type": "hash"
+              },
+              "api_cache": {
+                "key_pattern": "api:cache:*",
+                "key_count": 10000,
+                "ttl_minutes": 60,
+                "data_type": "string"
+              },
+              "user_tokens": {
+                "key_pattern": "token:*",
+                "key_count": 2000,
+                "ttl_minutes": 60,
+                "data_type": "hash"
+              },
+              "rate_limits": {
+                "key_pattern": "ratelimit:*",
+                "key_count": 15000,
+                "ttl_minutes": 10,
+                "data_type": "counter"
+              },
+              "notifications": {
+                "key_pattern": "notification:queue:*",
+                "key_count": 500,
+                "data_type": "list"
+              }
+            }
+        command: ["redis-server"]
+        args: ["--requirepass", "$(REDIS_PASSWORD)", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 999
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - -a
+            - "$(REDIS_PASSWORD)"
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        - name: redis-config
+          mountPath: /usr/local/etc/redis
+          readOnly: true
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      - name: redis-exporter
+        image: oliver006/redis_exporter:v1.58.0
+        args:
+        - --redis.addr=redis://localhost:6379
+        - --redis.password=$(REDIS_PASSWORD)
+        - --web.listen-address=:9121
+        ports:
+        - containerPort: 9121
+          name: metrics
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: redis.password
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+      - name: redis-config
+        configMap:
+          name: redis-honeypot-config
+      - name: init-scripts
+        configMap:
+          name: redis-honeypot-init
+          defaultMode: 0755
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - redis-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-honeypot-service
+  namespace: deception
+  labels:
+    app: redis-honeypot
+    service-type: honeypot
+    database-type: redis
+spec:
+  selector:
+    app: redis-honeypot
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  - name: metrics
+    port: 9121
+    targetPort: 9121
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-honeypot-config
+  namespace: deception
+  labels:
+    app: redis-honeypot
+data:
+  redis.conf: |
+    # Redis configuration for honeypot
+    bind 0.0.0.0
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    
+    # General
+    daemonize no
+    supervised no
+    pidfile /var/run/redis_6379.pid
+    loglevel notice
+    logfile ""
+    databases 16
+    
+    # Security
+    # requirepass (set via environment variable)
+    rename-command FLUSHDB FLUSHDB_HONEYPOT_TRAP
+    rename-command FLUSHALL FLUSHALL_HONEYPOT_TRAP
+    rename-command DEBUG DEBUG_HONEYPOT_TRAP
+    rename-command CONFIG CONFIG_HONEYPOT_TRAP
+    rename-command SHUTDOWN SHUTDOWN_HONEYPOT_TRAP
+    rename-command EVAL EVAL_HONEYPOT_TRAP
+    
+    # Memory management
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    
+    # Lazy freeing
+    lazyfree-lazy-eviction yes
+    lazyfree-lazy-expire yes
+    lazyfree-lazy-server-del yes
+    replica-lazy-flush yes
+    
+    # Persistence
+    save 900 1
+    save 300 10  
+    save 60 10000
+    
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir ./
+    
+    # AOF
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    aof-use-rdb-preamble yes
+    
+    # Logging for security monitoring
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-honeypot-init
+  namespace: deception
+  labels:
+    app: redis-honeypot
+data:
+  populate-fake-data.sh: |
+    #!/bin/bash
+    # Populate Redis honeypot with realistic isectech data
+    
+    # Wait for Redis to be ready
+    echo "Waiting for Redis to start..."
+    while ! redis-cli -a "$REDIS_PASSWORD" ping > /dev/null 2>&1; do
+        sleep 1
+    done
+    echo "Redis is ready, populating fake data..."
+    
+    # User sessions (hash keys)
+    for i in {1..5000}; do
+        session_id="session:$(openssl rand -hex 16)"
+        user_id="usr_$(openssl rand -hex 8)"
+        tenant_id="tenant_$(( RANDOM % 10 + 1 ))"
+        created_at=$(date -d "$(( RANDOM % 30 )) days ago" '+%s')
+        last_active=$(date -d "$(( RANDOM % 24 )) hours ago" '+%s')
+        
+        redis-cli -a "$REDIS_PASSWORD" HMSET "$session_id" \
+            user_id "$user_id" \
+            tenant_id "$tenant_id" \
+            created_at "$created_at" \
+            last_active "$last_active" \
+            role "$([ $((RANDOM % 10)) -eq 0 ] && echo "admin" || echo "user")" \
+            permissions "read,write$([ $((RANDOM % 5)) -eq 0 ] && echo ",admin")" \
+            mfa_verified "$([ $((RANDOM % 2)) -eq 0 ] && echo "true" || echo "false")" \
+            source_ip "192.168.$(( RANDOM % 255 )).$(( RANDOM % 255 ))" \
+            user_agent "Mozilla/5.0 (compatible; isectech-client)"
+        
+        redis-cli -a "$REDIS_PASSWORD" EXPIRE "$session_id" $(( 3600 * 8 + RANDOM % 3600 ))
+        
+        # Progress indicator
+        if [ $((i % 1000)) -eq 0 ]; then
+            echo "Created $i sessions..."
+        fi
+    done
+    
+    # API cache entries (string keys)
+    echo "Creating API cache entries..."
+    api_endpoints=("users" "alerts" "dashboards" "reports" "settings" "integrations")
+    for i in {1..10000}; do
+        endpoint="${api_endpoints[$((RANDOM % ${#api_endpoints[@]}))]}"
+        cache_key="api:cache:${endpoint}:$(openssl rand -hex 12)"
+        
+        # Create realistic JSON response
+        case "$endpoint" in
+            "users")
+                cache_data='{"users":[{"id":"usr_123","email":"user@isectech.com","role":"admin"}],"total":1}'
+                ;;
+            "alerts") 
+                cache_data='{"alerts":[{"id":"alert_456","severity":"high","title":"Suspicious Activity","status":"open"}],"total":1}'
+                ;;
+            "dashboards")
+                cache_data='{"dashboards":[{"id":"dash_789","name":"Security Overview","widgets":5}],"total":1}'
+                ;;
+            *)
+                cache_data='{"data":[],"total":0,"cached_at":"'$(date -Iseconds)'"}'
+                ;;
+        esac
+        
+        redis-cli -a "$REDIS_PASSWORD" SET "$cache_key" "$cache_data"
+        redis-cli -a "$REDIS_PASSWORD" EXPIRE "$cache_key" $(( 60 + RANDOM % 3540 ))
+    done
+    
+    # JWT tokens (hash keys)
+    echo "Creating JWT tokens..."
+    for i in {1..2000}; do
+        token_id="token:$(openssl rand -hex 20)"
+        user_id="usr_$(openssl rand -hex 8)"
+        
+        redis-cli -a "$REDIS_PASSWORD" HMSET "$token_id" \
+            user_id "$user_id" \
+            issued_at "$(date '+%s')" \
+            expires_at "$(( $(date '+%s') + 3600 ))" \
+            token_type "access" \
+            scope "api:read api:write$([ $((RANDOM % 3)) -eq 0 ] && echo " api:admin")" \
+            client_id "client_$(openssl rand -hex 6)" \
+            jti "$(openssl rand -hex 16)"
+            
+        redis-cli -a "$REDIS_PASSWORD" EXPIRE "$token_id" 3600
+    done
+    
+    # Rate limiting counters
+    echo "Creating rate limiting data..."
+    for i in {1..15000}; do
+        ip_addr="$(( RANDOM % 255 )).$(( RANDOM % 255 )).$(( RANDOM % 255 )).$(( RANDOM % 255 ))"
+        endpoint="$(echo "login auth api admin" | tr ' ' '\n' | shuf -n1)"
+        rate_key="ratelimit:${endpoint}:${ip_addr}"
+        
+        count=$(( RANDOM % 100 + 1 ))
+        redis-cli -a "$REDIS_PASSWORD" SET "$rate_key" "$count"
+        redis-cli -a "$REDIS_PASSWORD" EXPIRE "$rate_key" $(( 60 + RANDOM % 540 ))
+    done
+    
+    # Notification queues (list keys)
+    echo "Creating notification queues..."
+    notification_types=("alert" "report" "system" "security" "compliance")
+    for type in "${notification_types[@]}"; do
+        queue_key="notification:queue:$type"
+        
+        for i in {1..100}; do
+            notification='{"id":"notif_'$(openssl rand -hex 8)'","type":"'$type'","message":"Sample notification","created_at":"'$(date -Iseconds)'","priority":"'$([ $((RANDOM % 2)) -eq 0 ] && echo "high" || echo "normal")'"}'
+            redis-cli -a "$REDIS_PASSWORD" LPUSH "$queue_key" "$notification"
+        done
+        
+        # Keep only latest 100 notifications
+        redis-cli -a "$REDIS_PASSWORD" LTRIM "$queue_key" 0 99
+    done
+    
+    # Admin API keys (special trap keys)
+    echo "Creating admin API key traps..."
+    admin_keys=(
+        "sk_live_admin_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+        "sk_live_root_z9y8x7w6v5u4t3s2r1q0p9o8n7m6l5k4"
+        "sk_live_super_1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7"
+        "sk_test_backup_f1e2d3c4b5a69870"
+    )
+    
+    for api_key in "${admin_keys[@]}"; do
+        key_info="apikey:$api_key"
+        redis-cli -a "$REDIS_PASSWORD" HMSET "$key_info" \
+            key_id "$api_key" \
+            user_id "usr_admin_$(openssl rand -hex 4)" \
+            created_at "$(date -d '90 days ago' '+%s')" \
+            last_used "$(date -d '1 day ago' '+%s')" \
+            permissions "admin:all" \
+            rate_limit "1000" \
+            status "active" \
+            description "Administrative API access key"
+    done
+    
+    # Create some suspicious patterns that might attract attackers
+    echo "Creating honeypot trap keys..."
+    trap_keys=(
+        "backup:database:credentials"
+        "config:jwt:secret"
+        "admin:emergency:access"
+        "production:api:keys"
+        "customer:encryption:keys"
+    )
+    
+    for trap_key in "${trap_keys[@]}"; do
+        redis-cli -a "$REDIS_PASSWORD" SET "$trap_key" "HONEYPOT_TRAP_$(openssl rand -hex 16)"
+    done
+    
+    echo "Redis honeypot data population completed!"
+    echo "Total keys created: $(redis-cli -a "$REDIS_PASSWORD" DBSIZE)"

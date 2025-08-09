@@ -1,0 +1,337 @@
+# Chaos Engineering Experiments for DR Drills
+# These experiments simulate various failure scenarios to validate disaster recovery procedures
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-chaos-experiments
+  namespace: isectech-system
+data:
+  primary-region-failure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: primary-region-failure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=isectech"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: zone-failure
+          spec:
+            components:
+              env:
+                - name: TARGET_ZONE
+                  value: "us-central1-a"  # Primary region zone
+                - name: CHAOS_DURATION
+                  value: "900"  # 15 minutes
+                - name: CHAOS_INTERVAL
+                  value: "10"
+                - name: FORCE
+                  value: "false"
+                - name: LIB
+                  value: "litmus"
+            probe:
+              - name: "health-check-probe"
+                type: "httpProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 3
+                  interval: 10
+                  stopOnFailure: false
+                httpProbe/inputs:
+                  url: "https://api.isectech.com/health"
+                  method:
+                    get:
+                      criteria: "=="
+                      responseCode: "200"
+
+  secondary-region-failure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: secondary-region-failure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=isectech"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: zone-failure
+          spec:
+            components:
+              env:
+                - name: TARGET_ZONE
+                  value: "us-east1-b"  # Secondary region zone
+                - name: CHAOS_DURATION
+                  value: "600"  # 10 minutes
+                - name: CHAOS_INTERVAL
+                  value: "10"
+                - name: FORCE
+                  value: "false"
+            probe:
+              - name: "load-balancer-probe"
+                type: "httpProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 2
+                  interval: 10
+                httpProbe/inputs:
+                  url: "https://api.isectech.com/health"
+                  method:
+                    get:
+                      criteria: "=="
+                      responseCode: "200"
+
+  database-failure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: database-failure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=postgres-primary"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: pod-delete
+          spec:
+            components:
+              env:
+                - name: TOTAL_CHAOS_DURATION
+                  value: "300"  # 5 minutes
+                - name: CHAOS_INTERVAL
+                  value: "5"
+                - name: FORCE
+                  value: "false"
+            probe:
+              - name: "database-connectivity-probe"
+                type: "cmdProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 3
+                  interval: 10
+                cmdProbe/inputs:
+                  command: "pg_isready -h postgres-service -p 5432"
+                  expectedResult: "positive"
+                  
+  network-partition.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: network-partition
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=isectech"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: network-partition
+          spec:
+            components:
+              env:
+                - name: TOTAL_CHAOS_DURATION
+                  value: "600"  # 10 minutes
+                - name: DESTINATION_IPS
+                  value: "10.0.1.0/24"  # Secondary region network
+                - name: DESTINATION_HOSTS
+                  value: ""
+                - name: NETWORK_INTERFACE
+                  value: "eth0"
+                - name: NETWORK_PACKET_LOSS_PERCENTAGE
+                  value: "100"
+            probe:
+              - name: "cross-region-connectivity-probe"
+                type: "cmdProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 2
+                  interval: 15
+                cmdProbe/inputs:
+                  command: "ping -c 3 10.0.1.10"  # Secondary region IP
+                  expectedResult: "negative"  # Expect failure during partition
+
+  cascading-failure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: cascading-failure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=auth-service"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: pod-cpu-hog
+          spec:
+            components:
+              env:
+                - name: TOTAL_CHAOS_DURATION
+                  value: "450"  # 7.5 minutes
+                - name: CPU_CORES
+                  value: "2"
+                - name: CHAOS_KILL_COMMAND
+                  value: "kill -9 $(ps aux | grep '[c]pu-stress' | awk '{print $2}' | head -1)"
+            probe:
+              - name: "auth-service-probe"
+                type: "httpProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 5
+                  retry: 2
+                  interval: 10
+                httpProbe/inputs:
+                  url: "http://auth-service:8080/health"
+                  method:
+                    get:
+                      criteria: "=="
+                      responseCode: "200"
+              - name: "downstream-services-probe"
+                type: "httpProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 1
+                  interval: 15
+                httpProbe/inputs:
+                  url: "http://api-gateway:8080/health"
+                  method:
+                    get:
+                      criteria: "=="
+                      responseCode: "200"
+
+  memory-pressure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: memory-pressure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=event-processor"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: pod-memory-hog
+          spec:
+            components:
+              env:
+                - name: TOTAL_CHAOS_DURATION
+                  value: "300"
+                - name: MEMORY_CONSUMPTION
+                  value: "80"  # 80% of available memory
+                - name: NUMBER_OF_WORKERS
+                  value: "4"
+            probe:
+              - name: "event-processing-probe"
+                type: "cmdProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 10
+                  retry: 2
+                  interval: 10
+                cmdProbe/inputs:
+                  command: "kubectl get pods -l app=event-processor -o jsonpath='{.items[*].status.phase}'"
+                  expectedResult: "positive"
+
+  storage-failure.yaml: |
+    apiVersion: litmuschaos.io/v1alpha1
+    kind: ChaosEngine
+    metadata:
+      name: storage-failure
+      namespace: isectech-system
+    spec:
+      appinfo:
+        appns: isectech-system
+        applabel: "app=redis-cluster"
+        appkind: deployment
+      jobCleanUpPolicy: retain
+      engineState: active
+      chaosServiceAccount: litmus-admin
+      experiments:
+        - name: disk-fill
+          spec:
+            components:
+              env:
+                - name: TOTAL_CHAOS_DURATION
+                  value: "180"  # 3 minutes
+                - name: FILL_PERCENTAGE
+                  value: "95"
+                - name: TARGET_CONTAINER
+                  value: "redis"
+            probe:
+              - name: "redis-connectivity-probe"
+                type: "cmdProbe"
+                mode: "Continuous"
+                runProperties:
+                  probeTimeout: 5
+                  retry: 3
+                  interval: 10
+                cmdProbe/inputs:
+                  command: "redis-cli -h redis-service -p 6379 ping"
+                  expectedResult: "positive"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: litmus-admin
+rules:
+- apiGroups: [""]
+  resources: ["pods", "events", "configmaps", "secrets", "services", "persistentvolumeclaims"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["litmuschaos.io"]
+  resources: ["chaosengines", "chaosexperiments", "chaosresults"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: litmus-admin
+  namespace: isectech-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: litmus-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: litmus-admin
+subjects:
+- kind: ServiceAccount
+  name: litmus-admin
+  namespace: isectech-system

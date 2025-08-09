@@ -1,0 +1,89 @@
+# PostgreSQL Configuration for iSECTECH Production Environment
+# This configuration implements a sharded, highly available PostgreSQL setup
+# optimized for cybersecurity data workloads
+
+postgres:
+  # Connection settings
+  connection_timeout: 30s
+  query_timeout: 60s
+  
+  # Security settings
+  enable_row_level_security: true
+  encryption_key: "${POSTGRES_ENCRYPTION_KEY}"
+  
+  # Monitoring
+  enable_metrics: true
+  enable_tracing: true
+  slow_query_threshold: 1s
+  
+  # Circuit breaker configuration
+  circuit_breaker:
+    max_requests: 10
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 5
+  
+  # Retry configuration
+  retry_config:
+    max_attempts: 3
+    initial_interval: 100ms
+    max_interval: 5s
+    multiplier: 2.0
+  
+  # Shard configuration
+  shards:
+    # Primary shard for tenant data and assets
+    - name: "shard-primary"
+      host: "${POSTGRES_PRIMARY_HOST:-localhost}"
+      port: 5432
+      database: "${POSTGRES_PRIMARY_DB:-isectech_primary}"
+      username: "${POSTGRES_PRIMARY_USER:-isectech}"
+      password: "${POSTGRES_PRIMARY_PASSWORD}"
+      ssl_mode: "require"
+      max_conns: 50
+      min_conns: 5
+      max_conn_lifetime: 1h
+      max_conn_idle_time: 30m
+      shard_key: "tenant_id"
+      shard_range:
+        min: "00000000-0000-0000-0000-000000000000"
+        max: "7fffffff-ffff-ffff-ffff-ffffffffffff"
+      read_replicas:
+        - name: "primary-replica-1"
+          host: "${POSTGRES_PRIMARY_REPLICA1_HOST:-localhost}"
+          port: 5433
+          priority: 1
+          weight: 50
+        - name: "primary-replica-2"
+          host: "${POSTGRES_PRIMARY_REPLICA2_HOST:-localhost}"
+          port: 5434
+          priority: 2
+          weight: 50
+    
+    # Secondary shard for high-volume security events
+    - name: "shard-events"
+      host: "${POSTGRES_EVENTS_HOST:-localhost}"
+      port: 5435
+      database: "${POSTGRES_EVENTS_DB:-isectech_events}"
+      username: "${POSTGRES_EVENTS_USER:-isectech}"
+      password: "${POSTGRES_EVENTS_PASSWORD}"
+      ssl_mode: "require"
+      max_conns: 100
+      min_conns: 10
+      max_conn_lifetime: 1h
+      max_conn_idle_time: 30m
+      shard_key: "tenant_id"
+      shard_range:
+        min: "80000000-0000-0000-0000-000000000000"
+        max: "ffffffff-ffff-ffff-ffff-ffffffffffff"
+      read_replicas:
+        - name: "events-replica-1"
+          host: "${POSTGRES_EVENTS_REPLICA1_HOST:-localhost}"
+          port: 5436
+          priority: 1
+          weight: 70
+        - name: "events-replica-2"
+          host: "${POSTGRES_EVENTS_REPLICA2_HOST:-localhost}"
+          port: 5437
+          priority: 2
+          weight: 30

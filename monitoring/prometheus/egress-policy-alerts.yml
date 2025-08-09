@@ -1,0 +1,22 @@
+groups:
+  - name: egress-policy-violations
+    rules:
+      - alert: CiliumEgressDenySpike
+        expr: rate(cilium_policy_l7_denied_total[5m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Egress L7 deny rate elevated"
+          description: ">5 denies/sec over 10m in services or data namespaces. Investigate recent egress policy changes."
+      - alert: UnexpectedWorldEgress
+        expr: increase(cilium_policy_egress_denied_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pods attempted egress to world in restricted namespaces"
+          description: "One or more pods attempted to reach external destinations bypassing egress gateway enforcement."
+
+
+

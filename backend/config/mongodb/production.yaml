@@ -1,0 +1,161 @@
+# MongoDB Configuration for iSECTECH Production Environment
+# This configuration implements a sharded, highly available MongoDB setup
+# optimized for cybersecurity document storage and time-series data
+
+mongodb:
+  # Connection settings
+  uri: "${MONGODB_URI:-mongodb://mongodb-user:password@mongodb-shard-01:27017,mongodb-shard-02:27017,mongodb-shard-03:27017/isectech?replicaSet=rs0&authSource=admin}"
+  database: "${MONGODB_DATABASE:-isectech}"
+  connect_timeout: 30s
+  server_selection_timeout: 30s
+  socket_timeout: 60s
+  
+  # Connection pool settings
+  max_pool_size: 100
+  min_pool_size: 10
+  max_idle_time: 30m
+  max_conn_idle_time: 30m
+  
+  # Replica set configuration
+  replica_set: "rs0"
+  read_preference: "secondaryPreferred"
+  read_concern: "majority"
+  write_concern:
+    w: "majority"
+    wtimeout: 10s
+    journal: true
+  
+  # Sharding configuration
+  sharding:
+    enabled: true
+    shard_key: "tenant_id"
+    chunks:
+      size: 64  # 64MB chunks
+      max_chunk_size: 1024  # 1GB max
+      split_threshold: 512  # 512MB split threshold
+    balancer:
+      enabled: true
+      active_window:
+        start: "02:00"
+        stop: "06:00"
+      chunk_migrations: 10
+    config_servers:
+      - "mongodb-config-01:27019"
+      - "mongodb-config-02:27019"
+      - "mongodb-config-03:27019"
+    mongos:
+      - host: "mongodb-mongos-01"
+        port: 27017
+      - host: "mongodb-mongos-02"
+        port: 27017
+  
+  # Security settings
+  security:
+    enable_encryption: true
+    encryption_key_file: "/etc/mongodb/encryption.key"
+    tls:
+      enabled: true
+      certificate_file: "/etc/mongodb/certs/mongodb.pem"
+      private_key_file: "/etc/mongodb/certs/mongodb-key.pem"
+      ca_file: "/etc/mongodb/certs/ca.pem"
+      allow_invalid_certs: false
+    authentication:
+      mechanism: "SCRAM-SHA-256"
+      source: "admin"
+      username: "${MONGODB_USER:-isectech}"
+      password: "${MONGODB_PASSWORD}"
+    authorization:
+      enable_rbac: true
+      tenant_isolation: true
+      default_roles: ["readWrite"]
+  
+  # Time-series collections configuration
+  time_series:
+    collections:
+      security_events:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "minutes"
+        bucket_max_span: 1h
+        bucket_rounding: "minutes"
+        expire_after_seconds: 2592000  # 30 days
+        indexes:
+          - keys:
+              metadata.tenant_id: 1
+              timestamp: 1
+            options:
+              name: "tenant_time_idx"
+              background: true
+          - keys:
+              metadata.severity: 1
+            options:
+              name: "severity_idx"
+              background: true
+          - keys:
+              metadata.event_type: 1
+              timestamp: -1
+            options:
+              name: "event_type_time_idx"
+              background: true
+      
+      performance_metrics:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "seconds"
+        bucket_max_span: 1h
+        bucket_rounding: "seconds"
+        expire_after_seconds: 604800  # 7 days
+        indexes:
+          - keys:
+              metadata.service: 1
+              timestamp: 1
+            options:
+              name: "service_time_idx"
+              background: true
+          - keys:
+              metadata.instance: 1
+              timestamp: -1
+            options:
+              name: "instance_time_idx"
+              background: true
+      
+      audit_events:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "minutes"
+        bucket_max_span: 24h
+        bucket_rounding: "minutes"
+        expire_after_seconds: 31536000  # 1 year
+        indexes:
+          - keys:
+              metadata.tenant_id: 1
+              metadata.user_id: 1
+              timestamp: 1
+            options:
+              name: "tenant_user_time_idx"
+              background: true
+          - keys:
+              metadata.action: 1
+              timestamp: -1
+            options:
+              name: "action_time_idx"
+              background: true
+  
+  # Monitoring and observability
+  enable_metrics: true
+  enable_tracing: true
+  slow_query_threshold: 1s
+  
+  # Circuit breaker settings
+  circuit_breaker:
+    max_requests: 10
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 5
+  
+  # Retry settings
+  retry_config:
+    max_attempts: 3
+    initial_interval: 100ms
+    max_interval: 5s
+    multiplier: 2.0

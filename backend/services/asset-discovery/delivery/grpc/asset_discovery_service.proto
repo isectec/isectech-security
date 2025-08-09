@@ -1,0 +1,665 @@
+syntax = "proto3";
+
+package assetdiscovery.v1;
+
+option go_package = "asset-discovery/delivery/grpc/pb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+// Asset Discovery Service
+service AssetDiscoveryService {
+  // Discovery operations
+  rpc StartDiscovery(StartDiscoveryRequest) returns (StartDiscoveryResponse);
+  rpc GetDiscoveryStatus(GetDiscoveryStatusRequest) returns (GetDiscoveryStatusResponse);
+  rpc CancelDiscovery(CancelDiscoveryRequest) returns (CancelDiscoveryResponse);
+  
+  // Asset management
+  rpc GetAsset(GetAssetRequest) returns (GetAssetResponse);
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse);
+  rpc UpdateAsset(UpdateAssetRequest) returns (UpdateAssetResponse);
+  rpc DeleteAsset(DeleteAssetRequest) returns (DeleteAssetResponse);
+  
+  // Search and filtering
+  rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
+  rpc GetAssetsByFilter(GetAssetsByFilterRequest) returns (GetAssetsByFilterResponse);
+  
+  // Analytics and aggregation
+  rpc GetAssetAggregation(GetAssetAggregationRequest) returns (GetAssetAggregationResponse);
+  rpc GetNetworkTopology(GetNetworkTopologyRequest) returns (GetNetworkTopologyResponse);
+  
+  // Health check
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+}
+
+// Common types
+
+message Asset {
+  string id = 1;
+  string tenant_id = 2;
+  string name = 3;
+  string display_name = 4;
+  string description = 5;
+  AssetType asset_type = 6;
+  AssetStatus status = 7;
+  AssetRiskLevel risk_level = 8;
+  
+  string owner = 9;
+  string department = 10;
+  string business_unit = 11;
+  string environment = 12;
+  string criticality = 13;
+  repeated string tags = 14;
+  map<string, string> labels = 15;
+  
+  NetworkInfo network_info = 16;
+  SystemInfo system_info = 17;
+  SecurityInfo security_info = 18;
+  
+  string discovery_method = 19;
+  string discovery_source = 20;
+  google.protobuf.Timestamp first_discovered = 21;
+  google.protobuf.Timestamp last_seen = 22;
+  google.protobuf.Timestamp last_updated = 23;
+  string scan_frequency = 24;
+  google.protobuf.Timestamp next_scan_time = 25;
+  
+  string fingerprint = 26;
+  string checksum = 27;
+  google.protobuf.Timestamp created_at = 28;
+  google.protobuf.Timestamp updated_at = 29;
+  int32 version = 30;
+}
+
+enum AssetType {
+  ASSET_TYPE_UNSPECIFIED = 0;
+  ASSET_TYPE_ENDPOINT = 1;
+  ASSET_TYPE_SERVER = 2;
+  ASSET_TYPE_NETWORK_DEVICE = 3;
+  ASSET_TYPE_CLOUD_RESOURCE = 4;
+  ASSET_TYPE_CONTAINER = 5;
+  ASSET_TYPE_APPLICATION = 6;
+  ASSET_TYPE_DATABASE = 7;
+  ASSET_TYPE_IOT_DEVICE = 8;
+  ASSET_TYPE_UNKNOWN = 9;
+}
+
+enum AssetStatus {
+  ASSET_STATUS_UNSPECIFIED = 0;
+  ASSET_STATUS_ACTIVE = 1;
+  ASSET_STATUS_INACTIVE = 2;
+  ASSET_STATUS_UNKNOWN = 3;
+  ASSET_STATUS_MAINTENANCE = 4;
+  ASSET_STATUS_RETIRED = 5;
+}
+
+enum AssetRiskLevel {
+  ASSET_RISK_LEVEL_UNSPECIFIED = 0;
+  ASSET_RISK_LEVEL_CRITICAL = 1;
+  ASSET_RISK_LEVEL_HIGH = 2;
+  ASSET_RISK_LEVEL_MEDIUM = 3;
+  ASSET_RISK_LEVEL_LOW = 4;
+  ASSET_RISK_LEVEL_UNKNOWN = 5;
+}
+
+message NetworkInfo {
+  string ip_address = 1;
+  string ip_version = 2;
+  string mac_address = 3;
+  string hostname = 4;
+  string fqdn = 5;
+  repeated string dns_names = 6;
+  repeated Port open_ports = 7;
+  string network_zone = 8;
+  string vlan = 9;
+  string subnet = 10;
+  string gateway = 11;
+  string public_ip = 12;
+  GeoInfo geo_location = 13;
+}
+
+message Port {
+  int32 number = 1;
+  string protocol = 2;
+  string service = 3;
+  string version = 4;
+  string banner = 5;
+  string state = 6;
+}
+
+message GeoInfo {
+  string country = 1;
+  string region = 2;
+  string city = 3;
+  double latitude = 4;
+  double longitude = 5;
+  string isp = 6;
+  string asn = 7;
+}
+
+message SystemInfo {
+  string operating_system = 1;
+  string os_version = 2;
+  string architecture = 3;
+  string kernel = 4;
+  google.protobuf.Duration uptime = 5;
+  google.protobuf.Timestamp system_time = 6;
+  string time_zone = 7;
+  CPUInfo cpu_info = 8;
+  MemoryInfo memory_info = 9;
+  repeated DiskInfo disk_info = 10;
+  repeated SoftwarePackage installed_software = 11;
+  repeated ProcessInfo processes = 12;
+  repeated ServiceInfo services = 13;
+}
+
+message CPUInfo {
+  string model = 1;
+  int32 cores = 2;
+  int32 threads = 3;
+  string speed = 4;
+  double usage = 5;
+}
+
+message MemoryInfo {
+  int64 total = 1;
+  int64 available = 2;
+  int64 used = 3;
+  double usage = 4;
+}
+
+message DiskInfo {
+  string device = 1;
+  string mount_point = 2;
+  string file_system = 3;
+  int64 total = 4;
+  int64 used = 5;
+  int64 available = 6;
+  double usage = 7;
+}
+
+message SoftwarePackage {
+  string name = 1;
+  string version = 2;
+  string vendor = 3;
+  google.protobuf.Timestamp install_date = 4;
+  string description = 5;
+  string category = 6;
+}
+
+message ProcessInfo {
+  int32 pid = 1;
+  string name = 2;
+  string command = 3;
+  string user = 4;
+  double cpu_usage = 5;
+  int64 memory_usage = 6;
+}
+
+message ServiceInfo {
+  string name = 1;
+  string display_name = 2;
+  string status = 3;
+  string start_type = 4;
+  string user = 5;
+}
+
+message SecurityInfo {
+  google.protobuf.Timestamp last_vuln_scan = 1;
+  VulnerabilityCount vuln_count = 2;
+  ComplianceStatus compliance_status = 3;
+  repeated SecurityTool security_tools = 4;
+  repeated CertificateInfo certificate_info = 5;
+  google.protobuf.Timestamp last_security_event = 6;
+  AssetRiskLevel threat_level = 7;
+  repeated AnomalyInfo anomalies = 8;
+}
+
+message VulnerabilityCount {
+  int32 critical = 1;
+  int32 high = 2;
+  int32 medium = 3;
+  int32 low = 4;
+  int32 total = 5;
+}
+
+message ComplianceStatus {
+  string soc2 = 1;
+  string iso27001 = 2;
+  string nist = 3;
+  string pci = 4;
+  string hipaa = 5;
+  string gdpr = 6;
+  string custom_framework = 7;
+}
+
+message SecurityTool {
+  string name = 1;
+  string type = 2;
+  string version = 3;
+  string status = 4;
+  google.protobuf.Timestamp last_update = 5;
+  string configuration = 6;
+}
+
+message CertificateInfo {
+  string subject = 1;
+  string issuer = 2;
+  google.protobuf.Timestamp not_before = 3;
+  google.protobuf.Timestamp not_after = 4;
+  string serial_number = 5;
+  string fingerprint = 6;
+  int32 key_size = 7;
+  bool is_valid = 8;
+  bool is_expired = 9;
+}
+
+message AnomalyInfo {
+  string type = 1;
+  string description = 2;
+  string severity = 3;
+  google.protobuf.Timestamp detected_at = 4;
+  double confidence = 5;
+}
+
+// Discovery types
+
+message DiscoveryRequest {
+  string tenant_id = 1;
+  DiscoveryScope target_scope = 2;
+  repeated DiscoveryMethod discovery_methods = 3;
+  ScanOptions scan_options = 4;
+  repeated Credential credentials = 5;
+  DiscoveryPriority priority = 6;
+  ScheduleType schedule_type = 7;
+  map<string, string> metadata = 8;
+}
+
+message DiscoveryScope {
+  repeated string ip_ranges = 1;
+  repeated string hostnames = 2;
+  repeated string domains = 3;
+  repeated string cloud_accounts = 4;
+  repeated string subnets = 5;
+  repeated string network_zones = 6;
+  repeated string exclude_ranges = 7;
+}
+
+enum DiscoveryMethod {
+  DISCOVERY_METHOD_UNSPECIFIED = 0;
+  DISCOVERY_METHOD_PING = 1;
+  DISCOVERY_METHOD_PORT_SCAN = 2;
+  DISCOVERY_METHOD_SERVICE_SCAN = 3;
+  DISCOVERY_METHOD_SNMP = 4;
+  DISCOVERY_METHOD_WMI = 5;
+  DISCOVERY_METHOD_SSH = 6;
+  DISCOVERY_METHOD_NETBIOS = 7;
+  DISCOVERY_METHOD_DNS = 8;
+  DISCOVERY_METHOD_LDAP = 9;
+  DISCOVERY_METHOD_AGENT = 10;
+  DISCOVERY_METHOD_CLOUD = 11;
+  DISCOVERY_METHOD_PASSIVE = 12;
+  DISCOVERY_METHOD_VULN_SCAN = 13;
+  DISCOVERY_METHOD_ASSET_IMPORT = 14;
+}
+
+message ScanOptions {
+  google.protobuf.Duration timeout = 1;
+  int32 max_concurrency = 2;
+  int32 rate_limit = 3;
+  int32 retry_attempts = 4;
+  google.protobuf.Duration retry_delay = 5;
+  repeated string port_ranges = 6;
+  string scan_technique = 7;
+  bool service_detection = 8;
+  bool version_detection = 9;
+  bool os_detection = 10;
+  bool deep_inspection = 11;
+  bool gather_software = 12;
+  bool gather_processes = 13;
+  bool gather_services = 14;
+  bool gather_certificates = 15;
+  bool gather_vulns = 16;
+  repeated string cloud_regions = 17;
+  repeated string cloud_services = 18;
+  repeated CustomScript custom_scripts = 19;
+}
+
+message CustomScript {
+  string name = 1;
+  string type = 2;
+  string script = 3;
+  map<string, string> parameters = 4;
+  google.protobuf.Duration timeout = 5;
+}
+
+message Credential {
+  CredentialType type = 1;
+  string username = 2;
+  string password = 3;
+  string private_key = 4;
+  string certificate = 5;
+  string token = 6;
+  string api_key = 7;
+  string secret_key = 8;
+  string domain = 9;
+  map<string, string> metadata = 10;
+}
+
+enum CredentialType {
+  CREDENTIAL_TYPE_UNSPECIFIED = 0;
+  CREDENTIAL_TYPE_PASSWORD = 1;
+  CREDENTIAL_TYPE_SSH_KEY = 2;
+  CREDENTIAL_TYPE_CERTIFICATE = 3;
+  CREDENTIAL_TYPE_TOKEN = 4;
+  CREDENTIAL_TYPE_API_KEY = 5;
+  CREDENTIAL_TYPE_AWS = 6;
+  CREDENTIAL_TYPE_AZURE = 7;
+  CREDENTIAL_TYPE_GCP = 8;
+  CREDENTIAL_TYPE_SNMP = 9;
+  CREDENTIAL_TYPE_WMI = 10;
+}
+
+enum DiscoveryPriority {
+  DISCOVERY_PRIORITY_UNSPECIFIED = 0;
+  DISCOVERY_PRIORITY_LOW = 1;
+  DISCOVERY_PRIORITY_MEDIUM = 2;
+  DISCOVERY_PRIORITY_HIGH = 3;
+  DISCOVERY_PRIORITY_CRITICAL = 4;
+}
+
+enum ScheduleType {
+  SCHEDULE_TYPE_UNSPECIFIED = 0;
+  SCHEDULE_TYPE_IMMEDIATE = 1;
+  SCHEDULE_TYPE_SCHEDULED = 2;
+  SCHEDULE_TYPE_RECURRING = 3;
+  SCHEDULE_TYPE_ON_DEMAND = 4;
+}
+
+message DiscoveryResult {
+  string request_id = 1;
+  string tenant_id = 2;
+  DiscoveryStatus status = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+  google.protobuf.Duration duration = 6;
+  int32 assets_found = 7;
+  int32 assets_updated = 8;
+  int32 assets_new = 9;
+  int32 targets_scanned = 10;
+  int32 targets_total = 11;
+  double success_rate = 12;
+  repeated Asset assets = 13;
+  repeated DiscoveryError errors = 14;
+  repeated DiscoveryWarning warnings = 15;
+  DiscoveryStatistics statistics = 16;
+  map<string, string> metadata = 17;
+}
+
+enum DiscoveryStatus {
+  DISCOVERY_STATUS_UNSPECIFIED = 0;
+  DISCOVERY_STATUS_PENDING = 1;
+  DISCOVERY_STATUS_RUNNING = 2;
+  DISCOVERY_STATUS_COMPLETED = 3;
+  DISCOVERY_STATUS_FAILED = 4;
+  DISCOVERY_STATUS_CANCELLED = 5;
+  DISCOVERY_STATUS_PARTIAL = 6;
+}
+
+message DiscoveryError {
+  string target = 1;
+  string method = 2;
+  string error = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string severity = 5;
+  bool recoverable = 6;
+}
+
+message DiscoveryWarning {
+  string target = 1;
+  string method = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message DiscoveryStatistics {
+  map<string, MethodStatistics> method_stats = 1;
+  map<string, int32> asset_type_stats = 2;
+  NetworkDiscoveryStats network_stats = 3;
+  PerformanceStats performance_stats = 4;
+}
+
+message MethodStatistics {
+  int32 targets_scanned = 1;
+  int32 assets_found = 2;
+  int32 errors = 3;
+  google.protobuf.Duration avg_response_time = 4;
+  double success_rate = 5;
+}
+
+message NetworkDiscoveryStats {
+  int32 ips_scanned = 1;
+  int32 responsive_ips = 2;
+  int32 ports_scanned = 3;
+  int32 open_ports = 4;
+  int32 services_detected = 5;
+  map<int32, int32> port_distribution = 6;
+}
+
+message PerformanceStats {
+  int64 total_requests = 1;
+  double requests_per_second = 2;
+  google.protobuf.Duration avg_response_time = 3;
+  google.protobuf.Duration max_response_time = 4;
+  google.protobuf.Duration min_response_time = 5;
+  int32 timeouts = 6;
+  int32 retries = 7;
+}
+
+message ScanProgress {
+  string request_id = 1;
+  DiscoveryStatus status = 2;
+  double percent_complete = 3;
+  string current_target = 4;
+  int32 targets_completed = 5;
+  int32 targets_total = 6;
+  int32 assets_found = 7;
+  google.protobuf.Duration elapsed_time = 8;
+  google.protobuf.Duration estimated_remaining = 9;
+}
+
+// Request/Response messages
+
+message StartDiscoveryRequest {
+  DiscoveryRequest request = 1;
+}
+
+message StartDiscoveryResponse {
+  DiscoveryResult result = 1;
+}
+
+message GetDiscoveryStatusRequest {
+  string request_id = 1;
+}
+
+message GetDiscoveryStatusResponse {
+  ScanProgress progress = 1;
+}
+
+message CancelDiscoveryRequest {
+  string request_id = 1;
+}
+
+message CancelDiscoveryResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetAssetRequest {
+  string asset_id = 1;
+  string tenant_id = 2;
+}
+
+message GetAssetResponse {
+  Asset asset = 1;
+}
+
+message ListAssetsRequest {
+  string tenant_id = 1;
+  AssetFilter filter = 2;
+  repeated AssetSort sort = 3;
+  PageRequest page = 4;
+}
+
+message ListAssetsResponse {
+  repeated Asset assets = 1;
+  PageResponse pagination = 2;
+}
+
+message AssetFilter {
+  string tenant_id = 1;
+  repeated AssetType asset_types = 2;
+  repeated AssetStatus statuses = 3;
+  repeated AssetRiskLevel risk_levels = 4;
+  repeated string environments = 5;
+  repeated string tags = 6;
+  string ip_range = 7;
+  string hostname = 8;
+  string owner = 9;
+  string department = 10;
+  google.protobuf.Timestamp last_seen_after = 11;
+  google.protobuf.Timestamp last_seen_before = 12;
+  google.protobuf.Timestamp discovered_after = 13;
+  google.protobuf.Timestamp discovered_before = 14;
+  bool has_vulnerabilities = 15;
+  double min_vuln_score = 16;
+  double max_vuln_score = 17;
+  bool has_open_ports = 18;
+  repeated int32 open_ports = 19;
+  repeated string network_zones = 20;
+  string search = 21;
+  string compliance_framework = 22;
+  string compliance_status = 23;
+}
+
+message AssetSort {
+  string field = 1;
+  string direction = 2;
+}
+
+message PageRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message PageResponse {
+  int32 page = 1;
+  int32 page_size = 2;
+  int32 total_pages = 3;
+  int64 total_items = 4;
+  bool has_next = 5;
+  bool has_prev = 6;
+}
+
+message UpdateAssetRequest {
+  Asset asset = 1;
+}
+
+message UpdateAssetResponse {
+  Asset asset = 1;
+}
+
+message DeleteAssetRequest {
+  string asset_id = 1;
+  string tenant_id = 2;
+}
+
+message DeleteAssetResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SearchAssetsRequest {
+  string tenant_id = 1;
+  string query = 2;
+  AssetFilter filters = 3;
+  PageRequest page = 4;
+}
+
+message SearchAssetsResponse {
+  repeated Asset assets = 1;
+  PageResponse pagination = 2;
+}
+
+message GetAssetsByFilterRequest {
+  string tenant_id = 1;
+  AssetFilter filter = 2;
+  repeated AssetSort sort = 3;
+  PageRequest page = 4;
+}
+
+message GetAssetsByFilterResponse {
+  repeated Asset assets = 1;
+  PageResponse pagination = 2;
+}
+
+message GetAssetAggregationRequest {
+  string tenant_id = 1;
+  AssetFilter filter = 2;
+}
+
+message GetAssetAggregationResponse {
+  AssetAggregation aggregation = 1;
+}
+
+message AssetAggregation {
+  int64 total_assets = 1;
+  map<string, int64> assets_by_type = 2;
+  map<string, int64> assets_by_status = 3;
+  map<string, int64> assets_by_risk = 4;
+  map<string, int64> assets_by_environment = 5;
+  VulnerabilityStats vuln_stats = 6;
+  ComplianceStats compliance_stats = 7;
+  NetworkStats network_stats = 8;
+}
+
+message VulnerabilityStats {
+  int64 total_vulns = 1;
+  map<string, int64> vulns_by_severity = 2;
+  int64 assets_with_vulns = 3;
+  double avg_vuln_score = 4;
+}
+
+message ComplianceStats {
+  map<string, ComplianceFrameworkStats> framework_stats = 1;
+  double overall_score = 2;
+}
+
+message ComplianceFrameworkStats {
+  int64 compliant = 1;
+  int64 non_compliant = 2;
+  int64 unknown = 3;
+  double score = 4;
+}
+
+message NetworkStats {
+  int64 total_ips = 1;
+  int64 unique_networks = 2;
+  map<int32, int64> open_port_stats = 3;
+  map<string, int64> network_zones = 4;
+}
+
+message GetNetworkTopologyRequest {
+  string tenant_id = 1;
+}
+
+message GetNetworkTopologyResponse {
+  map<string, string> topology = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;
+  map<string, string> details = 3;
+}

@@ -1,0 +1,23 @@
+# iSECTECH Data Residency Monitor Dependencies
+# Production-grade Cloud Function requirements
+# Version: 1.0.0 - Task 70.5 Implementation
+
+# Google Cloud SDK components
+google-cloud-asset>=3.20.0
+google-cloud-storage>=2.10.0
+google-cloud-sql>=3.8.0
+google-cloud-monitoring>=2.16.0
+google-cloud-pubsub>=2.18.0
+google-cloud-logging>=3.8.0
+
+# Additional dependencies for compliance monitoring
+google-cloud-bigquery>=3.12.0
+google-cloud-compute>=1.14.0
+google-cloud-redis>=2.13.0
+google-auth>=2.23.0
+
+# JSON handling and utilities
+jsonschema>=4.19.0
+
+# Functions Framework for local testing
+functions-framework>=3.4.0

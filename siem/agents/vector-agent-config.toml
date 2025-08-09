@@ -1,0 +1,581 @@
+# iSECTECH SIEM Vector Agent Configuration
+# High-performance log collection and forwarding for security events
+
+[api]
+enabled = true
+address = "127.0.0.1:8686"
+playground = false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA SOURCES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Security Event Logs
+[sources.security_logs]
+type = "file"
+include = [
+  "/var/log/audit/audit.log*",
+  "/var/log/secure*",
+  "/var/log/auth.log*",
+  "/var/log/syslog*",
+  "/var/log/messages*"
+]
+exclude = [
+  "*.gz",
+  "*.bz2",
+  "*.[0-9]"
+]
+read_from = "beginning"
+fingerprint_strategy = "device_and_inode"
+glob_minimum_cooldown_ms = 1000
+ignore_older_secs = 86400  # 24 hours
+max_line_bytes = 1048576   # 1MB
+max_read_bytes = 67108864  # 64MB
+oldest_first = true
+remove_after_secs = 300    # 5 minutes after completion
+
+# Application Logs
+[sources.application_logs]
+type = "file"
+include = [
+  "/var/log/applications/*.log",
+  "/opt/isectech/logs/*.log",
+  "/var/log/nginx/*.log",
+  "/var/log/apache2/*.log"
+]
+exclude = ["*.gz", "*.bz2"]
+read_from = "end"
+fingerprint_strategy = "checksum"
+multiline = { start_pattern = '^\d{4}-\d{2}-\d{2}', mode = "halt_before", condition_pattern = '^\d{4}-\d{2}-\d{2}', timeout_ms = 1000 }
+
+# System Metrics via journald
+[sources.system_events]
+type = "journald"
+current_boot_only = true
+include_units = [
+  "sshd.service",
+  "sudo.service",
+  "systemd-logind.service",
+  "cron.service",
+  "nginx.service",
+  "docker.service"
+]
+exclude_units = [
+  "systemd-resolved.service",
+  "systemd-networkd.service"
+]
+
+# Windows Event Logs (when running on Windows)
+[sources.windows_security]
+type = "windows_event_log"
+channel = "Security"
+query = "*[System[(EventID=4624 or EventID=4625 or EventID=4648 or EventID=4672)]]"
+max_read_bytes = 1048576
+
+[sources.windows_system]
+type = "windows_event_log"
+channel = "System"
+query = "*[System[Level=1 or Level=2 or Level=3]]"
+
+# Network Connection Monitoring
+[sources.netstat_connections]
+type = "exec"
+command = ["netstat", "-tulpn"]
+scheduled = "*/30 * * * * * *"  # Every 30 seconds
+
+# Process Monitoring
+[sources.process_monitor]
+type = "exec"
+command = ["ps", "auxwww"]
+scheduled = "*/60 * * * * * *"  # Every minute
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA TRANSFORMATION PIPELINE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Security Log Parsing and Enrichment
+[transforms.parse_security_logs]
+type = "remap"
+inputs = ["security_logs"]
+source = '''
+# Parse timestamp
+.timestamp = parse_timestamp!(.message, format: "%Y-%m-%d %H:%M:%S") ?? parse_timestamp!(.message, format: "%b %d %H:%M:%S") ?? now()
+
+# Extract source IP addresses
+if match(.message, r'(\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b)') {
+  .source_ip = parse_regex!(.message, r'(?P<ip>\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b)').ip
+}
+
+# Extract usernames
+if match(.message, r'user[=:\s]+([^\s]+)') {
+  .username = parse_regex!(.message, r'user[=:\s]+(?P<user>[^\s]+)').user
+}
+
+# Extract authentication events
+if match(.message, r'(?i)(login|logout|authentication|failed|success)') {
+  .event_type = "authentication"
+  if match(.message, r'(?i)(failed|failure|denied)') {
+    .auth_status = "failed"
+    .risk_score = 3
+  } else if match(.message, r'(?i)(success|successful|accepted)') {
+    .auth_status = "success"
+    .risk_score = 1
+  }
+}
+
+# Extract privilege escalation events
+if match(.message, r'(?i)(sudo|su|privilege|escalation)') {
+  .event_type = "privilege_escalation"
+  .risk_score = 5
+}
+
+# Extract command execution
+if match(.message, r'COMMAND=(.+)') {
+  .command = parse_regex!(.message, r'COMMAND=(?P<cmd>.+)').cmd
+  .event_type = "command_execution"
+}
+
+# Set log source and host information
+.log_source = "vector-agent"
+.agent_version = "0.34.0"
+.environment = get_env_var!("ENVIRONMENT") ?? "production"
+.tenant_id = get_env_var!("TENANT_ID") ?? "default"
+
+# Add host metadata
+.host = {
+  "hostname": get_hostname!(),
+  "ip": get_env_var("HOST_IP") ?? "unknown",
+  "os": get_env_var("OS") ?? "linux"
+}
+'''
+
+# Application Log Processing
+[transforms.parse_application_logs]
+type = "remap"
+inputs = ["application_logs"]
+source = '''
+# Parse JSON logs if possible
+if starts_with(.message, "{") && ends_with(.message, "}") {
+  parsed, err = parse_json(.message)
+  if err == null {
+    .app = parsed
+    .timestamp = parsed.timestamp ?? parsed.time ?? now()
+    .level = parsed.level ?? parsed.severity ?? "info"
+    .service = parsed.service ?? parsed.app ?? "unknown"
+  }
+} else {
+  # Parse structured logs
+  if match(.message, r'^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}') {
+    .timestamp = parse_timestamp!(.message, format: "%Y-%m-%d %H:%M:%S")
+  }
+  
+  # Extract log level
+  if match(.message, r'(?i)\[(DEBUG|INFO|WARN|ERROR|FATAL)\]') {
+    .level = upcase(parse_regex!(.message, r'(?i)\[(?P<level>DEBUG|INFO|WARN|ERROR|FATAL)\]').level)
+  }
+  
+  # Extract service name from file path
+  if match(.file, r'/([^/]+)\.log') {
+    .service = parse_regex!(.file, r'/(?P<service>[^/]+)\.log').service
+  }
+}
+
+# Security event detection in application logs
+if match(.message, r'(?i)(sql\s+injection|xss|csrf|unauthorized|403|401|security)') {
+  .security_event = true
+  .event_type = "application_security"
+  .risk_score = 6
+}
+
+# Error detection
+if .level == "ERROR" || .level == "FATAL" || match(.message, r'(?i)(error|exception|failed|fatal)') {
+  .error_detected = true
+  .risk_score = (.risk_score ?? 0) + 2
+}
+
+# Performance monitoring
+if match(.message, r'response_time[=:\s]+(\d+)') {
+  .response_time = to_int!(parse_regex!(.message, r'response_time[=:\s]+(?P<time>\d+)').time)
+  if .response_time > 5000 {
+    .performance_issue = true
+    .risk_score = (.risk_score ?? 0) + 1
+  }
+}
+
+.log_source = "vector-agent"
+.log_type = "application"
+'''
+
+# System Event Processing
+[transforms.parse_system_events]
+type = "remap"
+inputs = ["system_events"]
+source = '''
+# Extract systemd journal fields
+.timestamp = .TIMESTAMP ?? .__REALTIME_TIMESTAMP ?? now()
+.hostname = .HOSTNAME ?? get_hostname!()
+.service_name = .UNIT ?? .SYSLOG_IDENTIFIER ?? "unknown"
+.process_id = .PID ?? .SYSLOG_PID
+.message = .MESSAGE ?? .msg ?? ""
+
+# Categorize system events
+if .service_name == "sshd.service" {
+  .event_type = "ssh_activity"
+  if match(.message, r'(?i)(failed|failure)') {
+    .auth_status = "failed"
+    .risk_score = 4
+  } else if match(.message, r'(?i)(accepted|success)') {
+    .auth_status = "success"
+    .risk_score = 1
+  }
+}
+
+if .service_name == "sudo.service" {
+  .event_type = "privilege_escalation"
+  .risk_score = 5
+}
+
+if .service_name == "cron.service" {
+  .event_type = "scheduled_task"
+  .risk_score = 1
+}
+
+.log_source = "vector-agent"
+.log_type = "system"
+'''
+
+# Windows Event Processing
+[transforms.parse_windows_events]
+type = "remap"
+inputs = ["windows_security", "windows_system"]
+source = '''
+# Parse Windows Event Log structure
+.timestamp = .TimeCreated ?? now()
+.event_id = .EventID
+.level = .Level
+.source = .Source ?? .ProviderName
+.computer = .Computer
+.message = .Message ?? ""
+
+# Categorize security events
+if .event_id == 4624 {
+  .event_type = "windows_logon_success"
+  .auth_status = "success"
+  .risk_score = 1
+}
+
+if .event_id == 4625 {
+  .event_type = "windows_logon_failure"
+  .auth_status = "failed"
+  .risk_score = 4
+}
+
+if .event_id == 4648 {
+  .event_type = "windows_explicit_logon"
+  .auth_status = "success"
+  .risk_score = 2
+}
+
+if .event_id == 4672 {
+  .event_type = "windows_privilege_escalation"
+  .risk_score = 6
+}
+
+# Extract username and domain
+if exists(.UserName) && exists(.UserDomain) {
+  .username = .UserDomain + "\\" + .UserName
+}
+
+# Extract source IP
+if exists(.IpAddress) && .IpAddress != "-" {
+  .source_ip = .IpAddress
+}
+
+.log_source = "vector-agent"
+.log_type = "windows_security"
+'''
+
+# GeoIP Enrichment
+[transforms.geoip_enrichment]
+type = "geoip"
+inputs = ["parse_security_logs", "parse_application_logs", "parse_system_events", "parse_windows_events"]
+field = "source_ip"
+database = "/opt/geoip/GeoLite2-City.mmdb"
+
+[transforms.geoip_enrichment.target]
+path = "geoip"
+
+# Asset Inventory Correlation
+[transforms.asset_correlation]
+type = "remap"
+inputs = ["geoip_enrichment"]
+source = '''
+# Add asset context based on hostname or IP
+.asset = {
+  "hostname": .host.hostname,
+  "ip": .host.ip ?? .source_ip,
+  "criticality": "medium",  # Default, should be enriched from asset inventory
+  "business_unit": "unknown",
+  "owner": "unknown"
+}
+
+# Mark internal vs external sources
+if exists(.source_ip) {
+  if starts_with(.source_ip, "10.") || starts_with(.source_ip, "192.168.") || starts_with(.source_ip, "172.") {
+    .network_zone = "internal"
+  } else {
+    .network_zone = "external"
+    .risk_score = (.risk_score ?? 0) + 1
+  }
+}
+
+# Add correlation ID for event tracking
+.correlation_id = uuid_v4()
+.processing_timestamp = now()
+'''
+
+# Threat Intelligence Enrichment
+[transforms.threat_intel_enrichment]
+type = "remap"
+inputs = ["asset_correlation"]
+source = '''
+# Initialize threat intelligence structure
+.threat_intel = {
+  "checked": false,
+  "malicious": false,
+  "categories": [],
+  "confidence": 0,
+  "last_seen": null
+}
+
+# Mark for external threat intelligence lookup
+if exists(.source_ip) && .network_zone == "external" {
+  .threat_intel.checked = true
+  .threat_intel.lookup_required = true
+}
+
+# Check against known bad patterns
+if exists(.source_ip) {
+  # Check for known malicious IP patterns (basic examples)
+  if match(.source_ip, r'^(1\.1\.1\.1|8\.8\.8\.8)$') {
+    .threat_intel.note = "Public DNS servers - investigate unusual traffic"
+  }
+}
+
+# Check for malicious user agents or commands
+if exists(.command) {
+  if match(.command, r'(?i)(wget|curl).*\.(sh|py|pl|exe)') {
+    .threat_intel.suspicious_download = true
+    .risk_score = (.risk_score ?? 0) + 3
+  }
+}
+'''
+
+# Risk Scoring Algorithm
+[transforms.risk_scoring]
+type = "remap"
+inputs = ["threat_intel_enrichment"]
+source = '''
+# Calculate final risk score
+base_score = .risk_score ?? 0
+
+# Time-based risk adjustments
+hour = format_timestamp!(.timestamp, format: "%H")
+if to_int!(hour) < 6 || to_int!(hour) > 22 {
+  base_score = base_score + 1  # Off-hours activity
+}
+
+# Geographic risk (external IPs from high-risk countries)
+if exists(.geoip.country_iso_code) {
+  high_risk_countries = ["CN", "RU", "KP", "IR"]
+  if includes(high_risk_countries, .geoip.country_iso_code) {
+    base_score = base_score + 2
+  }
+}
+
+# Failed authentication attempts
+if .auth_status == "failed" {
+  base_score = base_score + 2
+}
+
+# Multiple failed attempts (would need state tracking in real implementation)
+if .event_type == "authentication" && .auth_status == "failed" {
+  base_score = base_score + 1
+}
+
+# Set final risk score and alert priority
+.risk_score = base_score
+if base_score >= 8 {
+  .alert_priority = "critical"
+} else if base_score >= 6 {
+  .alert_priority = "high"
+} else if base_score >= 4 {
+  .alert_priority = "medium"
+} else {
+  .alert_priority = "low"
+}
+
+# Mark for real-time alerting if high priority
+if .alert_priority == "critical" || .alert_priority == "high" {
+  .requires_immediate_attention = true
+}
+'''
+
+# Final Event Formatting
+[transforms.format_output]
+type = "remap"
+inputs = ["risk_scoring"]
+source = '''
+# Standardize event structure for SIEM
+.siem_event = {
+  "id": uuid_v4(),
+  "timestamp": .timestamp,
+  "event_type": .event_type ?? "unknown",
+  "source": {
+    "ip": .source_ip,
+    "hostname": .host.hostname,
+    "agent": "vector"
+  },
+  "user": {
+    "name": .username
+  },
+  "network": {
+    "zone": .network_zone,
+    "geoip": .geoip
+  },
+  "security": {
+    "risk_score": .risk_score,
+    "alert_priority": .alert_priority,
+    "threat_intel": .threat_intel
+  },
+  "asset": .asset,
+  "raw_message": .message,
+  "metadata": {
+    "log_source": .log_source,
+    "log_type": .log_type,
+    "correlation_id": .correlation_id,
+    "processing_timestamp": .processing_timestamp
+  }
+}
+
+# Keep original fields for debugging if needed
+.original = {
+  "message": .message,
+  "file": .file,
+  "host": .host
+}
+'''
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT DESTINATIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Primary output to Kafka for stream processing
+[sinks.kafka_security_events]
+type = "kafka"
+inputs = ["format_output"]
+bootstrap_servers = "kafka-cluster:9092"
+topic = "security-events-{{ host.hostname }}"
+compression = "gzip"
+key_field = "siem_event.source.hostname"
+
+[sinks.kafka_security_events.encoding]
+codec = "json"
+timestamp_format = "rfc3339"
+
+[sinks.kafka_security_events.batch]
+max_events = 1000
+timeout_secs = 5
+
+[sinks.kafka_security_events.buffer]
+max_events = 100000
+when_full = "block"
+
+# High-priority alerts to immediate processing
+[sinks.kafka_high_priority_alerts]
+type = "kafka"
+inputs = ["format_output"]
+bootstrap_servers = "kafka-cluster:9092"
+topic = "high-priority-alerts"
+compression = "gzip"
+
+[sinks.kafka_high_priority_alerts.encoding]
+codec = "json"
+
+[sinks.kafka_high_priority_alerts.healthcheck]
+enabled = true
+
+# Conditional routing for high-priority events only
+[sinks.kafka_high_priority_alerts.conditions]
+"siem_event.security.requires_immediate_attention" = true
+
+# Backup output directly to Elasticsearch
+[sinks.elasticsearch_backup]
+type = "elasticsearch"
+inputs = ["format_output"]
+endpoints = ["http://elasticsearch-cluster:9200"]
+index = "siem-events-backup-%Y.%m.%d"
+doc_type = "_doc"
+compression = "gzip"
+
+[sinks.elasticsearch_backup.encoding]
+codec = "json"
+timestamp_format = "rfc3339"
+
+[sinks.elasticsearch_backup.batch]
+max_events = 1000
+timeout_secs = 10
+
+[sinks.elasticsearch_backup.auth]
+strategy = "basic"
+user = "vector_writer"
+password = "${ELASTICSEARCH_PASSWORD}"
+
+[sinks.elasticsearch_backup.tls]
+verify_certificate = true
+verify_hostname = true
+
+# Local file backup for critical events
+[sinks.local_backup]
+type = "file"
+inputs = ["format_output"]
+path = "/var/log/vector/siem-events-%Y-%m-%d.log"
+compression = "gzip"
+
+[sinks.local_backup.encoding]
+codec = "json"
+timestamp_format = "rfc3339"
+
+# Conditional routing for critical events only
+[sinks.local_backup.conditions]
+"siem_event.security.alert_priority" = "critical"
+
+# Metrics output for monitoring
+[sinks.metrics_prometheus]
+type = "prometheus_exporter"
+inputs = ["format_output"]
+address = "0.0.0.0:9598"
+default_namespace = "vector_siem"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HEALTH CHECKS AND MONITORING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Health check endpoint
+[sources.health_check]
+type = "internal_metrics"
+
+[transforms.health_metrics]
+type = "remap"
+inputs = ["health_check"]
+source = '''
+.metric_type = "health"
+.agent_status = "healthy"
+.timestamp = now()
+'''
+
+[sinks.health_metrics]
+type = "prometheus_exporter"
+inputs = ["health_metrics"]
+address = "0.0.0.0:9599"
+default_namespace = "vector_health"

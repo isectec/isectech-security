@@ -1,0 +1,172 @@
+# iSECTECH Backend Services - Production-Grade Go Application
+# Multi-stage Docker build optimized for security and performance
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Base Stage - Common Go setup
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM golang:1.21-alpine AS base
+
+# Install security updates and essential packages
+RUN apk update && apk upgrade && \
+    apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    git \
+    make \
+    bash \
+    curl \
+    && rm -rf /var/cache/apk/*
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 goapp && \
+    adduser --system --uid 1001 --ingroup goapp goapp
+
+WORKDIR /app
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dependencies Stage - Download and cache Go modules
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS deps
+
+# Copy Go module files
+COPY go.mod go.sum ./
+
+# Download dependencies with verification
+RUN go mod download && \
+    go mod verify
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Builder Stage - Build the Go applications
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS builder
+
+WORKDIR /app
+
+# Copy dependencies
+COPY --from=deps /go/pkg/mod /go/pkg/mod
+COPY go.mod go.sum ./
+
+# Copy source code
+COPY . .
+
+# Set build environment
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Build arguments for versioning and security
+ARG VERSION=dev
+ARG BUILD_TIME
+ARG GIT_COMMIT
+ARG LDFLAGS_SECURITY="-s -w -extldflags '-static'"
+
+# Build all services with security optimizations
+RUN echo "Building iSECTECH backend services..." && \
+    \
+    # Build API server
+    go build \
+        -ldflags="${LDFLAGS_SECURITY} -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+        -a -installsuffix cgo \
+        -o bin/api-server \
+        ./cmd/api && \
+    \
+    # Build worker service
+    go build \
+        -ldflags="${LDFLAGS_SECURITY} -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+        -a -installsuffix cgo \
+        -o bin/worker \
+        ./cmd/worker && \
+    \
+    # Build migration tool
+    go build \
+        -ldflags="${LDFLAGS_SECURITY} -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+        -a -installsuffix cgo \
+        -o bin/migrate \
+        ./cmd/migrate && \
+    \
+    # Build admin CLI
+    go build \
+        -ldflags="${LDFLAGS_SECURITY} -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+        -a -installsuffix cgo \
+        -o bin/admin \
+        ./cmd/admin && \
+    \
+    # Verify builds
+    ls -la bin/ && \
+    file bin/* && \
+    echo "✅ All binaries built successfully"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Production Stage - Final runtime image
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM scratch AS runner
+
+# Copy CA certificates and timezone data
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Copy user and group files
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+
+# Create necessary directories with proper permissions
+COPY --from=builder --chown=goapp:goapp /app/bin/api-server /app/api-server
+COPY --from=builder --chown=goapp:goapp /app/bin/worker /app/worker
+COPY --from=builder --chown=goapp:goapp /app/bin/migrate /app/migrate
+COPY --from=builder --chown=goapp:goapp /app/bin/admin /app/admin
+
+# Copy configuration files if they exist
+COPY --from=builder --chown=goapp:goapp /app/configs /app/configs
+
+# Set working directory
+WORKDIR /app
+
+# Switch to non-root user
+USER goapp:goapp
+
+# Environment variables for production
+ENV ENV=production
+ENV GIN_MODE=release
+ENV PORT=8080
+ENV METRICS_PORT=9090
+
+# Security environment variables
+ENV TZ=UTC
+ENV GOGC=100
+ENV GOMEMLIMIT=512MiB
+
+# Expose ports
+EXPOSE 8080 9090
+
+# Health check for API server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["/app/api-server", "health"]
+
+# Default command (API server)
+CMD ["/app/api-server"]
+
+# Security labels
+LABEL org.opencontainers.image.title="iSECTECH Backend Services"
+LABEL org.opencontainers.image.description="Production-grade Go backend services for iSECTECH cybersecurity platform"
+LABEL org.opencontainers.image.vendor="iSECTECH"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_TIME}"
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+LABEL security.contact="security@isectech.com"
+LABEL maintainer="iSECTECH Backend Team"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Alternative Images for Different Services
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Worker service variant
+FROM runner AS worker
+CMD ["/app/worker"]
+
+# Migration service variant  
+FROM runner AS migrate
+CMD ["/app/migrate"]
+
+# Admin CLI variant
+FROM runner AS admin
+CMD ["/app/admin"]

@@ -1,0 +1,399 @@
+# Enhanced Artillery Configuration for iSECTECH
+# Comprehensive load testing with realistic security platform workloads
+
+config:
+  target: "{{ $env.API_BASE_URL || 'http://localhost:3000' }}"
+  
+  # HTTP configuration optimized for security platform
+  http:
+    timeout: 45
+    pool: 25
+    maxSockets: 50
+    keepAlive: true
+    
+  # Multi-phase load testing simulating real-world patterns
+  phases:
+    # Initial warmup - system startup
+    - duration: 120
+      arrivalRate: 2
+      name: "System Warmup"
+      
+    # Morning surge - analysts starting work
+    - duration: 300  
+      arrivalRate: 15
+      name: "Morning Analyst Surge"
+      
+    # Steady business hours
+    - duration: 600
+      arrivalRate: 25
+      name: "Business Hours Steady Load"
+      
+    # Incident response spike
+    - duration: 180
+      arrivalRate: 75
+      name: "Security Incident Response"
+      
+    # Peak investigation period
+    - duration: 240
+      arrivalRate: 50
+      name: "Peak Investigation Period"
+      
+    # Reporting and analytics burst
+    - duration: 300
+      arrivalRate: 35
+      name: "Reporting Analytics Burst"
+      
+    # Evening maintenance window approach
+    - duration: 120
+      arrivalRate: 10
+      name: "Evening Wind Down"
+
+  # Environment-specific variables
+  variables:
+    analyst_token: "{{ $env.ANALYST_TOKEN || 'dev-analyst-token' }}"
+    admin_token: "{{ $env.ADMIN_TOKEN || 'dev-admin-token' }}"
+    viewer_token: "{{ $env.VIEWER_TOKEN || 'dev-viewer-token' }}"
+    environment: "{{ $env.ENVIRONMENT || 'development' }}"
+    test_run_id: "{{ $env.TEST_RUN_ID || $uuid }}"
+
+  # Performance thresholds for pass/fail criteria
+  ensure:
+    p50: 300   # 50th percentile under 300ms
+    p95: 1000  # 95th percentile under 1000ms  
+    p99: 2500  # 99th percentile under 2500ms
+    maxErrorRate: 2  # Less than 2% error rate
+    
+  # Enhanced metrics and monitoring
+  plugins:
+    # Detailed metrics collection
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+      stripQueryString: true
+      
+    # Real-time monitoring integration  
+    publish-metrics:
+      - type: prometheus
+        pushgateway: "{{ $env.PROMETHEUS_PUSHGATEWAY }}"
+        prefix: "isectech_artillery"
+        tags:
+          environment: "{{ environment }}"
+          test_type: "comprehensive_load"
+          
+    # CloudWatch integration for AWS deployments
+    publish-metrics:
+      - type: cloudwatch
+        region: "{{ $env.AWS_REGION || 'us-east-1' }}"
+        namespace: "iSECTECH/LoadTesting"
+        dimensions:
+          Environment: "{{ environment }}"
+          TestType: "ComprehensiveLoad"
+          
+    # Custom security-focused metrics
+    expect:
+      outputFormat: json
+      reportFailuresAsErrors: true
+
+# Test scenarios weighted by realistic usage patterns
+scenarios:
+  # Primary analyst workflow - highest weight
+  - name: "Security Analyst Daily Operations" 
+    weight: 45
+    flow:
+      - function: "authenticateUser"
+      - loop:
+        - get:
+            url: "/api/dashboard/summary"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            capture:
+              - json: "$.alerts_count"
+                as: "active_alerts"
+              - json: "$.threats_count" 
+                as: "active_threats"
+            expect:
+              - statusCode: 200
+              - hasProperty: "alerts_count"
+              - hasProperty: "threats_count"
+              - responseTime: 1500
+        
+        - get:
+            url: "/api/alerts?status=ACTIVE&severity=HIGH,CRITICAL&limit=25&sort=created_desc"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            capture:
+              - json: "$.data[0].id"
+                as: "first_alert_id"
+              - json: "$.data"
+                as: "alert_list"
+            expect:
+              - statusCode: 200
+              - hasProperty: "data"
+              - responseTime: 2000
+        
+        - get:
+            url: "/api/alerts/{{ first_alert_id }}"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            ifTrue: "first_alert_id"
+            expect:
+              - statusCode: 200
+              - hasProperty: "id"
+              - hasProperty: "evidence"
+              - responseTime: 1000
+
+        - post:
+            url: "/api/events/search"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              Content-Type: "application/json"
+              X-Test-Run: "{{ test_run_id }}"
+            json:
+              query: "severity:(HIGH OR CRITICAL)"
+              timeRange: "last_6h"
+              limit: 50
+              fields: ["timestamp", "event_type", "source_ip", "severity"]
+            expect:
+              - statusCode: 200
+              - hasProperty: "hits"
+              - responseTime: 3000
+        
+        - get:
+            url: "/api/threats?confidence=high&limit=15"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 2000
+              
+        - think: 5
+        count: 3
+
+  # Threat intelligence and correlation - high priority
+  - name: "Threat Intelligence Operations"
+    weight: 25  
+    flow:
+      - function: "authenticateUser"
+      - loop:
+        - post:
+            url: "/api/analytics/threat-landscape"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              Content-Type: "application/json"
+              X-Test-Run: "{{ test_run_id }}"
+            json:
+              scope: "organization"
+              timeframe: "last_24h"
+              include_metrics: ["attack_patterns", "threat_actors", "vulnerabilities"]
+              correlation_depth: 2
+            expect:
+              - statusCode: 200
+              - responseTime: 8000
+        
+        - post:
+            url: "/api/alerts/correlate"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              Content-Type: "application/json"
+              X-Test-Run: "{{ test_run_id }}"
+            json:
+              alertIds: ["{{ $randomString() }}", "{{ $randomString() }}", "{{ $randomString() }}"]
+              timeWindow: "2h"
+              correlationTypes: ["IP", "USER", "ASSET"]
+            expect:
+              - statusCode: 200
+              - responseTime: 5000
+              
+        - post:
+            url: "/api/analytics/user-behavior"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              Content-Type: "application/json"
+              X-Test-Run: "{{ test_run_id }}"
+            json:
+              analysis_type: "anomaly_detection"
+              timeRange: "last_7d"
+              features: ["login_patterns", "file_access", "network_activity"]
+              anomaly_threshold: 0.15
+            expect:
+              - statusCode: 200
+              - responseTime: 10000
+              
+        - think: 8
+        count: 2
+
+  # Administrative operations - moderate load  
+  - name: "Admin and Management Tasks"
+    weight: 15
+    flow:
+      - function: "authenticateAdmin"
+      - loop:
+        - get:
+            url: "/api/admin/users?limit=50&sort=last_login_desc"
+            headers:
+              Authorization: "Bearer {{ admin_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 2000
+        
+        - get:
+            url: "/api/admin/audit-logs?limit=100&timeframe=last_24h"
+            headers:
+              Authorization: "Bearer {{ admin_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 3000
+              
+        - get:
+            url: "/api/admin/health/detailed"
+            headers:
+              Authorization: "Bearer {{ admin_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - hasProperty: "database"
+              - hasProperty: "services"
+              - responseTime: 1500
+              
+        - get:
+            url: "/api/admin/database/performance?timeframe=1h"
+            headers:
+              Authorization: "Bearer {{ admin_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 2000
+              
+        - think: 10
+        count: 2
+
+  # High-frequency monitoring and real-time operations
+  - name: "Real-time Monitoring"
+    weight: 10
+    flow:
+      - function: "authenticateUser"
+      - loop:
+        - get:
+            url: "/api/events/stream?since={{ $timestamp }}&limit=100"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 1000
+        
+        - get:
+            url: "/api/alerts/count?status=ACTIVE&groupBy=severity"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 500
+              
+        - get:
+            url: "/api/metrics/performance?component=api"
+            headers:
+              Authorization: "Bearer {{ analyst_token }}"
+              X-Test-Run: "{{ test_run_id }}"
+            expect:
+              - statusCode: 200
+              - responseTime: 800
+              
+        - think: 2
+        count: 5
+
+  # Bulk operations and data exports
+  - name: "Bulk Operations and Reporting"
+    weight: 5
+    flow:
+      - function: "authenticateUser"
+      - post:
+          url: "/api/alerts/bulk/update"  
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+            Content-Type: "application/json"
+            X-Test-Run: "{{ test_run_id }}"
+          json:
+            alertIds: ["{{ $randomString() }}", "{{ $randomString() }}", "{{ $randomString() }}", "{{ $randomString() }}", "{{ $randomString() }}"]
+            updates:
+              status: "INVESTIGATING"
+              assignee: "load-test-analyst"
+              notes: "Bulk update via Artillery load test"
+          expect:
+            - statusCode: 200
+            - responseTime: 5000
+            
+      - post:
+          url: "/api/reports/export"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+            Content-Type: "application/json"
+            X-Test-Run: "{{ test_run_id }}"
+          json:
+            type: "alerts"
+            format: "csv"
+            filters:
+              severity: ["HIGH", "CRITICAL"]
+              status: ["ACTIVE", "INVESTIGATING"]
+              timeRange: "last_7d"
+            fields: ["id", "title", "severity", "status", "created_at", "assigned_to"]
+          expect:
+            - statusCode: 202
+            - responseTime: 3000
+            
+      - think: 15
+
+# Custom JavaScript functions for authentication and data generation
+functions:
+  authenticateUser: |
+    function(context, events, done) {
+      // Simulate user authentication flow
+      context.vars.user_authenticated = true;
+      context.vars.user_role = "analyst";
+      context.vars.session_start = Date.now();
+      return done();
+    }
+    
+  authenticateAdmin: |
+    function(context, events, done) {
+      // Simulate admin authentication flow  
+      context.vars.user_authenticated = true;
+      context.vars.user_role = "admin";
+      context.vars.session_start = Date.now();
+      return done();
+    }
+
+# Pre-test setup
+before:
+  flow:
+    - log: "Starting comprehensive iSECTECH load test"
+    - log: "Environment: {{ environment }}"
+    - log: "Target: {{ $env.API_BASE_URL }}"
+    - get:
+        url: "/api/health"
+        expect:
+          - statusCode: 200
+        capture:
+          - json: "$.status"
+            as: "system_status"
+
+# Post-test cleanup and reporting  
+after:
+  flow:
+    - log: "Load test completed"
+    - log: "System status at end: {{ system_status }}"
+    
+# Global request defaults
+defaults:
+  headers:
+    User-Agent: "iSECTECH-Artillery-LoadTest/2.0"
+    Accept: "application/json"
+    Cache-Control: "no-cache"
+    X-Test-Framework: "Artillery"
+    X-Load-Test-Phase: "{{ $env.LOAD_TEST_PHASE || 'unknown' }}"

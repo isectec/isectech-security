@@ -1,0 +1,460 @@
+# iSECTECH Signature Detection Engine Configuration
+# Production-grade signature-based threat detection settings
+
+# Redis Configuration for Real-time Processing
+redis:
+  host: "redis-nsm.isectech.local"
+  port: 6379
+  db: 2  # Dedicated DB for signature detection
+  password: "${REDIS_PASSWORD}"
+  connection_pool_size: 50
+  socket_timeout: 30
+  socket_connect_timeout: 30
+  retry_on_timeout: true
+  max_connections: 100
+
+# Core Detection Settings
+detection:
+  # Confidence thresholds
+  confidence_threshold: 0.7
+  false_positive_threshold: 0.3
+  min_chain_confidence: 0.8
+  anomaly_threshold: 0.6
+  
+  # Attack chain detection
+  max_attack_chain_duration: 7200  # 2 hours
+  min_chain_signatures: 2
+  chain_correlation_window: 1800  # 30 minutes
+  
+  # Threat scoring
+  threat_score_weights:
+    signature_confidence: 0.3
+    anomaly_score: 0.2
+    mitre_complexity: 0.2
+    target_criticality: 0.15
+    temporal_patterns: 0.15
+  
+  # Classification priorities
+  severity_multipliers:
+    critical: 2.0
+    high: 1.5
+    medium: 1.0
+    low: 0.7
+    info: 0.5
+  
+  # Rule categories and weights
+  category_weights:
+    trojan-activity: 1.8
+    exploit-kit: 1.7
+    malware-cnc: 1.6
+    attempted-dos: 1.4
+    attempted-recon: 1.2
+    policy-violation: 0.8
+    protocol-command-decode: 0.6
+
+# Machine Learning Models Configuration
+ml_models:
+  enable_anomaly_detection: true
+  enable_false_positive_reduction: true
+  enable_threat_scoring: true
+  enable_behavioral_analysis: true
+  
+  # Model update settings
+  model_update_frequency: 86400  # 24 hours
+  minimum_training_samples: 1000
+  model_performance_threshold: 0.85
+  
+  # Anomaly detection
+  anomaly_detection:
+    algorithm: "isolation_forest"
+    contamination: 0.1
+    n_estimators: 200
+    max_samples: "auto"
+    max_features: 1.0
+    bootstrap: false
+    
+  # False positive classification
+  false_positive_classification:
+    algorithm: "random_forest"
+    n_estimators: 150
+    max_depth: 20
+    min_samples_split: 5
+    min_samples_leaf: 2
+    class_weight: "balanced"
+    
+  # Threat scoring
+  threat_scoring:
+    algorithm: "gradient_boosting"
+    n_estimators: 200
+    learning_rate: 0.1
+    max_depth: 6
+    subsample: 0.8
+    
+  # Feature engineering
+  features:
+    temporal_features: true
+    network_features: true
+    payload_features: true
+    statistical_features: true
+    frequency_features: true
+
+# Performance and Resource Management
+performance:
+  # Resource limits
+  max_memory_usage_mb: 4096
+  max_cpu_usage_percent: 75
+  processing_timeout: 45
+  queue_size_limit: 50000
+  
+  # Processing optimization
+  batch_processing: true
+  batch_size: 100
+  batch_timeout: 5
+  parallel_workers: 8
+  
+  # Caching
+  enable_caching: true
+  cache_ttl: 3600  # 1 hour
+  max_cache_size: 10000
+  
+  # Database optimization
+  db_connection_pool_size: 20
+  db_query_timeout: 30
+  enable_db_indexing: true
+  
+  # Memory management
+  gc_frequency: 300  # 5 minutes
+  memory_profiling: true
+  enable_memory_alerts: true
+
+# Threat Intelligence Integration
+threat_intelligence:
+  enable_auto_rule_generation: true
+  rule_generation_frequency: 600  # 10 minutes
+  confidence_threshold: 75
+  
+  # Indicator sources
+  sources:
+    - name: "misp"
+      enabled: true
+      api_url: "https://misp.isectech.local"
+      api_key: "${MISP_API_KEY}"
+      categories: ["malware", "network", "payload"]
+      
+    - name: "taxii"
+      enabled: true
+      discovery_url: "https://taxii.isectech.local/services/discovery"
+      username: "${TAXII_USERNAME}"
+      password: "${TAXII_PASSWORD}"
+      collections: ["threat-intelligence", "indicators"]
+      
+    - name: "stix"
+      enabled: true
+      feed_url: "https://feeds.isectech.local/stix"
+      poll_frequency: 900  # 15 minutes
+      
+  # Rule generation templates
+  rule_templates:
+    ip_reputation:
+      priority: 1
+      sid_range: [20000000, 20999999]
+      template: |
+        alert ip any any -> {ip} any (msg:"iSECTECH TI: Connection to malicious IP {ip}"; 
+        reference:url,{source}; classtype:trojan-activity; sid:{sid}; rev:1; 
+        metadata:created_at {timestamp}, policy balanced-ips drop;)
+        
+    domain_reputation:
+      priority: 1
+      sid_range: [21000000, 21999999]
+      template: |
+        alert dns any any -> any 53 (msg:"iSECTECH TI: DNS query to malicious domain {domain}"; 
+        dns.query; content:"{domain}"; nocase; reference:url,{source}; 
+        classtype:trojan-activity; sid:{sid}; rev:1; 
+        metadata:created_at {timestamp}, policy balanced-ips drop;)
+        
+    file_hash:
+      priority: 2
+      sid_range: [22000000, 22999999]
+      template: |
+        alert http any any -> any any (msg:"iSECTECH TI: Malicious file hash detected {hash_type}"; 
+        file.{hash_type}; content:"{hash}"; reference:url,{source}; 
+        classtype:trojan-activity; sid:{sid}; rev:1; 
+        metadata:created_at {timestamp}, policy balanced-ips drop;)
+
+# Attack Pattern Detection
+attack_patterns:
+  # Lateral Movement Patterns
+  lateral_movement:
+    - pattern_id: "rdp_ssh_combination"
+      name: "RDP and SSH Lateral Movement"
+      signatures: [10001004, 10001005]  # RDP + SSH rules
+      time_window: 1800
+      threshold: 2
+      confidence_baseline: 0.85
+      
+    - pattern_id: "smb_enumeration_sequence"
+      name: "SMB Share Enumeration Sequence"
+      signatures: [10001002, 10006002]  # SMB enumeration rules
+      time_window: 900
+      threshold: 3
+      confidence_baseline: 0.8
+      
+  # Data Exfiltration Patterns
+  data_exfiltration:
+    - pattern_id: "large_upload_sequence"
+      name: "Large Data Upload Sequence"
+      signatures: [10002001, 10002002, 10002005]  # Large uploads
+      time_window: 3600
+      threshold: 2
+      confidence_baseline: 0.75
+      
+    - pattern_id: "dns_exfiltration_pattern"
+      name: "DNS Data Exfiltration Pattern"
+      signatures: [10002003, 10003003]  # DNS tunneling
+      time_window: 1800
+      threshold: 5
+      confidence_baseline: 0.9
+      
+  # Command & Control Patterns
+  command_control:
+    - pattern_id: "c2_beaconing_frequency"
+      name: "C2 Beaconing Frequency Pattern"
+      signatures: [10003001, 10003002]
+      time_window: 900
+      threshold: 10
+      confidence_baseline: 0.85
+      
+    - pattern_id: "domain_generation_burst"
+      name: "Domain Generation Algorithm Burst"
+      signatures: [10003006, 10003003]
+      time_window: 600
+      threshold: 15
+      confidence_baseline: 0.9
+
+# Alerting and Notification
+alerting:
+  # Alert levels
+  levels:
+    critical: 
+      threshold: 0.9
+      immediate_notification: true
+      escalation_time: 300  # 5 minutes
+      
+    high:
+      threshold: 0.8
+      immediate_notification: true
+      escalation_time: 900  # 15 minutes
+      
+    medium:
+      threshold: 0.7
+      immediate_notification: false
+      escalation_time: 3600  # 1 hour
+      
+    low:
+      threshold: 0.5
+      immediate_notification: false
+      escalation_time: 86400  # 24 hours
+  
+  # Notification channels
+  channels:
+    - type: "webhook"
+      name: "siem_integration"
+      url: "http://siem.isectech.local:8080/api/v1/alerts"
+      method: "POST"
+      headers:
+        Authorization: "Bearer ${SIEM_API_TOKEN}"
+        Content-Type: "application/json"
+      enabled: true
+      levels: ["critical", "high", "medium"]
+      
+    - type: "email"
+      name: "security_team"
+      smtp_server: "smtp.isectech.local:587"
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+      recipients:
+        - "security-alerts@isectech.local"
+        - "soc@isectech.local"
+      enabled: true
+      levels: ["critical", "high"]
+      
+    - type: "slack"
+      name: "security_channel"
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#security-alerts"
+      username: "iSECTECH-NSM"
+      enabled: true
+      levels: ["critical", "high"]
+      
+    - type: "syslog"
+      name: "central_logging"
+      server: "syslog.isectech.local:514"
+      facility: "local1"
+      severity_mapping:
+        critical: "alert"
+        high: "crit"
+        medium: "warning"
+        low: "info"
+      enabled: true
+      levels: ["critical", "high", "medium", "low"]
+
+# Data Retention and Archival
+data_retention:
+  # Signature matches
+  signature_matches:
+    hot_retention: 30  # days
+    warm_retention: 180  # days
+    cold_retention: 2555  # 7 years
+    compression: true
+    
+  # Attack chains
+  attack_chains:
+    retention: 2555  # 7 years
+    compression: true
+    
+  # Performance metrics
+  performance_metrics:
+    retention: 90  # days
+    aggregation_interval: 3600  # 1 hour
+    
+  # Model data
+  model_data:
+    training_data_retention: 365  # days
+    model_version_retention: 10
+    
+# Compliance and Audit
+compliance:
+  # Regulatory requirements
+  frameworks:
+    - "SOC2"
+    - "ISO27001" 
+    - "GDPR"
+    - "HIPAA"
+    
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: "info"
+    log_file: "/var/log/nsm/signature-detection-audit.log"
+    rotation: "daily"
+    retention: 2555  # 7 years
+    
+  # Data privacy
+  data_privacy:
+    anonymize_ips: false  # Disable for security monitoring
+    encrypt_payloads: true
+    pii_detection: true
+    data_masking: false
+
+# API Configuration
+api:
+  # REST API settings
+  rest_api:
+    enabled: true
+    host: "0.0.0.0"
+    port: 8443
+    ssl_enabled: true
+    ssl_cert: "/etc/ssl/certs/nsm-api.crt"
+    ssl_key: "/etc/ssl/private/nsm-api.key"
+    
+  # Authentication
+  authentication:
+    method: "jwt"
+    secret_key: "${JWT_SECRET_KEY}"
+    token_expiry: 3600  # 1 hour
+    refresh_token_expiry: 86400  # 24 hours
+    
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    default_limit: 1000  # requests per hour
+    burst_limit: 100
+    
+  # API endpoints
+  endpoints:
+    signature_matches: "/api/v1/signatures/matches"
+    attack_chains: "/api/v1/attack-chains"
+    performance_stats: "/api/v1/performance"
+    threat_patterns: "/api/v1/patterns"
+    ml_models: "/api/v1/models"
+
+# Integration with External Systems
+integrations:
+  # SIEM platforms
+  siem:
+    - name: "splunk"
+      type: "splunk"
+      host: "splunk.isectech.local"
+      port: 8089
+      username: "${SPLUNK_USERNAME}"
+      password: "${SPLUNK_PASSWORD}"
+      index: "security"
+      enabled: true
+      
+    - name: "elastic"
+      type: "elasticsearch"
+      hosts: ["elastic01.isectech.local:9200", "elastic02.isectech.local:9200"]
+      username: "${ELASTIC_USERNAME}"
+      password: "${ELASTIC_PASSWORD}"
+      index: "nsm-signatures"
+      enabled: true
+      
+  # SOAR platforms
+  soar:
+    - name: "phantom"
+      type: "phantom"
+      host: "phantom.isectech.local"
+      api_token: "${PHANTOM_API_TOKEN}"
+      playbooks:
+        - "signature_investigation"
+        - "attack_chain_response"
+      enabled: true
+      
+  # Ticketing systems
+  ticketing:
+    - name: "servicenow"
+      type: "servicenow"
+      instance: "isectech.service-now.com"
+      username: "${SERVICENOW_USERNAME}"
+      password: "${SERVICENOW_PASSWORD}"
+      table: "incident"
+      enabled: true
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  profile_performance: true
+  
+  # Testing
+  test_mode: false
+  mock_threat_intel: false
+  synthetic_data: false
+  
+  # Experimental features
+  experimental:
+    enable_quantum_ml: false
+    enable_graph_analysis: true
+    enable_timeline_reconstruction: true
+
+# Monitoring and Health Checks
+monitoring:
+  # Health check endpoints
+  health_checks:
+    enabled: true
+    interval: 60  # seconds
+    timeout: 30
+    
+  # Metrics collection
+  metrics:
+    enabled: true
+    prometheus_endpoint: "http://prometheus.isectech.local:9090"
+    grafana_dashboard: "http://grafana.isectech.local:3000/d/nsm-signatures"
+    
+  # System monitoring
+  system_monitoring:
+    cpu_threshold: 80
+    memory_threshold: 85
+    disk_threshold: 90
+    network_threshold: 80

@@ -1,0 +1,690 @@
+# iSECTECH Multi-Region Load Balancer and Failover Configuration
+# Global load balancing with automatic failover capabilities
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: global-load-balancer-config
+  namespace: isectech-system
+  labels:
+    app.kubernetes.io/name: global-load-balancer
+    app.kubernetes.io/instance: isectech
+    app.kubernetes.io/component: configuration
+data:
+  # Route53 health check configuration
+  route53-config.yaml: |
+    healthChecks:
+      primary:
+        fqdn: "primary.isectech.com"
+        port: 443
+        type: "HTTPS"
+        resourcePath: "/health"
+        failureThreshold: 3
+        requestInterval: 30
+        regions:
+          - "us-east-1"
+          - "us-west-1"
+          - "eu-west-1"
+      
+      secondary:
+        fqdn: "secondary.isectech.com"
+        port: 443
+        type: "HTTPS"
+        resourcePath: "/health"
+        failureThreshold: 3
+        requestInterval: 30
+        regions:
+          - "us-west-2"
+          - "us-east-1"
+          - "eu-west-1"
+      
+      tertiary:
+        fqdn: "tertiary.isectech.com"
+        port: 443
+        type: "HTTPS"
+        resourcePath: "/health"
+        failureThreshold: 3
+        requestInterval: 30
+        regions:
+          - "eu-west-1"
+          - "us-east-1"
+          - "us-west-2"
+    
+    # DNS failover configuration
+    dnsFailover:
+      primaryWeight: 100
+      secondaryWeight: 0
+      tertiaryWeight: 0
+      
+      failoverPolicy: "FAILOVER"
+      setIdentifier: "primary"
+      
+      geolocationRouting:
+        - continent: "NA"
+          region: "primary"
+          weight: 100
+        - continent: "EU"
+          region: "tertiary"
+          weight: 100
+        - continent: "AS"
+          region: "secondary"
+          weight: 100
+
+  # Application Load Balancer configuration
+  alb-config.yaml: |
+    loadBalancers:
+      primary:
+        region: "us-east-1"
+        scheme: "internet-facing"
+        type: "application"
+        ipAddressType: "ipv4"
+        
+        listeners:
+          - port: 443
+            protocol: "HTTPS"
+            sslPolicy: "ELBSecurityPolicy-TLS-1-2-2017-01"
+            certificateArn: "arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT-ID"
+            
+            defaultActions:
+              - type: "forward"
+                targetGroupArn: "arn:aws:elasticloadbalancing:us-east-1:ACCOUNT:targetgroup/isectech-frontend/TARGET-ID"
+            
+            rules:
+              - priority: 100
+                conditions:
+                  - field: "path-pattern"
+                    values: ["/api/v1/*"]
+                actions:
+                  - type: "forward"
+                    targetGroupArn: "arn:aws:elasticloadbalancing:us-east-1:ACCOUNT:targetgroup/isectech-backend/TARGET-ID"
+              
+              - priority: 200
+                conditions:
+                  - field: "path-pattern"
+                    values: ["/security/*"]
+                actions:
+                  - type: "forward"
+                    targetGroupArn: "arn:aws:elasticloadbalancing:us-east-1:ACCOUNT:targetgroup/isectech-security/TARGET-ID"
+          
+          - port: 80
+            protocol: "HTTP"
+            defaultActions:
+              - type: "redirect"
+                redirectConfig:
+                  protocol: "HTTPS"
+                  port: "443"
+                  statusCode: "HTTP_301"
+        
+        attributes:
+          - key: "idle_timeout.timeout_seconds"
+            value: "60"
+          - key: "routing.http2.enabled"
+            value: "true"
+          - key: "access_logs.s3.enabled"
+            value: "true"
+          - key: "access_logs.s3.bucket"
+            value: "isectech-alb-logs"
+          - key: "access_logs.s3.prefix"
+            value: "primary"
+      
+      secondary:
+        region: "us-west-2"
+        scheme: "internet-facing"
+        type: "application"
+        ipAddressType: "ipv4"
+        
+        listeners:
+          - port: 443
+            protocol: "HTTPS"
+            sslPolicy: "ELBSecurityPolicy-TLS-1-2-2017-01"
+            certificateArn: "arn:aws:acm:us-west-2:ACCOUNT:certificate/CERT-ID"
+            
+            defaultActions:
+              - type: "forward"
+                targetGroupArn: "arn:aws:elasticloadbalancing:us-west-2:ACCOUNT:targetgroup/isectech-frontend/TARGET-ID"
+          
+          - port: 80
+            protocol: "HTTP"
+            defaultActions:
+              - type: "redirect"
+                redirectConfig:
+                  protocol: "HTTPS"
+                  port: "443"
+                  statusCode: "HTTP_301"
+
+  # Target group configuration
+  target-groups.yaml: |
+    targetGroups:
+      frontend:
+        primary:
+          name: "isectech-frontend-primary"
+          port: 3000
+          protocol: "HTTP"
+          targetType: "ip"
+          healthCheck:
+            enabled: true
+            intervalSeconds: 30
+            path: "/health"
+            port: "traffic-port"
+            protocol: "HTTP"
+            timeoutSeconds: 5
+            healthyThresholdCount: 2
+            unhealthyThresholdCount: 5
+            matcher: "200"
+          
+          attributes:
+            - key: "deregistration_delay.timeout_seconds"
+              value: "30"
+            - key: "stickiness.enabled"
+              value: "false"
+            - key: "load_balancing.algorithm.type"
+              value: "round_robin"
+        
+        secondary:
+          name: "isectech-frontend-secondary"
+          port: 3000
+          protocol: "HTTP"
+          targetType: "ip"
+          healthCheck:
+            enabled: true
+            intervalSeconds: 30
+            path: "/health"
+            port: "traffic-port"
+            protocol: "HTTP"
+            timeoutSeconds: 5
+            healthyThresholdCount: 2
+            unhealthyThresholdCount: 5
+            matcher: "200"
+      
+      backend:
+        primary:
+          name: "isectech-backend-primary"
+          port: 8080
+          protocol: "HTTP"
+          targetType: "ip"
+          healthCheck:
+            enabled: true
+            intervalSeconds: 30
+            path: "/health"
+            port: "traffic-port"
+            protocol: "HTTP"
+            timeoutSeconds: 10
+            healthyThresholdCount: 2
+            unhealthyThresholdCount: 3
+            matcher: "200"
+          
+          attributes:
+            - key: "deregistration_delay.timeout_seconds"
+              value: "60"
+            - key: "stickiness.enabled"
+              value: "true"
+            - key: "stickiness.type"
+              value: "lb_cookie"
+            - key: "stickiness.lb_cookie.duration_seconds"
+              value: "86400"
+        
+        secondary:
+          name: "isectech-backend-secondary"
+          port: 8080
+          protocol: "HTTP"
+          targetType: "ip"
+          healthCheck:
+            enabled: true
+            intervalSeconds: 30
+            path: "/health"
+            port: "traffic-port"
+            protocol: "HTTP"
+            timeoutSeconds: 10
+            healthyThresholdCount: 2
+            unhealthyThresholdCount: 3
+            matcher: "200"
+
+---
+# AWS Load Balancer Controller configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-load-balancer-controller-config
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: aws-load-balancer-controller
+    app.kubernetes.io/instance: isectech
+data:
+  # Global controller configuration
+  controller-config.yaml: |
+    webhook:
+      timeoutSeconds: 10
+    
+    featureGates:
+      SubnetsClusterTagging: true
+      ServiceMutatorWebhook: true
+      EndpointSliceV1: true
+    
+    # Resource limits
+    resources:
+      limits:
+        cpu: 200m
+        memory: 500Mi
+      requests:
+        cpu: 100m
+        memory: 200Mi
+    
+    # Log configuration
+    logLevel: info
+    
+    # Cluster configuration
+    clusterName: "isectech-production"
+    region: "us-east-1"
+    
+    # Default tags for AWS resources
+    defaultTags:
+      Environment: "production"
+      Project: "iSECTECH"
+      ManagedBy: "aws-load-balancer-controller"
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# NGINX INGRESS CONTROLLER FOR INTERNAL LOAD BALANCING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-controller-config
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: isectech
+data:
+  # NGINX configuration
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+    
+    events {
+        worker_connections 4096;
+        use epoll;
+        multi_accept on;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        # Logging
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                       '$status $body_bytes_sent "$http_referer" '
+                       '"$http_user_agent" "$http_x_forwarded_for" '
+                       'rt=$request_time uct="$upstream_connect_time" '
+                       'uht="$upstream_header_time" urt="$upstream_response_time"';
+        
+        access_log /var/log/nginx/access.log main;
+        
+        # Performance settings
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        client_max_body_size 100m;
+        
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/json
+            application/javascript
+            application/xml+rss
+            application/atom+xml
+            image/svg+xml;
+        
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=login:10m rate=10r/m;
+        limit_req_zone $binary_remote_addr zone=api:10m rate=100r/m;
+        
+        # SSL configuration
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers on;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+        
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer-when-downgrade" always;
+        add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        
+        # Load balancing configuration
+        upstream backend_servers {
+            least_conn;
+            server isectech-backend-1.isectech-production.svc.cluster.local:8080 max_fails=3 fail_timeout=30s;
+            server isectech-backend-2.isectech-production.svc.cluster.local:8080 max_fails=3 fail_timeout=30s;
+            server isectech-backend-3.isectech-production.svc.cluster.local:8080 max_fails=3 fail_timeout=30s;
+            keepalive 32;
+        }
+        
+        upstream frontend_servers {
+            ip_hash;
+            server isectech-frontend-1.isectech-production.svc.cluster.local:3000 max_fails=2 fail_timeout=30s;
+            server isectech-frontend-2.isectech-production.svc.cluster.local:3000 max_fails=2 fail_timeout=30s;
+            server isectech-frontend-3.isectech-production.svc.cluster.local:3000 max_fails=2 fail_timeout=30s;
+            keepalive 16;
+        }
+        
+        # Health check endpoint
+        server {
+            listen 8080;
+            server_name _;
+            
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+            
+            location /metrics {
+                access_log off;
+                stub_status on;
+            }
+        }
+        
+        # Main server configuration
+        server {
+            listen 80;
+            server_name _;
+            return 301 https://$host$request_uri;
+        }
+        
+        server {
+            listen 443 ssl http2;
+            server_name isectech.com *.isectech.com;
+            
+            ssl_certificate /etc/ssl/certs/isectech.crt;
+            ssl_certificate_key /etc/ssl/private/isectech.key;
+            
+            # API routes
+            location /api/v1/ {
+                limit_req zone=api burst=20 nodelay;
+                
+                proxy_pass http://backend_servers;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                proxy_connect_timeout 10s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+                
+                proxy_buffering on;
+                proxy_buffer_size 4k;
+                proxy_buffers 8 4k;
+                
+                # Health check
+                proxy_next_upstream error timeout http_502 http_503 http_504;
+                proxy_next_upstream_tries 3;
+                proxy_next_upstream_timeout 30s;
+            }
+            
+            # Frontend routes
+            location / {
+                proxy_pass http://frontend_servers;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 30s;
+                proxy_read_timeout 30s;
+                
+                # WebSocket support
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                
+                # Health check
+                proxy_next_upstream error timeout http_502 http_503;
+                proxy_next_upstream_tries 2;
+                proxy_next_upstream_timeout 10s;
+            }
+            
+            # Security endpoints
+            location /security/ {
+                limit_req zone=api burst=10 nodelay;
+                
+                proxy_pass http://isectech-security-service.isectech-security.svc.cluster.local:8080/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                proxy_connect_timeout 15s;
+                proxy_send_timeout 120s;
+                proxy_read_timeout 120s;
+            }
+            
+            # Static files
+            location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+                access_log off;
+                
+                proxy_pass http://frontend_servers;
+                proxy_set_header Host $host;
+            }
+        }
+    }
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# HAPROXY CONFIGURATION FOR DATABASE LOAD BALANCING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-database-config
+  namespace: isectech-system
+  labels:
+    app.kubernetes.io/name: haproxy-database
+    app.kubernetes.io/instance: isectech
+data:
+  haproxy.cfg: |
+    global
+        daemon
+        chroot /var/lib/haproxy
+        stats socket /run/haproxy/admin.sock mode 660 level admin
+        stats timeout 30s
+        user haproxy
+        group haproxy
+        maxconn 4096
+        
+        # SSL configuration
+        ssl-default-bind-ciphers ECDHE+aRSA+AES256+GCM+SHA384:ECDHE+aRSA+AES128+GCM+SHA256:ECDHE+aRSA+AES256+SHA384:ECDHE+aRSA+AES128+SHA256
+        ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11
+        ssl-default-server-ciphers ECDHE+aRSA+AES256+GCM+SHA384:ECDHE+aRSA+AES128+GCM+SHA256:ECDHE+aRSA+AES256+SHA384:ECDHE+aRSA+AES128+SHA256
+        ssl-default-server-options no-sslv3 no-tlsv10 no-tlsv11
+    
+    defaults
+        mode tcp
+        timeout connect 10s
+        timeout client 1m
+        timeout server 1m
+        timeout http-request 10s
+        timeout http-keep-alive 2s
+        timeout check 10s
+        retries 3
+        option redispatch
+        option tcplog
+        option dontlognull
+        
+        # Error files
+        errorfile 400 /etc/haproxy/errors/400.http
+        errorfile 403 /etc/haproxy/errors/403.http
+        errorfile 408 /etc/haproxy/errors/408.http
+        errorfile 500 /etc/haproxy/errors/500.http
+        errorfile 502 /etc/haproxy/errors/502.http
+        errorfile 503 /etc/haproxy/errors/503.http
+        errorfile 504 /etc/haproxy/errors/504.http
+    
+    # Statistics page
+    frontend stats
+        bind *:8404
+        mode http
+        stats enable
+        stats uri /stats
+        stats refresh 30s
+        stats admin if TRUE
+        monitor-uri /health
+    
+    # PostgreSQL primary cluster
+    frontend postgres_primary
+        bind *:5432
+        mode tcp
+        default_backend postgres_primary_cluster
+    
+    backend postgres_primary_cluster
+        mode tcp
+        balance leastconn
+        option tcp-check
+        tcp-check connect
+        tcp-check send-binary 00000000
+        tcp-check expect binary 4e
+        
+        server postgres-primary-1 isectech-postgres-primary.cluster-xyz.us-east-1.rds.amazonaws.com:5432 check inter 10s fastinter 2s fall 3 rise 2
+        server postgres-primary-2 isectech-postgres-primary-2.cluster-xyz.us-east-1.rds.amazonaws.com:5432 check inter 10s fastinter 2s fall 3 rise 2 backup
+    
+    # PostgreSQL read replicas
+    frontend postgres_readonly
+        bind *:5433
+        mode tcp
+        default_backend postgres_readonly_cluster
+    
+    backend postgres_readonly_cluster
+        mode tcp
+        balance roundrobin
+        option tcp-check
+        tcp-check connect
+        tcp-check send-binary 00000000
+        tcp-check expect binary 4e
+        
+        server postgres-reader-1 isectech-postgres-reader-1.cluster-xyz.us-east-1.rds.amazonaws.com:5432 check inter 10s fall 3 rise 2
+        server postgres-reader-2 isectech-postgres-reader-2.cluster-xyz.us-east-1.rds.amazonaws.com:5432 check inter 10s fall 3 rise 2
+        server postgres-reader-3 isectech-postgres-reader-3.cluster-xyz.us-east-1.rds.amazonaws.com:5432 check inter 10s fall 3 rise 2
+    
+    # Redis primary cluster
+    frontend redis_primary
+        bind *:6379
+        mode tcp
+        default_backend redis_primary_cluster
+    
+    backend redis_primary_cluster
+        mode tcp
+        balance first
+        option tcp-check
+        tcp-check connect
+        tcp-check send PING\r\n
+        tcp-check expect string +PONG
+        
+        server redis-primary isectech-redis-primary.abc123.cache.amazonaws.com:6379 check inter 10s fall 3 rise 2
+        server redis-secondary isectech-redis-secondary.def456.usw2.cache.amazonaws.com:6379 check inter 10s fall 3 rise 2 backup
+    
+    # Elasticsearch cluster
+    frontend elasticsearch
+        bind *:9200
+        mode http
+        default_backend elasticsearch_cluster
+    
+    backend elasticsearch_cluster
+        mode http
+        balance roundrobin
+        option httpchk GET /_cluster/health
+        http-check expect status 200
+        
+        server es-1 search-isectech-elasticsearch-1.us-east-1.es.amazonaws.com:443 check inter 10s ssl verify none
+        server es-2 search-isectech-elasticsearch-2.us-east-1.es.amazonaws.com:443 check inter 10s ssl verify none
+        server es-3 search-isectech-elasticsearch-3.us-east-1.es.amazonaws.com:443 check inter 10s ssl verify none
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# MONITORING AND ALERTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: load-balancer-monitoring
+  namespace: isectech-system
+  labels:
+    app.kubernetes.io/name: load-balancer-monitoring
+    app.kubernetes.io/instance: isectech
+spec:
+  selector:
+    matchLabels:
+      app: load-balancer
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: load-balancer-alerts
+  namespace: isectech-system
+  labels:
+    app.kubernetes.io/name: load-balancer-alerts
+    app.kubernetes.io/instance: isectech
+    prometheus: isectech
+spec:
+  groups:
+    - name: load_balancer.rules
+      interval: 30s
+      rules:
+        - alert: LoadBalancerHighErrorRate
+          expr: rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            team: infrastructure
+            service: load-balancer
+          annotations:
+            summary: "High error rate on load balancer"
+            description: "Load balancer error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+        
+        - alert: LoadBalancerBackendDown
+          expr: up{job="nginx-ingress"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: infrastructure
+            service: load-balancer
+          annotations:
+            summary: "Load balancer backend is down"
+            description: "Load balancer backend {{ $labels.instance }} has been down for more than 1 minute"
+        
+        - alert: DatabaseConnectionPoolHigh
+          expr: haproxy_backend_current_sessions / haproxy_backend_limit_sessions > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            team: infrastructure
+            service: database
+          annotations:
+            summary: "Database connection pool usage is high"
+            description: "Database connection pool usage is {{ $value | humanizePercentage }} on {{ $labels.backend }}"

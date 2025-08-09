@@ -1,0 +1,2870 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "iSECTECH Security Platform API",
+    "description": "Comprehensive API specification for the iSECTECH enterprise security platform, including authentication, threat detection, compliance, notifications, trust scoring, and policy evaluation services",
+    "version": "2.0.0",
+    "contact": {
+      "name": "iSECTECH API Team",
+      "email": "api@isectech.com",
+      "url": "https://docs.isectech.com"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://isectech.com/license"
+    },
+    "termsOfService": "https://isectech.com/terms"
+  },
+  "servers": [
+    {
+      "url": "https://api.isectech.com/v2",
+      "description": "Production server"
+    },
+    {
+      "url": "https://api-staging.isectech.com/v2",
+      "description": "Staging server"
+    },
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Development server"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "User authentication, session management, and MFA operations"
+    },
+    {
+      "name": "Authorization",
+      "description": "Policy evaluation and access control decisions"
+    },
+    {
+      "name": "Notifications",
+      "description": "Notification management and delivery"
+    },
+    {
+      "name": "Trust Scoring",
+      "description": "Trust score calculation and risk assessment"
+    },
+    {
+      "name": "Compliance",
+      "description": "Compliance monitoring and reporting"
+    },
+    {
+      "name": "Analytics",
+      "description": "Performance analytics and reporting"
+    },
+    {
+      "name": "Tenants",
+      "description": "Multi-tenant management operations"
+    },
+    {
+      "name": "Onboarding",
+      "description": "User and tenant onboarding workflows"
+    },
+    {
+      "name": "Asset Management",
+      "description": "Asset discovery and inventory management"
+    },
+    {
+      "name": "Threat Detection",
+      "description": "Threat detection and intelligence operations"
+    },
+    {
+      "name": "Vulnerability Management",
+      "description": "Vulnerability scanning and remediation"
+    },
+    {
+      "name": "Billing",
+      "description": "Billing and subscription management"
+    },
+    {
+      "name": "System",
+      "description": "System health, metrics, and monitoring"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Authenticate user with tenant context",
+        "description": "Authenticate a user with tenant-specific context, support for MFA, and session management. Returns JWT tokens and user profile information.",
+        "operationId": "loginUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "basic_login": {
+                  "summary": "Basic login without MFA",
+                  "value": {
+                    "email": "admin@company.com",
+                    "password": "SecurePassword123!",
+                    "tenantId": "550e8400-e29b-41d4-a716-446655440000",
+                    "rememberMe": false
+                  }
+                },
+                "mfa_login": {
+                  "summary": "Login with MFA token",
+                  "value": {
+                    "email": "admin@company.com",
+                    "password": "SecurePassword123!",
+                    "tenantId": "550e8400-e29b-41d4-a716-446655440000",
+                    "mfaToken": "123456",
+                    "rememberMe": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                },
+                "examples": {
+                  "login_success": {
+                    "summary": "Successful login",
+                    "value": {
+                      "success": true,
+                      "user": {
+                        "id": "user_123",
+                        "email": "admin@company.com",
+                        "role": "admin",
+                        "tenantId": "550e8400-e29b-41d4-a716-446655440000",
+                        "securityClearance": "high",
+                        "permissions": ["read:all", "write:security", "admin:tenant"],
+                        "mfaEnabled": true
+                      },
+                      "tenant": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "name": "ACME Corp",
+                        "type": "enterprise",
+                        "tier": "premium"
+                      },
+                      "expiresAt": "2024-01-01T12:00:00Z"
+                    }
+                  },
+                  "mfa_required": {
+                    "summary": "MFA verification required",
+                    "value": {
+                      "success": false,
+                      "requiresMfa": true,
+                      "error": "MFA verification required",
+                      "code": "MFA_REQUIRED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "options": {
+        "tags": ["Authentication"],
+        "summary": "Handle CORS preflight for login endpoint",
+        "description": "Returns appropriate CORS headers for login endpoint",
+        "responses": {
+          "200": {
+            "description": "CORS headers provided",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Log out user and invalidate session",
+        "description": "Logs out the authenticated user and invalidates their session tokens. Supports single session or all sessions logout.",
+        "operationId": "logoutUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              },
+              "examples": {
+                "single_logout": {
+                  "summary": "Logout current session only",
+                  "value": {
+                    "logoutAll": false
+                  }
+                },
+                "logout_all": {
+                  "summary": "Logout all user sessions",
+                  "value": {
+                    "logoutAll": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logout successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Verify session token validity",
+        "description": "Validates the provided session token and returns user context if valid. Used for session validation in SPAs and APIs.",
+        "operationId": "verifySession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token verification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/policy/evaluate": {
+      "post": {
+        "tags": ["Authorization"],
+        "summary": "Evaluate access policy decision",
+        "description": "Evaluates an access request against configured policies using OPA (Open Policy Agent). Returns allow/deny decision with context and audit information.",
+        "operationId": "evaluatePolicy",
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyEvaluationRequest"
+              },
+              "examples": {
+                "basic_access": {
+                  "summary": "Basic resource access request",
+                  "value": {
+                    "user": {
+                      "id": "user_123",
+                      "tenant_id": "tenant_456",
+                      "roles": ["analyst"],
+                      "authenticated": true,
+                      "status": "active"
+                    },
+                    "resource": "security-events",
+                    "action": "read",
+                    "tenant_id": "tenant_456",
+                    "context": {
+                      "ip_address": "192.168.1.100",
+                      "user_agent": "Mozilla/5.0...",
+                      "timestamp": 1672531200,
+                      "session_id": "sess_789",
+                      "access_type": "normal"
+                    }
+                  }
+                },
+                "emergency_access": {
+                  "summary": "Emergency access request",
+                  "value": {
+                    "user": {
+                      "id": "user_123",
+                      "tenant_id": "tenant_456",
+                      "roles": ["security-admin"],
+                      "authenticated": true,
+                      "status": "active"
+                    },
+                    "resource": "incident-response",
+                    "action": "execute",
+                    "tenant_id": "tenant_456",
+                    "context": {
+                      "ip_address": "10.0.0.50",
+                      "timestamp": 1672531200,
+                      "session_id": "sess_emergency",
+                      "access_type": "emergency",
+                      "justification": "Security incident requires immediate response",
+                      "emergency_reference": "INC-2024-001"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy decision (allow)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDecisionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy decision (deny)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "get": {
+        "tags": ["Authorization"],
+        "summary": "Get policy evaluation service health",
+        "description": "Returns the health status of the policy evaluation service and OPA connectivity",
+        "operationId": "getPolicyHealth",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is unhealthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policy/batch": {
+      "post": {
+        "tags": ["Authorization"],
+        "summary": "Evaluate multiple policy decisions",
+        "description": "Processes multiple access requests in a single batch operation with configurable concurrency limits",
+        "operationId": "evaluatePolicyBatch",
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPolicyEvaluationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch evaluation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchPolicyDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "Retrieve notifications with filtering and pagination",
+        "description": "Get notifications with comprehensive filtering, sorting, and pagination support. Supports up to 1000 requests per minute.",
+        "operationId": "getNotifications",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "Filter by user ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by notification status",
+            "schema": {
+              "type": "string",
+              "enum": ["sent", "delivered", "read", "failed"]
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by notification type",
+            "schema": {
+              "type": "string",
+              "enum": ["security", "alert", "info", "warning", "error"]
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "description": "Filter by priority level",
+            "schema": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "critical"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of results to return",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notifications retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Notifications"],
+        "summary": "Create new notification",
+        "description": "Create a new notification for delivery to specified recipients. Supports up to 100 creates per minute.",
+        "operationId": "createNotification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationRequest"
+              },
+              "examples": {
+                "security_alert": {
+                  "summary": "Security alert notification",
+                  "value": {
+                    "title": "Suspicious Login Detected",
+                    "message": "A login attempt from an unusual location was detected for your account.",
+                    "type": "security",
+                    "priority": "high",
+                    "recipients": [
+                      {
+                        "userId": "user_123",
+                        "channel": "push"
+                      },
+                      {
+                        "userId": "user_123",
+                        "channel": "email"
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "label": "Review Login",
+                        "action": "review_login",
+                        "url": "https://app.isectech.com/security/logins"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Notification created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/trust-score": {
+      "get": {
+        "tags": ["Trust Scoring"],
+        "summary": "Get trust scores with filtering",
+        "description": "Retrieve trust scores with filtering and analytics. Supports up to 5000 requests per minute for high-frequency operations.",
+        "operationId": "getTrustScores",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "Filter by user ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "description": "Filter by device ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "minScore",
+            "in": "query",
+            "description": "Minimum trust score",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "maxScore",
+            "in": "query",
+            "description": "Maximum trust score",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "includeFactors",
+            "in": "query",
+            "description": "Include factor breakdown in response",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trust scores retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustScoreListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Trust Scoring"],
+        "summary": "Calculate trust score",
+        "description": "Calculate a new trust score or perform bulk calculations. Supports up to 1000 calculations per minute.",
+        "operationId": "calculateTrustScore",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CalculateTrustScoreRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BulkCalculateTrustScoreRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Trust score calculated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustScoreResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/compliance/status": {
+      "get": {
+        "tags": ["Compliance"],
+        "summary": "Get compliance status and metrics",
+        "description": "Retrieve current compliance status across all configured frameworks with detailed metrics and violation information",
+        "operationId": "getComplianceStatus",
+        "parameters": [
+          {
+            "name": "framework",
+            "in": "query",
+            "description": "Filter by specific compliance framework",
+            "schema": {
+              "type": "string",
+              "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001", "all"]
+            }
+          },
+          {
+            "name": "detailed",
+            "in": "query",
+            "description": "Include detailed control information",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compliance status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceStatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Compliance"],
+        "summary": "Trigger compliance actions",
+        "description": "Trigger various compliance actions such as assessments, control updates, or report generation",
+        "operationId": "triggerComplianceAction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComplianceActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Action triggered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/tenants": {
+      "get": {
+        "tags": ["Tenants"],
+        "summary": "List tenant information",
+        "description": "Retrieve tenant information based on user permissions and access level",
+        "operationId": "getTenants",
+        "responses": {
+          "200": {
+            "description": "Tenant information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Tenants"],
+        "summary": "Create new tenant",
+        "description": "Create a new tenant with initial configuration and settings",
+        "operationId": "createTenant",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/onboarding": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Get onboarding workflows",
+        "description": "Retrieve available onboarding workflows and their current status",
+        "operationId": "getOnboardingWorkflows",
+        "responses": {
+          "200": {
+            "description": "Onboarding workflows retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingWorkflowsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Start new onboarding workflow",
+        "description": "Initiate a new onboarding workflow for users or tenants",
+        "operationId": "startOnboardingWorkflow",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartOnboardingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Onboarding workflow started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingWorkflowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "System health check",
+        "description": "Returns the health status of the API and all dependent services",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "System is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "System is unhealthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get system metrics",
+        "description": "Returns system performance metrics and operational statistics",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "description": "Metrics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemMetricsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT bearer token for user authentication"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key for service-to-service authentication"
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password", "tenantId"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User's email address",
+            "example": "admin@company.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "User's password",
+            "example": "SecurePassword123!"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant identifier",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "mfaToken": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "description": "6-digit MFA token if required",
+            "example": "123456"
+          },
+          "rememberMe": {
+            "type": "boolean",
+            "default": false,
+            "description": "Extend session duration"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserProfile"
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/TenantInfo"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Token expiration time"
+          },
+          "requiresMfa": {
+            "type": "boolean",
+            "description": "Whether MFA verification is required"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if login failed"
+          },
+          "code": {
+            "type": "string",
+            "description": "Error code for programmatic handling"
+          }
+        }
+      },
+      "UserProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "user_123"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "admin@company.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "analyst", "viewer", "security-admin"],
+            "example": "admin"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "securityClearance": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "example": "high"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["read:all", "write:security", "admin:tenant"]
+          },
+          "mfaEnabled": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "TenantInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "ACME Corp"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["enterprise", "small-business", "government"],
+            "example": "enterprise"
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["basic", "professional", "premium", "enterprise"],
+            "example": "premium"
+          }
+        }
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "properties": {
+          "logoutAll": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to logout all user sessions"
+          }
+        }
+      },
+      "VerifyRequest": {
+        "type": "object",
+        "required": ["token"],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Session token to verify"
+          }
+        }
+      },
+      "VerifyResponse": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "Whether the token is valid"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserProfile"
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/TenantInfo"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PolicyEvaluationRequest": {
+        "type": "object",
+        "required": ["user", "resource", "action", "tenant_id", "context"],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/PolicyUser"
+          },
+          "resource": {
+            "type": "string",
+            "description": "Resource being accessed",
+            "example": "security-events"
+          },
+          "action": {
+            "type": "string",
+            "description": "Action being performed",
+            "example": "read"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant context for the request"
+          },
+          "context": {
+            "$ref": "#/components/schemas/PolicyContext"
+          },
+          "device": {
+            "$ref": "#/components/schemas/PolicyDevice"
+          },
+          "affected_tenants": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "List of tenants affected by multi-tenant operations"
+          }
+        }
+      },
+      "PolicyUser": {
+        "type": "object",
+        "required": ["id", "tenant_id", "roles", "authenticated"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "user_123"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["analyst", "security-operator"]
+          },
+          "authenticated": {
+            "type": "boolean",
+            "example": true
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "blocked", "suspended", "disabled"],
+            "example": "active"
+          },
+          "session": {
+            "$ref": "#/components/schemas/UserSession"
+          },
+          "mfa": {
+            "$ref": "#/components/schemas/MFAStatus"
+          }
+        }
+      },
+      "PolicyContext": {
+        "type": "object",
+        "required": ["ip_address", "timestamp", "session_id"],
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "format": "ipv4",
+            "example": "192.168.1.100"
+          },
+          "user_agent": {
+            "type": "string",
+            "example": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Unix timestamp of the request",
+            "example": 1672531200
+          },
+          "session_id": {
+            "type": "string",
+            "example": "sess_789"
+          },
+          "region": {
+            "type": "string",
+            "example": "us-east-1"
+          },
+          "access_type": {
+            "type": "string",
+            "enum": ["normal", "emergency", "scheduled_maintenance"],
+            "example": "normal"
+          },
+          "justification": {
+            "type": "string",
+            "description": "Justification for emergency or elevated access"
+          },
+          "emergency_reference": {
+            "type": "string",
+            "description": "Reference number for emergency access"
+          }
+        }
+      },
+      "PolicyDevice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "device_456"
+          },
+          "registered": {
+            "type": "boolean",
+            "example": true
+          },
+          "status": {
+            "type": "string",
+            "enum": ["trusted", "compromised", "suspicious", "quarantined"],
+            "example": "trusted"
+          }
+        }
+      },
+      "PolicyDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "decision": {
+            "type": "boolean",
+            "description": "Whether access is allowed"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PolicyDecision"
+          }
+        }
+      },
+      "PolicyDecision": {
+        "type": "object",
+        "properties": {
+          "allow": {
+            "type": "boolean",
+            "description": "Whether access is granted"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Human-readable reasons for the decision"
+          },
+          "trust_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Trust score used in decision"
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "description": "Risk level assessment"
+          },
+          "context": {
+            "type": "object",
+            "description": "Additional context about the decision"
+          },
+          "audit_info": {
+            "$ref": "#/components/schemas/AuditInfo"
+          }
+        }
+      },
+      "BatchPolicyEvaluationRequest": {
+        "type": "object",
+        "required": ["requests"],
+        "properties": {
+          "requests": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/PolicyEvaluationRequest"
+            }
+          }
+        }
+      },
+      "BatchPolicyDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "results": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PolicyDecision"
+            },
+            "description": "Map of session_id to policy decision"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "allowed": {
+                "type": "integer"
+              },
+              "denied": {
+                "type": "integer"
+              },
+              "errors": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CreateNotificationRequest": {
+        "type": "object",
+        "required": ["title", "message", "type", "priority", "recipients"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "example": "Security Alert"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "example": "Suspicious login attempt detected from unusual location"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["security", "alert", "info", "warning", "error"],
+            "example": "security"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "example": "high"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationRecipient"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationAction"
+            }
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Schedule notification for later delivery"
+          },
+          "templateId": {
+            "type": "string",
+            "description": "Use predefined template"
+          },
+          "templateData": {
+            "type": "object",
+            "description": "Data to populate template variables"
+          }
+        }
+      },
+      "NotificationRecipient": {
+        "type": "object",
+        "required": ["userId", "channel"],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "example": "user_123"
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["push", "email", "sms", "webhook"],
+            "example": "push"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Channel-specific metadata"
+          }
+        }
+      },
+      "NotificationAction": {
+        "type": "object",
+        "required": ["label", "action"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "example": "Review Login"
+          },
+          "action": {
+            "type": "string",
+            "example": "review_login"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://app.isectech.com/security/logins"
+          }
+        }
+      },
+      "NotificationListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "notifications": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              },
+              "total": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "hasMore": {
+                "type": "boolean"
+              }
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "NotificationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/Notification"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "notif_123"
+          },
+          "title": {
+            "type": "string",
+            "example": "Security Alert"
+          },
+          "message": {
+            "type": "string",
+            "example": "Suspicious login attempt detected"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["security", "alert", "info", "warning", "error"]
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["sent", "delivered", "read", "failed"]
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationRecipient"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationAction"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CalculateTrustScoreRequest": {
+        "type": "object",
+        "required": ["userId", "context"],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "example": "user_123"
+          },
+          "deviceId": {
+            "type": "string",
+            "example": "device_456"
+          },
+          "sessionId": {
+            "type": "string",
+            "example": "session_789"
+          },
+          "context": {
+            "$ref": "#/components/schemas/TrustScoreContext"
+          },
+          "forceRecalculation": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force recalculation even if cached score exists"
+          },
+          "includeRecommendations": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include security recommendations in response"
+          }
+        }
+      },
+      "TrustScoreContext": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "object",
+            "properties": {
+              "country": {
+                "type": "string",
+                "example": "US"
+              },
+              "region": {
+                "type": "string",
+                "example": "California"
+              },
+              "city": {
+                "type": "string",
+                "example": "San Francisco"
+              },
+              "latitude": {
+                "type": "number",
+                "example": 37.7749
+              },
+              "longitude": {
+                "type": "number",
+                "example": -122.4194
+              },
+              "vpnDetected": {
+                "type": "boolean",
+                "example": false
+              },
+              "torDetected": {
+                "type": "boolean",
+                "example": false
+              }
+            }
+          },
+          "device": {
+            "type": "object",
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "example": "fp_abc123"
+              },
+              "platform": {
+                "type": "string",
+                "example": "Windows"
+              },
+              "browser": {
+                "type": "string",
+                "example": "Chrome"
+              },
+              "version": {
+                "type": "string",
+                "example": "120.0"
+              },
+              "jailbroken": {
+                "type": "boolean",
+                "example": false
+              },
+              "rooted": {
+                "type": "boolean",
+                "example": false
+              }
+            }
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "ipAddress": {
+                "type": "string",
+                "format": "ipv4",
+                "example": "192.168.1.100"
+              },
+              "isp": {
+                "type": "string",
+                "example": "Comcast"
+              },
+              "connectionType": {
+                "type": "string",
+                "enum": ["broadband", "mobile", "satellite", "unknown"],
+                "example": "broadband"
+              }
+            }
+          },
+          "behavior": {
+            "type": "object",
+            "properties": {
+              "loginFrequency": {
+                "type": "number",
+                "description": "Average logins per day",
+                "example": 2.5
+              },
+              "averageSessionDuration": {
+                "type": "number",
+                "description": "Average session duration in minutes",
+                "example": 45
+              },
+              "lastActivity": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "failedLoginAttempts": {
+                "type": "number",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "BulkCalculateTrustScoreRequest": {
+        "type": "object",
+        "required": ["requests"],
+        "properties": {
+          "requests": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/CalculateTrustScoreRequest"
+            }
+          },
+          "parallel": {
+            "type": "boolean",
+            "default": true,
+            "description": "Process requests in parallel"
+          }
+        }
+      },
+      "TrustScoreListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "trustScores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TrustScore"
+                }
+              },
+              "total": {
+                "type": "integer"
+              },
+              "hasMore": {
+                "type": "boolean"
+              }
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "TrustScoreResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrustScore"
+              },
+              {
+                "$ref": "#/components/schemas/BulkTrustScoreResult"
+              }
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "TrustScore": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ts_123"
+          },
+          "userId": {
+            "type": "string",
+            "example": "user_456"
+          },
+          "deviceId": {
+            "type": "string",
+            "example": "device_789"
+          },
+          "sessionId": {
+            "type": "string",
+            "example": "session_012"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "example": 85.5
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "example": "low"
+          },
+          "factors": {
+            "$ref": "#/components/schemas/TrustScoreFactors"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecurityRecommendation"
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrustScoreFactors": {
+        "type": "object",
+        "properties": {
+          "behavioral": {
+            "$ref": "#/components/schemas/TrustScoreFactor"
+          },
+          "device": {
+            "$ref": "#/components/schemas/TrustScoreFactor"
+          },
+          "network": {
+            "$ref": "#/components/schemas/TrustScoreFactor"
+          },
+          "location": {
+            "$ref": "#/components/schemas/TrustScoreFactor"
+          },
+          "threat": {
+            "$ref": "#/components/schemas/TrustScoreFactor"
+          }
+        }
+      },
+      "TrustScoreFactor": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "details": {
+            "type": "object",
+            "description": "Factor-specific details"
+          }
+        }
+      },
+      "BulkTrustScoreResult": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "data": {
+                  "$ref": "#/components/schemas/TrustScore"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "successful": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "ComplianceStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "frameworkStatus": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ComplianceFrameworkStatus"
+                }
+              },
+              "overallMetrics": {
+                "$ref": "#/components/schemas/ComplianceOverallMetrics"
+              },
+              "detailedControls": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ComplianceControl"
+                  }
+                }
+              },
+              "lastUpdated": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ComplianceFrameworkStatus": {
+        "type": "object",
+        "properties": {
+          "compliancePercentage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "example": 92
+          },
+          "totalControls": {
+            "type": "integer",
+            "example": 25
+          },
+          "compliantControls": {
+            "type": "integer",
+            "example": 23
+          },
+          "lastAssessment": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextAssessmentDue": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "criticalViolations": {
+            "type": "integer",
+            "example": 0
+          },
+          "highViolations": {
+            "type": "integer",
+            "example": 1
+          },
+          "trend": {
+            "type": "string",
+            "enum": ["improving", "stable", "declining"],
+            "example": "improving"
+          }
+        }
+      },
+      "ComplianceOverallMetrics": {
+        "type": "object",
+        "properties": {
+          "compliancePercentage": {
+            "type": "integer",
+            "example": 90
+          },
+          "totalFrameworks": {
+            "type": "integer",
+            "example": 5
+          },
+          "totalViolations": {
+            "type": "integer",
+            "example": 3
+          },
+          "criticalViolations": {
+            "type": "integer",
+            "example": 0
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "example": "medium"
+          },
+          "trend": {
+            "type": "string",
+            "enum": ["improving", "stable", "declining"],
+            "example": "stable"
+          }
+        }
+      },
+      "ComplianceControl": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "GDPR_01"
+          },
+          "name": {
+            "type": "string",
+            "example": "Control GDPR-1"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["compliant", "non_compliant", "not_assessed"],
+            "example": "compliant"
+          },
+          "lastAssessed": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "example": "low"
+          }
+        }
+      },
+      "ComplianceActionRequest": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["trigger_assessment", "update_control", "generate_report"],
+            "example": "trigger_assessment"
+          },
+          "framework": {
+            "type": "string",
+            "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"],
+            "example": "gdpr"
+          },
+          "controlId": {
+            "type": "string",
+            "example": "GDPR_01"
+          }
+        }
+      },
+      "ComplianceActionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Assessment triggered for GDPR"
+          },
+          "assessmentId": {
+            "type": "string",
+            "example": "ASSESS_1672531200000"
+          },
+          "reportId": {
+            "type": "string",
+            "example": "REPORT_1672531200000"
+          },
+          "estimatedCompletion": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TenantsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "tenants": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TenantDetails"
+                }
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "TenantDetails": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "ACME Corp"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["enterprise", "small-business", "government"]
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["basic", "professional", "premium", "enterprise"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "suspended", "trial", "inactive"],
+            "example": "active"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Tenant-specific configuration"
+          }
+        }
+      },
+      "CreateTenantRequest": {
+        "type": "object",
+        "required": ["name", "type", "tier"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "ACME Corp"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["enterprise", "small-business", "government"]
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["basic", "professional", "premium", "enterprise"]
+          },
+          "settings": {
+            "type": "object",
+            "description": "Initial tenant configuration"
+          },
+          "adminUser": {
+            "$ref": "#/components/schemas/CreateAdminUserRequest"
+          }
+        }
+      },
+      "TenantResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/TenantDetails"
+          }
+        }
+      },
+      "OnboardingWorkflowsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "workflows": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OnboardingWorkflow"
+                }
+              }
+            }
+          }
+        }
+      },
+      "OnboardingWorkflow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "workflow_123"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["user", "tenant", "integration"],
+            "example": "user"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not_started", "in_progress", "completed", "failed"],
+            "example": "in_progress"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OnboardingStep": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "step_456"
+          },
+          "name": {
+            "type": "string",
+            "example": "Email Verification"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "completed", "failed", "skipped"],
+            "example": "completed"
+          },
+          "order": {
+            "type": "integer",
+            "example": 1
+          },
+          "required": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "StartOnboardingRequest": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["user", "tenant", "integration"],
+            "example": "user"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "ID of user/tenant being onboarded"
+          },
+          "customization": {
+            "type": "object",
+            "description": "Custom onboarding parameters"
+          }
+        }
+      },
+      "OnboardingWorkflowResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/OnboardingWorkflow"
+          }
+        }
+      },
+      "SystemHealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "unhealthy"],
+            "example": "healthy"
+          },
+          "version": {
+            "type": "string",
+            "example": "2.0.0"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "components": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ComponentHealth"
+            }
+          },
+          "uptime": {
+            "type": "integer",
+            "description": "Uptime in seconds",
+            "example": 86400
+          }
+        }
+      },
+      "ComponentHealth": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "unhealthy"],
+            "example": "healthy"
+          },
+          "responseTime": {
+            "type": "number",
+            "description": "Response time in milliseconds",
+            "example": 25.5
+          },
+          "lastCheck": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "type": "object",
+            "description": "Component-specific health details"
+          }
+        }
+      },
+      "SystemMetricsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "performance": {
+                "$ref": "#/components/schemas/PerformanceMetrics"
+              },
+              "usage": {
+                "$ref": "#/components/schemas/UsageMetrics"
+              },
+              "security": {
+                "$ref": "#/components/schemas/SecurityMetrics"
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PerformanceMetrics": {
+        "type": "object",
+        "properties": {
+          "averageResponseTime": {
+            "type": "number",
+            "example": 150.5
+          },
+          "requestsPerSecond": {
+            "type": "number",
+            "example": 245.2
+          },
+          "errorRate": {
+            "type": "number",
+            "example": 0.05
+          },
+          "uptime": {
+            "type": "number",
+            "example": 99.95
+          }
+        }
+      },
+      "UsageMetrics": {
+        "type": "object",
+        "properties": {
+          "activeUsers": {
+            "type": "integer",
+            "example": 1250
+          },
+          "totalRequests": {
+            "type": "integer",
+            "example": 1000000
+          },
+          "dataProcessed": {
+            "type": "number",
+            "description": "Data processed in GB",
+            "example": 125.5
+          }
+        }
+      },
+      "SecurityMetrics": {
+        "type": "object",
+        "properties": {
+          "threatsDetected": {
+            "type": "integer",
+            "example": 15
+          },
+          "vulnerabilities": {
+            "type": "object",
+            "properties": {
+              "critical": {
+                "type": "integer",
+                "example": 0
+              },
+              "high": {
+                "type": "integer",
+                "example": 2
+              },
+              "medium": {
+                "type": "integer",
+                "example": 5
+              },
+              "low": {
+                "type": "integer",
+                "example": 8
+              }
+            }
+          },
+          "averageTrustScore": {
+            "type": "number",
+            "example": 87.5
+          }
+        }
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Operation completed successfully"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ResponseMetadata": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "example": "req_123456789"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "processingTime": {
+            "type": "integer",
+            "description": "Processing time in milliseconds",
+            "example": 150
+          },
+          "cached": {
+            "type": "boolean",
+            "description": "Whether the response was served from cache"
+          },
+          "rateLimit": {
+            "$ref": "#/components/schemas/RateLimit"
+          }
+        }
+      },
+      "RateLimit": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "example": 1000
+          },
+          "remaining": {
+            "type": "integer",
+            "example": 950
+          },
+          "resetTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HealthStatus": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["healthy", "unhealthy"]
+              },
+              "details": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "AuditInfo": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_activity": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MFAStatus": {
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SecurityRecommendation": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["security", "behavioral", "device"]
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "action": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateAdminUserRequest": {
+        "type": "object",
+        "required": ["email", "firstName", "lastName"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request - Invalid request parameters or body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Invalid request parameters"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "requestId": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized - Authentication required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Authentication required"
+                },
+                "code": {
+                  "type": "string",
+                  "example": "UNAUTHORIZED"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden - Insufficient permissions",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Insufficient permissions"
+                },
+                "code": {
+                  "type": "string",
+                  "example": "FORBIDDEN"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too Many Requests - Rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds to wait before retrying",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Limit": {
+            "description": "Request limit per time window",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Remaining": {
+            "description": "Remaining requests in current window",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Reset": {
+            "description": "Time when rate limit resets (Unix timestamp)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Rate limit exceeded"
+                },
+                "retryAfter": {
+                  "type": "integer",
+                  "example": 60
+                },
+                "limit": {
+                  "type": "integer",
+                  "example": 1000
+                },
+                "remaining": {
+                  "type": "integer",
+                  "example": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal Server Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Internal server error"
+                },
+                "requestId": {
+                  "type": "string",
+                  "example": "req_123456789"
+                },
+                "details": {
+                  "type": "string",
+                  "description": "Error details (only in development mode)"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

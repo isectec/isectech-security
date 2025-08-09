@@ -1,0 +1,424 @@
+# iSECTECH SIEM Analysis Engine Configuration
+# Production-grade investigation and analysis configuration
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Analysis Engine Configuration"
+last_updated: "2024-01-15T10:30:00Z"
+
+# Database configuration for investigation storage
+database:
+  host: "localhost"
+  port: 5432
+  database: "siem_investigations"
+  user: "analysis_user"
+  password: "${ANALYSIS_DB_PASSWORD}"
+  pool_size: 10
+  connection_timeout: 30
+
+# Redis configuration for caching and session management
+redis:
+  host: "localhost"
+  port: 6379
+  db: 6
+  password: "${REDIS_PASSWORD}"
+  max_connections: 30
+  socket_timeout: 5
+
+# Elasticsearch configuration for log data access
+elasticsearch:
+  hosts: 
+    - "${ELASTICSEARCH_HOSTS:localhost:9200}"
+  use_ssl: true
+  verify_certs: true
+  ca_certs: "/opt/siem/certs/ca.crt"
+  client_cert: "/opt/siem/certs/client.crt"
+  client_key: "/opt/siem/certs/client.key"
+  timeout: 60
+  max_retries: 3
+  request_timeout: 300
+  
+# Neo4j configuration for graph-based analysis
+neo4j:
+  uri: "bolt://localhost:7687"
+  username: "neo4j"
+  password: "${NEO4J_PASSWORD}"
+  database: "siem_graph"
+  max_connection_lifetime: 3600
+  max_connection_pool_size: 50
+  connection_acquisition_timeout: 60
+
+# Analysis Engine Configuration
+analysis_engine:
+  # Investigation settings
+  investigations:
+    max_concurrent_investigations: 10
+    default_investigation_timeout_hours: 72
+    auto_save_interval_minutes: 5
+    evidence_retention_days: 90
+    
+  # Timeline analysis
+  timeline_analysis:
+    max_events_per_timeline: 10000
+    timeline_window_hours: 168  # 7 days
+    correlation_threshold: 0.7
+    time_clustering_window_minutes: 30
+    
+  # Network analysis
+  network_analysis:
+    max_nodes_per_graph: 5000
+    max_edges_per_graph: 50000
+    centrality_algorithms:
+      - "betweenness"
+      - "closeness"
+      - "pagerank"
+      - "eigenvector"
+    community_detection_algorithms:
+      - "louvain"
+      - "leiden"
+      - "girvan_newman"
+    
+  # Behavioral analysis
+  behavioral_analysis:
+    baseline_period_days: 30
+    anomaly_threshold: 3.0  # standard deviations
+    pattern_matching_algorithms:
+      - "dtw"  # Dynamic Time Warping
+      - "correlation"
+      - "euclidean"
+    temporal_granularity: "hour"
+    
+  # Statistical analysis
+  statistical_analysis:
+    confidence_level: 0.95
+    outlier_detection_methods:
+      - "isolation_forest"
+      - "local_outlier_factor"
+      - "one_class_svm"
+    clustering_algorithms:
+      - "kmeans"
+      - "dbscan"
+      - "hierarchical"
+
+# Threat Hunting Configuration
+threat_hunting:
+  # Hunt queries configuration
+  queries:
+    default_queries_path: "/opt/siem/analysis/queries"
+    custom_queries_path: "/opt/siem/analysis/custom_queries"
+    query_timeout_minutes: 30
+    max_results_per_query: 100000
+    
+  # MITRE ATT&CK integration
+  mitre_attack:
+    framework_version: "v12.1"
+    data_source_mapping_file: "/opt/siem/analysis/mitre/data_sources.yaml"
+    technique_mapping_file: "/opt/siem/analysis/mitre/techniques.yaml"
+    update_frequency_days: 7
+    
+  # Hypothesis testing
+  hypothesis_testing:
+    evidence_threshold: 0.8
+    confidence_requirements:
+      low: 0.6
+      medium: 0.7
+      high: 0.8
+      critical: 0.9
+    automated_validation: true
+
+# Forensic Analysis Configuration
+forensic_analysis:
+  # Artifact collection
+  artifacts:
+    supported_types:
+      - "file_system"
+      - "memory_dump"
+      - "network_pcap"
+      - "registry_hive"
+      - "event_logs"
+      - "browser_history"
+      - "email_messages"
+    max_artifact_size_gb: 10
+    artifact_retention_days: 180
+    chain_of_custody_required: true
+    
+  # Digital signatures and hashing
+  integrity:
+    hash_algorithms:
+      - "sha256"
+      - "sha1"
+      - "md5"
+    signature_validation: true
+    timestamp_verification: true
+    
+  # File analysis
+  file_analysis:
+    supported_formats:
+      - "pe"
+      - "elf"
+      - "pdf"
+      - "office"
+      - "archive"
+    static_analysis_tools:
+      - "yara"
+      - "exiftool"
+      - "strings"
+    dynamic_analysis_sandbox: "cuckoo"
+
+# Reporting Configuration
+reporting:
+  # Report generation
+  generation:
+    default_template_path: "/opt/siem/analysis/templates"
+    custom_template_path: "/opt/siem/analysis/custom_templates"
+    output_formats:
+      - "pdf"
+      - "html"
+      - "docx"
+      - "json"
+      - "csv"
+    max_report_size_mb: 100
+    
+  # Visualization settings
+  visualization:
+    chart_libraries:
+      - "plotly"
+      - "matplotlib"
+      - "seaborn"
+    default_chart_width: 1200
+    default_chart_height: 600
+    color_schemes:
+      - "viridis"
+      - "plasma"
+      - "inferno"
+      - "security_themed"
+    
+  # Executive summaries
+  executive_summary:
+    auto_generate: true
+    key_metrics_included:
+      - "incident_count"
+      - "threat_level"
+      - "affected_systems"
+      - "timeline_duration"
+      - "impact_assessment"
+    recommendation_engine: true
+    
+  # Distribution
+  distribution:
+    email_enabled: true
+    smtp_config:
+      host: "${SMTP_HOST}"
+      port: 587
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+      tls: true
+    default_recipients:
+      - "security-team@isectech.com"
+      - "management@isectech.com"
+    
+    # Secure file sharing
+    secure_sharing:
+      encryption_enabled: true
+      password_protection: true
+      expiration_days: 30
+      watermarking: true
+
+# Machine Learning Integration
+ml_integration:
+  # Model configuration
+  models:
+    anomaly_detection:
+      isolation_forest:
+        contamination: 0.1
+        n_estimators: 100
+        max_samples: "auto"
+      local_outlier_factor:
+        n_neighbors: 20
+        contamination: 0.1
+      one_class_svm:
+        nu: 0.1
+        kernel: "rbf"
+        gamma: "scale"
+        
+    clustering:
+      kmeans:
+        n_clusters: "auto"
+        init: "k-means++"
+        n_init: 10
+      dbscan:
+        eps: 0.5
+        min_samples: 5
+      hierarchical:
+        n_clusters: "auto"
+        linkage: "ward"
+        
+    classification:
+      random_forest:
+        n_estimators: 100
+        max_depth: 10
+        random_state: 42
+      xgboost:
+        n_estimators: 100
+        learning_rate: 0.1
+        max_depth: 6
+        
+  # Feature engineering
+  feature_engineering:
+    time_based_features:
+      - "hour_of_day"
+      - "day_of_week"
+      - "day_of_month"
+      - "is_weekend"
+      - "is_holiday"
+    behavioral_features:
+      - "frequency_patterns"
+      - "volume_patterns"
+      - "temporal_patterns"
+      - "network_patterns"
+    statistical_features:
+      - "mean"
+      - "std"
+      - "min"
+      - "max"
+      - "percentiles"
+
+# Performance Configuration
+performance:
+  # Memory management
+  memory:
+    max_memory_per_analysis_gb: 16
+    memory_cleanup_threshold_percent: 85
+    garbage_collection_frequency_minutes: 30
+    
+  # Parallel processing
+  parallel_processing:
+    max_workers: 8
+    chunk_size: 1000
+    async_operations: true
+    
+  # Caching
+  caching:
+    query_cache_size_mb: 500
+    result_cache_ttl_hours: 24
+    metadata_cache_ttl_hours: 168
+    
+  # Database optimization
+  database_optimization:
+    connection_pooling: true
+    query_timeout_seconds: 300
+    bulk_operations_enabled: true
+    indexing_strategy: "adaptive"
+
+# Security Configuration
+security:
+  # Access control
+  access_control:
+    rbac_enabled: true
+    investigation_ownership: true
+    data_classification_required: true
+    audit_trail_enabled: true
+    
+  # Data protection
+  data_protection:
+    encryption_at_rest: true
+    encryption_in_transit: true
+    data_masking_enabled: true
+    pii_detection_enabled: true
+    
+  # API security
+  api_security:
+    authentication_required: true
+    rate_limiting_enabled: true
+    request_validation: true
+    response_sanitization: true
+
+# Integration Configuration
+integrations:
+  # External tools
+  external_tools:
+    virustotal:
+      api_key: "${VIRUSTOTAL_API_KEY}"
+      rate_limit_per_minute: 4
+      enabled: true
+      
+    shodan:
+      api_key: "${SHODAN_API_KEY}"
+      rate_limit_per_minute: 1
+      enabled: true
+      
+    maltego:
+      enabled: false
+      license_type: "community"
+      
+    misp:
+      url: "${MISP_URL}"
+      api_key: "${MISP_API_KEY}"
+      verify_ssl: true
+      enabled: true
+      
+  # SOAR platforms
+  soar_platforms:
+    phantom:
+      enabled: true
+      api_endpoint: "${PHANTOM_API_ENDPOINT}"
+      api_key: "${PHANTOM_API_KEY}"
+      
+    demisto:
+      enabled: false
+      api_endpoint: "${DEMISTO_API_ENDPOINT}"
+      api_key: "${DEMISTO_API_KEY}"
+      
+  # Ticketing systems
+  ticketing:
+    jira:
+      enabled: true
+      url: "${JIRA_URL}"
+      username: "${JIRA_USERNAME}"
+      api_token: "${JIRA_API_TOKEN}"
+      project_key: "SEC"
+
+# Monitoring and Alerting
+monitoring:
+  enabled: true
+  
+  # Metrics collection
+  metrics:
+    investigation_duration: true
+    query_performance: true
+    resource_utilization: true
+    error_rates: true
+    
+  # Health checks
+  health_checks:
+    database_connectivity: true
+    elasticsearch_connectivity: true
+    redis_connectivity: true
+    external_integrations: true
+    
+  # Performance monitoring
+  performance_monitoring:
+    max_investigation_duration_hours: 72
+    max_query_execution_time_minutes: 30
+    memory_usage_threshold_percent: 85
+    cpu_usage_threshold_percent: 80
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  output: "file"
+  file_path: "/var/log/siem/analysis-engine.log"
+  max_file_size_mb: 100
+  backup_count: 10
+  
+  # Audit logging
+  audit_enabled: true
+  audit_file: "/var/log/siem/analysis-audit.log"
+  audit_events:
+    - "investigation_created"
+    - "investigation_updated"
+    - "investigation_closed"
+    - "query_executed"
+    - "evidence_collected"
+    - "report_generated"

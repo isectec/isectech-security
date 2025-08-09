@@ -1,0 +1,787 @@
+# iSECTECH Asset Discovery and Network Mapping Configuration
+# Production-grade asset discovery and network topology mapping
+
+# General Configuration
+general:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service settings
+  service_name: "asset-discovery-engine"
+  version: "1.0.0"
+  bind_address: "0.0.0.0"
+  port: 8446
+  
+  # Discovery intervals
+  discovery_interval: 3600  # 1 hour
+  full_scan_interval: 86400  # 24 hours
+  quick_scan_interval: 300   # 5 minutes
+
+# Passive Discovery Configuration
+passive_discovery:
+  enabled: true
+  
+  # Data sources for passive discovery
+  flow_sources:
+    # Redis flow data
+    - type: "redis"
+      enabled: true
+      host: "redis-nsm.isectech.local"
+      port: 6379
+      db: 0
+      password: "${REDIS_PASSWORD}"
+      key_pattern: "flow:*"
+      batch_size: 1000
+      
+    # File-based flow data
+    - type: "file"
+      enabled: true
+      path: "/var/log/nsm/flows.json"
+      format: "json"
+      watch_for_changes: true
+      
+    # Zeek connection logs
+    - type: "zeek"
+      enabled: true
+      path: "/var/log/zeek/conn.log"
+      format: "tsv"
+      
+    # Suricata EVE logs
+    - type: "suricata"
+      enabled: true
+      path: "/var/log/suricata/eve.json"
+      format: "json"
+      filter_event_type: "flow"
+  
+  # Asset detection settings
+  asset_detection:
+    # Minimum confidence threshold
+    min_confidence: 0.3
+    
+    # Asset correlation settings
+    correlation_window: 3600  # 1 hour
+    max_correlation_distance: 5
+    
+    # Flow analysis settings
+    flow_analysis:
+      min_flow_duration: 1  # seconds
+      min_packet_count: 5
+      analyze_bidirectional: true
+      
+    # Service identification
+    service_identification:
+      enabled: true
+      use_port_mapping: true
+      use_banner_grabbing: false  # Passive only
+      confidence_boost: 0.2
+      
+  # Redis configuration for caching
+  redis:
+    enabled: true
+    host: "redis-nsm.isectech.local"
+    port: 6379
+    db: 6  # Dedicated DB for asset discovery
+    password: "${REDIS_PASSWORD}"
+    key_prefix: "asset_discovery:"
+    cache_ttl: 86400  # 24 hours
+    
+  # Device fingerprinting
+  fingerprinting:
+    enabled: true
+    
+    # HTTP User-Agent analysis
+    user_agent_analysis:
+      enabled: true
+      confidence_weight: 0.3
+      
+    # DHCP fingerprinting
+    dhcp_fingerprinting:
+      enabled: true
+      confidence_weight: 0.4
+      
+    # TLS/SSL fingerprinting (JA3)
+    tls_fingerprinting:
+      enabled: true
+      confidence_weight: 0.3
+      
+    # MAC address vendor lookup
+    mac_vendor_lookup:
+      enabled: true
+      oui_database: "/var/lib/nsm/oui.txt"
+      update_frequency: 2592000  # 30 days
+
+# Active Discovery Configuration
+active_discovery:
+  enabled: true
+  
+  # Scanning settings
+  scanning:
+    # Network ranges to scan (CIDR notation)
+    scan_ranges:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12" 
+      - "192.168.0.0/16"
+      
+    # Auto-detect local networks
+    auto_detect_networks: true
+    exclude_ranges:
+      - "10.0.0.1/32"  # Gateway
+      - "192.168.1.1/32"  # Gateway
+      
+    # Scanning schedules
+    schedules:
+      - name: "full_scan"
+        ranges: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+        frequency: 86400  # Daily
+        scan_type: "comprehensive"
+        
+      - name: "quick_scan"
+        ranges: ["192.168.1.0/24"]
+        frequency: 3600  # Hourly
+        scan_type: "ping_sweep"
+        
+      - name: "critical_scan"
+        ranges: ["10.1.1.0/24"]  # Critical server network
+        frequency: 1800  # 30 minutes
+        scan_type: "port_scan"
+  
+  # Nmap configuration
+  nmap:
+    # Host discovery arguments
+    host_discovery_args: "-sn -PE -PP -PS21,22,23,25,53,80,443 -PA80,443"
+    
+    # Detailed scan arguments
+    detailed_scan_args: "-sS -sV -O --version-intensity 3 -T4"
+    
+    # Service scan arguments
+    service_scan_args: "-sV --version-intensity 5"
+    
+    # Performance settings
+    timing_template: "T4"  # Aggressive timing
+    max_rate: 1000  # packets per second
+    min_rate: 100
+    
+    # Port ranges
+    port_ranges:
+      quick: "22,80,443,3389"
+      standard: "1-1000"
+      comprehensive: "1-65535"
+      
+  # Ping sweep configuration
+  ping_sweep:
+    enabled: true
+    thread_count: 50
+    timeout: 2
+    retry_count: 2
+    
+    # Ping methods
+    methods:
+      - icmp
+      - tcp_syn
+      - udp
+      
+  # Rate limiting and timing
+  rate_limiting:
+    scan_delay: 1  # seconds between hosts
+    range_delay: 5  # seconds between ranges
+    max_concurrent_scans: 5
+    adaptive_timing: true
+    
+  # Advanced scanning techniques
+  advanced_scanning:
+    # OS fingerprinting
+    os_detection:
+      enabled: true
+      confidence_threshold: 80
+      
+    # Service version detection
+    version_detection:
+      enabled: true
+      intensity: 3  # 0-9 scale
+      
+    # Script scanning
+    script_scanning:
+      enabled: false  # Disable for stealth
+      safe_scripts_only: true
+      
+  # SNMP discovery
+  snmp_discovery:
+    enabled: true
+    community_strings:
+      - "public"
+      - "private"
+      - "community"
+    timeout: 5
+    retries: 2
+    
+    # SNMP OIDs to query
+    oids:
+      system_description: "1.3.6.1.2.1.1.1.0"
+      system_name: "1.3.6.1.2.1.1.5.0"
+      system_contact: "1.3.6.1.2.1.1.4.0"
+      system_location: "1.3.6.1.2.1.1.6.0"
+
+# Network Topology Mapping
+topology_mapping:
+  enabled: true
+  
+  # Topology discovery methods
+  discovery_methods:
+    # Layer 2 discovery
+    layer2_discovery:
+      enabled: true
+      
+      # ARP table analysis
+      arp_analysis:
+        enabled: true
+        sources: ["local_arp", "router_arp", "switch_arp"]
+        
+      # Switch port mapping
+      switch_discovery:
+        enabled: true
+        snmp_enabled: true
+        
+    # Layer 3 discovery  
+    layer3_discovery:
+      enabled: true
+      
+      # Routing table analysis
+      routing_analysis:
+        enabled: true
+        collect_from_routers: true
+        
+      # Traceroute analysis
+      traceroute_analysis:
+        enabled: false  # Can be noisy
+        max_hops: 30
+        
+  # Network mapping settings
+  mapping:
+    # Automatic segment detection
+    auto_segment_detection:
+      enabled: true
+      min_segment_size: 5
+      max_segment_size: 1000
+      
+    # VLAN detection
+    vlan_detection:
+      enabled: true
+      snmp_sources: true
+      
+    # Gateway detection
+    gateway_detection:
+      enabled: true
+      methods: ["arp", "routing_table", "dhcp"]
+      
+  # Graph generation
+  graph_generation:
+    enabled: true
+    
+    # Layout algorithms
+    layout_algorithm: "spring"  # spring, circular, hierarchical
+    
+    # Node styling
+    node_styling:
+      size_by_connections: true
+      color_by_type: true
+      label_critical_nodes: true
+      
+    # Edge styling
+    edge_styling:
+      thickness_by_traffic: false  # Can be performance intensive
+      color_by_protocol: true
+      
+  # Visualization settings
+  visualization:
+    generate_maps: true
+    map_output_path: "/var/lib/nsm/network_maps"
+    map_formats: ["png", "svg", "graphml"]
+    
+    # Map generation schedule
+    generation_schedule:
+      - interval: 3600  # 1 hour
+        type: "quick"
+        format: "png"
+        
+      - interval: 86400  # 24 hours
+        type: "detailed"
+        format: "svg"
+        
+    # Interactive maps
+    interactive_maps:
+      enabled: false  # Requires web interface
+      port: 8080
+      update_interval: 300
+      
+  # Critical path analysis
+  critical_path_analysis:
+    enabled: true
+    
+    # Bridge detection
+    bridge_detection:
+      enabled: true
+      alert_on_single_points_of_failure: true
+      
+    # Bottleneck detection
+    bottleneck_detection:
+      enabled: true
+      traffic_threshold: 80  # percent
+      
+    # Redundancy analysis
+    redundancy_analysis:
+      enabled: true
+      min_redundant_paths: 2
+
+# Asset Inventory Management
+inventory_management:
+  enabled: true
+  
+  # Database configuration
+  database:
+    type: "sqlite"
+    path: "/var/lib/nsm/asset_inventory.db"
+    backup_enabled: true
+    backup_frequency: 86400  # Daily
+    backup_retention_days: 30
+    
+    # Connection settings
+    connection_pool_size: 20
+    timeout: 30
+    
+  # Asset correlation
+  asset_correlation:
+    enabled: true
+    
+    # Correlation methods
+    correlation_methods:
+      ip_address: 1.0  # Weight
+      mac_address: 0.9
+      hostname: 0.8
+      fingerprint: 0.7
+      
+    # Merge criteria
+    merge_criteria:
+      confidence_threshold: 0.8
+      time_window: 3600  # 1 hour
+      
+  # Asset lifecycle management
+  lifecycle_management:
+    # Asset aging
+    asset_aging:
+      enabled: true
+      stale_threshold_days: 30
+      archive_threshold_days: 90
+      
+    # Asset validation
+    validation:
+      enabled: true
+      validation_interval: 86400  # Daily
+      revalidation_threshold: 7  # days
+      
+  # Asset classification
+  classification:
+    enabled: true
+    
+    # Classification rules
+    rules:
+      # Server classification
+      - name: "server_detection"
+        conditions:
+          device_type: "server"
+          open_ports: [80, 443, 22, 21, 25]
+        classification: "server"
+        criticality: "high"
+        
+      # Workstation classification
+      - name: "workstation_detection"
+        conditions:
+          device_type: "workstation"
+          open_ports: [135, 139, 445, 3389]
+        classification: "workstation"
+        criticality: "medium"
+        
+      # Network device classification
+      - name: "network_device_detection"
+        conditions:
+          open_ports: [22, 23, 161, 443]
+          snmp_enabled: true
+        classification: "network_device"
+        criticality: "critical"
+        
+  # Asset enrichment
+  enrichment:
+    enabled: true
+    
+    # External data sources
+    external_sources:
+      # Vulnerability scanners
+      vulnerability_scanners:
+        - name: "nessus"
+          enabled: false
+          api_url: "https://nessus.isectech.local"
+          api_key: "${NESSUS_API_KEY}"
+          
+        - name: "openvas"
+          enabled: false
+          api_url: "https://openvas.isectech.local"
+          username: "${OPENVAS_USERNAME}"
+          password: "${OPENVAS_PASSWORD}"
+          
+      # CMDB integration
+      cmdb_integration:
+        enabled: false
+        cmdb_url: "https://cmdb.isectech.local/api"
+        api_key: "${CMDB_API_KEY}"
+        sync_frequency: 86400  # Daily
+        
+      # DNS resolution
+      dns_resolution:
+        enabled: true
+        dns_servers: ["8.8.8.8", "1.1.1.1"]
+        reverse_dns: true
+        
+      # GeoIP lookup
+      geoip_lookup:
+        enabled: true
+        database_path: "/var/lib/nsm/geoip/GeoLite2-City.mmdb"
+        update_frequency: 2592000  # 30 days
+
+# Integration Configuration
+integrations:
+  # SIEM integration
+  siem:
+    enabled: true
+    
+    # Splunk
+    splunk:
+      enabled: true
+      host: "splunk.isectech.local"
+      port: 8088
+      token: "${SPLUNK_HEC_TOKEN}"
+      index: "asset_discovery"
+      
+    # Elastic
+    elastic:
+      enabled: true
+      hosts: ["elastic01.isectech.local:9200"]
+      username: "${ELASTIC_USERNAME}"
+      password: "${ELASTIC_PASSWORD}"
+      index: "asset-inventory"
+      
+  # CMDB integration
+  cmdb:
+    enabled: false
+    type: "servicenow"  # servicenow, remedy, custom
+    config:
+      url: "https://cmdb.isectech.local"
+      username: "${CMDB_USERNAME}"
+      password: "${CMDB_PASSWORD}"
+      table: "cmdb_ci"
+      
+  # Vulnerability management
+  vulnerability_management:
+    enabled: true
+    
+    # Correlation settings
+    correlation:
+      enabled: true
+      score_weighting: 0.3
+      
+    # Sources
+    sources:
+      - name: "cve_database"
+        enabled: true
+        url: "https://nvd.nist.gov/feeds/json/cve/1.1/"
+        update_frequency: 86400
+        
+  # Asset management systems
+  asset_management:
+    enabled: false
+    systems:
+      - name: "lansweeper"
+        enabled: false
+        api_url: "https://lansweeper.isectech.local/api"
+        api_key: "${LANSWEEPER_API_KEY}"
+        
+  # Network monitoring integration
+  network_monitoring:
+    enabled: true
+    
+    # Flow collectors
+    flow_collectors:
+      - name: "elastiflow"
+        enabled: true
+        api_url: "http://elastiflow.isectech.local:9200"
+        
+    # SNMP monitoring
+    snmp_monitoring:
+      - name: "librenms"
+        enabled: false
+        api_url: "https://librenms.isectech.local/api/v0"
+        api_token: "${LIBRENMS_API_TOKEN}"
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_gb: 4
+  max_cpu_cores: 4
+  max_concurrent_discoveries: 10
+  
+  # Caching
+  caching:
+    enabled: true
+    cache_size_mb: 512
+    asset_cache_ttl: 3600  # 1 hour
+    scan_result_cache_ttl: 1800  # 30 minutes
+    
+  # Optimization
+  optimization:
+    # Database optimization
+    database:
+      enable_wal_mode: true
+      enable_foreign_keys: true
+      cache_size_mb: 256
+      
+    # Scanning optimization
+    scanning:
+      parallel_scans: true
+      adaptive_timing: true
+      skip_responsive_hosts: false
+      
+    # Memory optimization
+    memory:
+      enable_memory_mapping: true
+      garbage_collection_frequency: 300
+      large_object_threshold_mb: 10
+
+# Monitoring and Alerting
+monitoring:
+  # Health monitoring
+  health_monitoring:
+    enabled: true
+    check_interval: 60  # seconds
+    
+    # Health checks
+    checks:
+      - name: "database_connectivity"
+        type: "database"
+        timeout: 10
+        
+      - name: "redis_connectivity" 
+        type: "redis"
+        timeout: 5
+        
+      - name: "memory_usage"
+        type: "resource"
+        threshold: 80  # percent
+        
+      - name: "disk_space"
+        type: "resource"
+        threshold: 85  # percent
+        
+  # Performance monitoring
+  performance_monitoring:
+    enabled: true
+    
+    # Metrics collection
+    metrics:
+      - discovery_rate
+      - asset_count
+      - scan_duration
+      - cache_hit_rate
+      - error_rate
+      
+    # Prometheus integration
+    prometheus:
+      enabled: true
+      port: 9092
+      metrics_path: "/metrics"
+      
+  # Alerting
+  alerting:
+    enabled: true
+    
+    # Alert conditions
+    conditions:
+      - name: "high_discovery_rate"
+        metric: "discovery_rate"
+        threshold: 1000  # assets per hour
+        severity: "warning"
+        
+      - name: "scan_failure_rate"
+        metric: "scan_failure_rate"
+        threshold: 10  # percent
+        severity: "critical"
+        
+      - name: "database_size"
+        metric: "database_size_gb"
+        threshold: 10
+        severity: "warning"
+        
+    # Alert destinations
+    destinations:
+      - type: "webhook"
+        url: "http://alertmanager.isectech.local:9093/api/v1/alerts"
+        
+      - type: "email"
+        smtp_server: "smtp.isectech.local"
+        recipients: ["ops@isectech.local"]
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enabled: true
+    authentication_required: true
+    api_key_header: "X-API-Key"
+    
+    # Rate limiting
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 1000
+      burst_size: 100
+      
+  # Data protection
+  data_protection:
+    # Encryption
+    encryption:
+      encrypt_database: true
+      encryption_key_file: "/etc/nsm/asset_discovery_encryption.key"
+      
+    # Privacy
+    privacy:
+      anonymize_mac_addresses: false  # Keep for tracking
+      hash_hostnames: false
+      data_retention_days: 365
+      
+  # Network security
+  network_security:
+    # Scanning ethics
+    scanning_ethics:
+      respect_robots_txt: true
+      honor_rate_limits: true
+      avoid_intrusive_scans: true
+      
+    # Source IP randomization
+    source_randomization:
+      enabled: false  # Can complicate tracking
+      ip_pool: []
+
+# Backup and Recovery
+backup:
+  # Database backup
+  database_backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/asset_discovery"
+    compression: true
+    
+  # Configuration backup
+  configuration_backup:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+    
+  # Recovery procedures
+  recovery:
+    auto_recovery:
+      enabled: true
+      max_attempts: 3
+      
+    recovery_scripts:
+      database_corruption: "/opt/nsm/scripts/recover_asset_db.sh"
+      config_corruption: "/opt/nsm/scripts/recover_config.sh"
+
+# Cleanup and Maintenance
+cleanup:
+  # Automatic cleanup
+  auto_cleanup:
+    enabled: true
+    
+    # Asset cleanup
+    asset_cleanup:
+      stale_asset_threshold_days: 30
+      archive_threshold_days: 90
+      cleanup_frequency: 86400  # Daily
+      
+    # Log cleanup
+    log_cleanup:
+      max_log_size_mb: 100
+      retention_days: 30
+      
+    # Cache cleanup
+    cache_cleanup:
+      max_cache_size_mb: 1024
+      cleanup_frequency: 3600  # Hourly
+      
+  # Maintenance schedules
+  maintenance:
+    # Database maintenance
+    database_maintenance:
+      vacuum_frequency: 86400  # Daily
+      reindex_frequency: 604800  # Weekly
+      
+    # Network discovery maintenance
+    discovery_maintenance:
+      recalibrate_frequency: 604800  # Weekly
+      update_fingerprints: 2592000  # Monthly
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  
+  # Testing
+  test_mode: false
+  synthetic_assets: false
+  
+  # Experimental features
+  experimental:
+    enable_ai_classification: false
+    enable_behavior_learning: false
+    enable_predictive_discovery: false
+
+# Logging Configuration
+logging:
+  # Log levels
+  level: "INFO"
+  
+  # Log destinations
+  destinations:
+    - type: "file"
+      path: "/var/log/nsm/asset_discovery.log"
+      rotation: "daily"
+      retention_days: 30
+      
+    - type: "syslog"
+      facility: "local3"
+      server: "syslog.isectech.local:514"
+      
+  # Log formats
+  format: "json"  # json, text
+  include_timestamps: true
+  include_source_info: true
+
+# Resource Management
+resources:
+  # Memory limits
+  memory:
+    max_asset_cache_mb: 256
+    max_scan_cache_mb: 128
+    max_graph_size_mb: 512
+    
+  # CPU limits
+  cpu:
+    max_scan_processes: 10
+    max_discovery_threads: 20
+    cpu_affinity: []  # Empty = use all available
+    
+  # Disk limits
+  disk:
+    max_database_size_gb: 10
+    max_log_size_gb: 5
+    cleanup_threshold_percent: 85

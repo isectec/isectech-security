@@ -1,0 +1,331 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2024-01-15T10:30:00Z",
+  "organization": "iSECTECH",
+  "network_segments": [
+    {
+      "subnet": "192.168.1.0/24",
+      "vlan_id": "100",
+      "network_zone": "corporate_workstations",
+      "network_type": "internal",
+      "security_level": "medium",
+      "gateway": "192.168.1.1",
+      "dns_servers": ["192.168.1.10", "192.168.1.11"],
+      "description": "Corporate workstations and user devices",
+      "location": "Main Office",
+      "allowed_protocols": ["HTTP", "HTTPS", "DNS", "DHCP", "SMB"],
+      "firewall_rules": {
+        "inbound": "restricted",
+        "outbound": "filtered",
+        "inter_vlan": "limited"
+      },
+      "monitoring_level": "standard"
+    },
+    {
+      "subnet": "192.168.2.0/24",
+      "vlan_id": "200",
+      "network_zone": "database_servers",
+      "network_type": "internal",
+      "security_level": "high",
+      "gateway": "192.168.2.1",
+      "dns_servers": ["192.168.1.10", "192.168.1.11"],
+      "description": "Database servers and data storage",
+      "location": "Data Center",
+      "allowed_protocols": ["PostgreSQL", "MySQL", "SSH", "SNMP"],
+      "firewall_rules": {
+        "inbound": "highly_restricted",
+        "outbound": "minimal",
+        "inter_vlan": "database_only"
+      },
+      "monitoring_level": "enhanced",
+      "compliance_zones": ["PCI-DSS", "HIPAA", "SOX"]
+    },
+    {
+      "subnet": "192.168.3.0/24",
+      "vlan_id": "300",
+      "network_zone": "web_servers",
+      "network_type": "dmz",
+      "security_level": "high",
+      "gateway": "192.168.3.1",
+      "dns_servers": ["192.168.1.10", "8.8.8.8"],
+      "description": "Web servers and application tier",
+      "location": "Data Center DMZ",
+      "allowed_protocols": ["HTTP", "HTTPS", "SSH"],
+      "firewall_rules": {
+        "inbound": "web_traffic_only",
+        "outbound": "restricted",
+        "inter_vlan": "app_to_db_only"
+      },
+      "monitoring_level": "enhanced",
+      "load_balancer": "192.168.3.5"
+    },
+    {
+      "subnet": "192.168.4.0/24",
+      "vlan_id": "400",
+      "network_zone": "backup_storage",
+      "network_type": "internal",
+      "security_level": "high",
+      "gateway": "192.168.4.1",
+      "dns_servers": ["192.168.1.10", "192.168.1.11"],
+      "description": "Backup servers and storage systems",
+      "location": "Data Center",
+      "allowed_protocols": ["SSH", "SNMP", "NFS", "iSCSI"],
+      "firewall_rules": {
+        "inbound": "backup_only",
+        "outbound": "minimal",
+        "inter_vlan": "scheduled_backup"
+      },
+      "monitoring_level": "standard",
+      "backup_windows": ["02:00-06:00", "14:00-16:00"]
+    },
+    {
+      "subnet": "192.168.50.0/24",
+      "vlan_id": "500",
+      "network_zone": "mobile_devices",
+      "network_type": "wireless",
+      "security_level": "medium",
+      "gateway": "192.168.50.1",
+      "dns_servers": ["192.168.1.10", "8.8.8.8"],
+      "description": "Mobile devices and wireless clients",
+      "location": "Wireless Network",
+      "allowed_protocols": ["HTTP", "HTTPS", "DNS", "DHCP"],
+      "firewall_rules": {
+        "inbound": "blocked",
+        "outbound": "filtered",
+        "inter_vlan": "guest_isolation"
+      },
+      "monitoring_level": "basic",
+      "wifi_security": "WPA3-Enterprise"
+    },
+    {
+      "subnet": "192.168.100.0/24",
+      "vlan_id": "1000",
+      "network_zone": "security_management",
+      "network_type": "internal",
+      "security_level": "critical",
+      "gateway": "192.168.100.1",
+      "dns_servers": ["192.168.1.10", "192.168.1.11"],
+      "description": "Security appliances and management systems",
+      "location": "Data Center Security Zone",
+      "allowed_protocols": ["HTTPS", "SSH", "SNMP", "Syslog"],
+      "firewall_rules": {
+        "inbound": "admin_only",
+        "outbound": "security_feeds",
+        "inter_vlan": "monitoring_only"
+      },
+      "monitoring_level": "maximum",
+      "access_control": "admin_only"
+    },
+    {
+      "subnet": "192.168.255.0/24",
+      "vlan_id": "4095",
+      "network_zone": "network_management",
+      "network_type": "internal",
+      "security_level": "critical",
+      "gateway": "192.168.255.1",
+      "dns_servers": ["192.168.1.10", "192.168.1.11"],
+      "description": "Network infrastructure management",
+      "location": "Data Center Network Zone",
+      "allowed_protocols": ["SSH", "SNMP", "HTTPS", "Telnet"],
+      "firewall_rules": {
+        "inbound": "network_admin_only",
+        "outbound": "ntp_dns_only",
+        "inter_vlan": "management_only"
+      },
+      "monitoring_level": "maximum",
+      "access_control": "network_admin_only"
+    },
+    {
+      "subnet": "10.0.0.0/16",
+      "vlan_id": "n/a",
+      "network_zone": "cloud_integration",
+      "network_type": "hybrid_cloud",
+      "security_level": "high",
+      "gateway": "10.0.0.1",
+      "dns_servers": ["10.0.1.10", "10.0.1.11"],
+      "description": "Cloud integration and hybrid connectivity",
+      "location": "AWS VPC",
+      "allowed_protocols": ["HTTPS", "SSH", "VPN"],
+      "firewall_rules": {
+        "inbound": "vpn_only",
+        "outbound": "cloud_services",
+        "inter_vlan": "encrypted_tunnel"
+      },
+      "monitoring_level": "enhanced",
+      "cloud_provider": "AWS",
+      "vpn_endpoint": "vpn.isectech.com"
+    },
+    {
+      "subnet": "203.0.113.0/24",
+      "vlan_id": "n/a",
+      "network_zone": "public_facing",
+      "network_type": "external",
+      "security_level": "high",
+      "gateway": "203.0.113.1",
+      "dns_servers": ["8.8.8.8", "1.1.1.1"],
+      "description": "Public-facing web services",
+      "location": "Internet-facing",
+      "allowed_protocols": ["HTTP", "HTTPS"],
+      "firewall_rules": {
+        "inbound": "web_only",
+        "outbound": "reverse_proxy",
+        "inter_vlan": "dmz_only"
+      },
+      "monitoring_level": "maximum",
+      "ddos_protection": "enabled",
+      "waf_protection": "enabled"
+    }
+  ],
+  "network_zones": {
+    "corporate_workstations": {
+      "trust_level": "medium",
+      "user_access": true,
+      "internet_access": "filtered",
+      "lateral_movement_risk": "medium",
+      "monitoring_priority": "standard"
+    },
+    "database_servers": {
+      "trust_level": "high",
+      "user_access": false,
+      "internet_access": "none",
+      "lateral_movement_risk": "low",
+      "monitoring_priority": "critical"
+    },
+    "web_servers": {
+      "trust_level": "medium",
+      "user_access": false,
+      "internet_access": "outbound_only",
+      "lateral_movement_risk": "medium",
+      "monitoring_priority": "high"
+    },
+    "backup_storage": {
+      "trust_level": "high",
+      "user_access": false,
+      "internet_access": "none",
+      "lateral_movement_risk": "low",
+      "monitoring_priority": "standard"
+    },
+    "mobile_devices": {
+      "trust_level": "low",
+      "user_access": true,
+      "internet_access": "filtered",
+      "lateral_movement_risk": "high",
+      "monitoring_priority": "basic"
+    },
+    "security_management": {
+      "trust_level": "critical",
+      "user_access": false,
+      "internet_access": "security_feeds_only",
+      "lateral_movement_risk": "minimal",
+      "monitoring_priority": "maximum"
+    },
+    "network_management": {
+      "trust_level": "critical",
+      "user_access": false,
+      "internet_access": "ntp_dns_only",
+      "lateral_movement_risk": "minimal",
+      "monitoring_priority": "maximum"
+    },
+    "cloud_integration": {
+      "trust_level": "medium",
+      "user_access": false,
+      "internet_access": "cloud_services",
+      "lateral_movement_risk": "medium",
+      "monitoring_priority": "high"
+    },
+    "public_facing": {
+      "trust_level": "low",
+      "user_access": false,
+      "internet_access": "inbound_web_only",
+      "lateral_movement_risk": "high",
+      "monitoring_priority": "maximum"
+    }
+  },
+  "security_policies": {
+    "network_segmentation": {
+      "micro_segmentation": true,
+      "zero_trust_model": "partial",
+      "east_west_inspection": true,
+      "application_aware_filtering": true
+    },
+    "access_control": {
+      "default_deny": true,
+      "least_privilege": true,
+      "time_based_access": true,
+      "geo_blocking": ["CN", "RU", "KP"]
+    },
+    "monitoring": {
+      "full_packet_capture": ["database_servers", "security_management"],
+      "metadata_only": ["corporate_workstations", "mobile_devices"],
+      "flow_monitoring": "all_zones",
+      "anomaly_detection": true
+    }
+  },
+  "threat_model": {
+    "internal_threats": {
+      "insider_threat": "medium",
+      "lateral_movement": "high",
+      "privilege_escalation": "medium",
+      "data_exfiltration": "high"
+    },
+    "external_threats": {
+      "web_application_attacks": "high",
+      "ddos_attacks": "medium",
+      "malware_infection": "high",
+      "advanced_persistent_threat": "medium"
+    },
+    "attack_vectors": [
+      "email_phishing",
+      "web_vulnerabilities",
+      "credential_stuffing",
+      "supply_chain_attacks",
+      "insider_threats"
+    ]
+  },
+  "incident_response": {
+    "isolation_procedures": {
+      "automated_quarantine": ["malware_detected", "suspicious_traffic"],
+      "manual_isolation": ["insider_threat", "apt_indicators"],
+      "network_segmentation": "dynamic",
+      "containment_zones": ["quarantine_vlan_999"]
+    },
+    "escalation_matrix": {
+      "critical_assets": "immediate",
+      "high_value_targets": "15_minutes",
+      "standard_assets": "1_hour",
+      "low_priority": "4_hours"
+    }
+  },
+  "compliance_mapping": {
+    "PCI-DSS": {
+      "cardholder_data_environment": ["192.168.2.0/24"],
+      "network_segmentation_required": true,
+      "quarterly_scanning": true,
+      "penetration_testing": "annual"
+    },
+    "HIPAA": {
+      "protected_health_info_zones": ["192.168.2.0/24"],
+      "access_logging": "required",
+      "encryption_in_transit": true,
+      "audit_controls": "comprehensive"
+    },
+    "SOX": {
+      "financial_reporting_systems": ["192.168.2.0/24", "192.168.3.0/24"],
+      "change_management": "strict",
+      "access_reviews": "quarterly",
+      "audit_trail": "7_years"
+    }
+  },
+  "network_discovery": {
+    "discovery_methods": [
+      "active_scanning",
+      "passive_monitoring",
+      "dhcp_lease_analysis",
+      "dns_enumeration",
+      "arp_table_analysis"
+    ],
+    "scan_frequency": "daily",
+    "last_discovery": "2024-01-15T06:00:00Z",
+    "asset_correlation": "automatic"
+  }
+}

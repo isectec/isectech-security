@@ -1,0 +1,459 @@
+# iSECTECH SIEM Log Processing Docker Compose
+# Production-ready deployment for custom log parsing and integrity verification
+
+version: '3.8'
+
+networks:
+  isectech-siem:
+    external: true
+  monitoring:
+    external: true
+
+volumes:
+  log-parser-config:
+    driver: local
+  integrity-keys:
+    driver: local
+  custom-formats:
+    driver: local
+  log-processing-data:
+    driver: local
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CUSTOM LOG PARSER SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  custom-log-parser:
+    build:
+      context: .
+      dockerfile: Dockerfile.parser
+    container_name: isectech-custom-log-parser
+    hostname: custom-log-parser.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9167:9167/tcp"  # Prometheus metrics
+      - "8081:8081/tcp"  # Parser API
+    
+    volumes:
+      - ./custom-log-parser.py:/app/custom-log-parser.py:ro
+      - ./config/log-parser.yaml:/etc/isectech-siem/log-parser.yaml:ro
+      - custom-formats:/etc/isectech-siem/custom-formats:ro
+      - log-parser-config:/etc/isectech-siem
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=7
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - PARSER_API_PORT=8081
+      - METRICS_PORT=9167
+    
+    depends_on:
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9167/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=custom-log-parser"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # LOG INTEGRITY VERIFIER SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  log-integrity-verifier:
+    build:
+      context: .
+      dockerfile: Dockerfile.integrity
+    container_name: isectech-log-integrity-verifier
+    hostname: log-integrity-verifier.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9168:9168/tcp"  # Prometheus metrics
+      - "8082:8082/tcp"  # Integrity API
+    
+    volumes:
+      - ./log-integrity-verifier.py:/app/log-integrity-verifier.py:ro
+      - ./config/integrity-verifier.yaml:/etc/isectech-siem/integrity-verifier.yaml:ro
+      - integrity-keys:/etc/isectech-siem/keys:ro
+      - log-processing-data:/var/lib/integrity-verifier
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=8
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - INTEGRITY_API_PORT=8082
+      - METRICS_PORT=9168
+    
+    depends_on:
+      - redis-cache
+      - custom-log-parser
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9168/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=log-integrity-verifier"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # REDIS CACHE SERVICE (SHARED)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  redis-cache:
+    image: redis:7.2.4-alpine
+    container_name: isectech-log-processing-redis
+    hostname: log-processing-redis.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "6381:6379/tcp"  # Use different port to avoid conflict
+    
+    volumes:
+      - ./config/redis-log-processing.conf:/usr/local/etc/redis/redis.conf:ro
+      - log-processing-data:/data
+    
+    command: redis-server /usr/local/etc/redis/redis.conf
+    
+    environment:
+      - TZ=UTC
+    
+    sysctls:
+      - net.core.somaxconn=65535
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=log-processing-redis"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # LOG PROCESSING API GATEWAY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  log-processing-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway-processing
+    container_name: isectech-log-processing-gateway
+    hostname: log-processing-gateway.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "8083:8083/tcp"  # Gateway API
+      - "9169:9169/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./gateway/log-processing-gateway.py:/app/log-processing-gateway.py:ro
+      - ./config/processing-gateway.yaml:/etc/isectech-siem/processing-gateway.yaml:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - GATEWAY_PORT=8083
+      - METRICS_PORT=9169
+      - PARSER_URL=http://custom-log-parser:8081
+      - INTEGRITY_URL=http://log-integrity-verifier:8082
+    
+    depends_on:
+      - custom-log-parser
+      - log-integrity-verifier
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=log-processing-gateway"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PROMETHEUS METRICS EXPORTER
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  prometheus-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: isectech-log-processing-exporter
+    hostname: log-processing-exporter.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - monitoring
+    
+    ports:
+      - "9170:9100/tcp"
+    
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--web.listen-address=0.0.0.0:9100'
+    
+    volumes:
+      - /:/host:ro,rslave
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    
+    labels:
+      - "com.isectech.service=monitoring"
+      - "com.isectech.component=log-processing-exporter"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # LOG FORMAT MANAGER (DYNAMIC FORMAT MANAGEMENT)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  log-format-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.format-manager
+    container_name: isectech-log-format-manager
+    hostname: log-format-manager.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "8084:8084/tcp"  # Format Manager API
+      - "9171:9171/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./format-manager/log-format-manager.py:/app/log-format-manager.py:ro
+      - ./config/format-manager.yaml:/etc/isectech-siem/format-manager.yaml:ro
+      - custom-formats:/etc/isectech-siem/custom-formats
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - FORMAT_MANAGER_PORT=8084
+      - METRICS_PORT=9171
+      - PARSER_URL=http://custom-log-parser:8081
+    
+    depends_on:
+      - custom-log-parser
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: false  # Needs to write custom format files
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=log-format-manager"
+      - "com.isectech.environment=production"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEPLOYMENT NOTES AND CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Production Deployment Commands:
+#
+# 1. Create external networks:
+#    docker network create isectech-siem
+#    docker network create monitoring
+#
+# 2. Prepare crypto keys:
+#    mkdir -p ./integrity-keys
+#    openssl genrsa -out ./integrity-keys/integrity-private.pem 2048
+#    openssl rsa -in ./integrity-keys/integrity-private.pem -pubout -out ./integrity-keys/integrity-public.pem
+#    chmod 600 ./integrity-keys/integrity-private.pem
+#    chmod 644 ./integrity-keys/integrity-public.pem
+#
+# 3. Deploy services:
+#    docker-compose -f docker-compose.log-processing.yml up -d
+#
+# 4. Monitor deployment:
+#    docker-compose -f docker-compose.log-processing.yml logs -f
+#
+# 5. Health checks:
+#    docker-compose -f docker-compose.log-processing.yml ps
+#
+# 6. Test custom log parsing:
+#    curl -X POST http://localhost:8081/parse \
+#      -H "Content-Type: application/json" \
+#      -d '{"log": "2024-01-01 12:00:00 INFO test message", "format_hint": "syslog_rfc3164"}'
+#
+# 7. Test integrity verification:
+#    curl -X POST http://localhost:8082/verify \
+#      -H "Content-Type: application/json" \
+#      -d '{"log_id": "abc123", "signature": "..."}'
+#
+# Performance Tuning:
+#   - Adjust worker threads based on CPU cores
+#   - Configure batch sizes for optimal throughput
+#   - Tune Redis memory limits for caching
+#   - Optimize Kafka producer settings
+#   - Scale parser instances horizontally
+#
+# Security Considerations:
+#   - Secure cryptographic key storage
+#   - Regular key rotation procedures
+#   - Network segmentation and access controls
+#   - Audit logging for all format changes
+#   - Rate limiting for API endpoints
+#
+# Monitoring and Alerting:
+#   - Prometheus metrics on ports 9167-9171
+#   - Health check endpoints for all services
+#   - Alert on parsing failures and integrity violations
+#   - Monitor format addition/modification events
+#   - Track parsing performance and error rates

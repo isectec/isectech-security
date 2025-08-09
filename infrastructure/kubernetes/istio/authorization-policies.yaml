@@ -1,0 +1,38 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: isectech-services-allow-from-apigw
+  namespace: isectech-services
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: isectech-services
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/isectech-api-gateway/sa/api-gateway"
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/api/*", "/v1/data/authz/*"]
+      when:
+        - key: request.headers["x-tenant-id"]
+          values: ["*"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: isectech-services-deny-all
+  namespace: isectech-services
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: isectech-services
+  action: DENY
+  rules:
+    - to:
+        - operation: {}
+

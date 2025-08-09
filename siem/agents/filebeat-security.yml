@@ -1,0 +1,611 @@
+# iSECTECH SIEM Enhanced Filebeat Configuration
+# Security-focused log collection and forwarding
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBAL CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: "isectech-filebeat-security"
+tags: ["security", "siem", "isectech"]
+
+# Maximum number of events to read from each input in one harvester iteration
+max_procs: 4
+queue.mem.events: 65536
+queue.mem.flush.min_events: 8192
+queue.mem.flush.timeout: 5s
+
+# Registry file to store file reading positions
+filebeat.registry.path: "/var/lib/filebeat/registry"
+filebeat.registry.file_permissions: 0600
+filebeat.registry.flush: 1s
+
+# Shutdown timeout
+filebeat.shutdown_timeout: 30s
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INPUT CONFIGURATION - SECURITY LOGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+filebeat.inputs:
+
+# Linux Security Logs
+- type: log
+  id: linux-security-logs
+  enabled: true
+  paths:
+    - /var/log/auth.log*
+    - /var/log/secure*
+    - /var/log/audit/audit.log*
+    - /var/log/sudo.log*
+    - /var/log/kern.log*
+  exclude_files: ['.gz$', '.bz2$', '.zip$']
+  
+  # Security log specific settings
+  scan_frequency: 1s
+  harvester_buffer_size: 32768
+  max_bytes: 1048576  # 1MB per line
+  close_inactive: 1h
+  close_renamed: true
+  close_removed: true
+  clean_inactive: 72h
+  
+  # Multiline configuration for stack traces
+  multiline.pattern: '^\s'
+  multiline.negate: false
+  multiline.match: after
+  multiline.max_lines: 500
+  multiline.timeout: 5s
+  
+  # Fields and metadata
+  fields:
+    log_type: "security"
+    environment: "${ENVIRONMENT:production}"
+    datacenter: "${DATACENTER:primary}"
+    tenant_id: "${TENANT_ID:default}"
+    criticality: "high"
+  fields_under_root: false
+  
+  # JSON parsing for structured logs
+  json.keys_under_root: false
+  json.add_error_key: true
+  json.message_key: "message"
+  
+  # Include file metadata
+  include_lines: []
+  exclude_lines: ['^$', '^\s*#']
+  
+  processors:
+    - add_host_metadata:
+        when.not.contains.tags: forwarded
+        netinfo.enabled: true
+        cache.ttl: 5m
+        geo.name: "${DATACENTER:unknown}"
+        geo.location: "${GEO_LOCATION:unknown}"
+    
+    - add_docker_metadata:
+        host: "unix:///var/run/docker.sock"
+        match_fields: ["system.process.cgroup.id"]
+        match_pids: ["process.pid", "process.parent.pid"]
+        match_source: true
+        match_source_index: 4
+        match_short_id: false
+        cleanup_timeout: 60s
+        labels.dedot: false
+        
+    - fingerprint:
+        fields: ["message", "host.name", "@timestamp"]
+        target_field: "event_fingerprint"
+        method: "sha256"
+        encoding: "hex"
+    
+    - timestamp:
+        field: "@timestamp"
+        layouts:
+          - '2006-01-02T15:04:05.000Z'
+          - '2006-01-02 15:04:05'
+          - 'Jan _2 15:04:05'
+        test:
+          - '2023-12-01T10:30:45.123Z'
+          - '2023-12-01 10:30:45'
+          - 'Dec  1 10:30:45'
+
+# Application Security Logs
+- type: log
+  id: application-security-logs
+  enabled: true
+  paths:
+    - /var/log/nginx/access.log*
+    - /var/log/nginx/error.log*
+    - /var/log/apache2/access.log*
+    - /var/log/apache2/error.log*
+    - /opt/isectech/logs/application-security.log*
+    - /var/log/fail2ban.log*
+  
+  scan_frequency: 1s
+  max_bytes: 2097152  # 2MB for large requests
+  
+  fields:
+    log_type: "application_security"
+    environment: "${ENVIRONMENT:production}"
+    criticality: "high"
+  
+  # Web server log parsing
+  multiline.pattern: '^\d{4}-\d{2}-\d{2}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+  multiline.negate: true
+  multiline.match: after
+  
+  processors:
+    - add_host_metadata:
+        when.not.contains.tags: forwarded
+    
+    # Parse common web server log formats
+    - dissect:
+        tokenizer: '%{client_ip} %{ident} %{auth} [%{timestamp}] "%{verb} %{request} %{httpversion}" %{response} %{bytes} "%{referrer}" "%{agent}"'
+        field: "message"
+        target_prefix: "web"
+        when.regexp:
+          message: '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+    
+    # Extract security indicators
+    - script:
+        lang: javascript
+        id: security_indicators
+        source: >
+          function process(event) {
+            var message = event.Get("message");
+            var indicators = [];
+            
+            // SQL Injection patterns
+            if (message.match(/(\bor\b|\band\b).*?[=<>].*?[\'"]/i)) {
+              indicators.push("sql_injection");
+            }
+            
+            // XSS patterns
+            if (message.match(/<script|javascript:|on\w+\s*=/i)) {
+              indicators.push("xss");
+            }
+            
+            // Path traversal
+            if (message.match(/\.\.[\/\\]|\.{2,}[\/\\]/)) {
+              indicators.push("path_traversal");
+            }
+            
+            // Command injection
+            if (message.match(/[;&|`$(){}[\]]/)) {
+              indicators.push("command_injection");
+            }
+            
+            // Suspicious user agents
+            if (message.match(/(bot|crawler|scanner|nikto|sqlmap|nmap)/i)) {
+              indicators.push("suspicious_user_agent");
+            }
+            
+            if (indicators.length > 0) {
+              event.Put("security.indicators", indicators);
+              event.Put("security.risk_score", indicators.length * 2);
+              event.Put("alert.priority", indicators.length > 2 ? "high" : "medium");
+            }
+          }
+
+# Database Security Logs
+- type: log
+  id: database-security-logs
+  enabled: true
+  paths:
+    - /var/log/postgresql/postgresql-*.log*
+    - /var/log/mysql/error.log*
+    - /var/log/mysql/mysql-slow.log*
+    - /var/log/mongodb/mongod.log*
+    - /var/log/redis/redis-server.log*
+  
+  fields:
+    log_type: "database_security"
+    criticality: "critical"
+  
+  processors:
+    - add_host_metadata: {}
+    
+    # Database-specific security analysis
+    - script:
+        lang: javascript
+        id: database_security
+        source: >
+          function process(event) {
+            var message = event.Get("message");
+            var indicators = [];
+            var riskScore = 0;
+            
+            // Failed authentication
+            if (message.match(/authentication failed|login failed|access denied/i)) {
+              indicators.push("auth_failure");
+              riskScore += 3;
+            }
+            
+            // Privilege escalation attempts
+            if (message.match(/permission denied|privilege|unauthorized/i)) {
+              indicators.push("privilege_escalation");
+              riskScore += 4;
+            }
+            
+            // Suspicious queries
+            if (message.match(/information_schema|pg_catalog|mysql\.user/i)) {
+              indicators.push("schema_enumeration");
+              riskScore += 5;
+            }
+            
+            // Performance issues that might indicate attacks
+            if (message.match(/slow query|timeout|deadlock/i)) {
+              indicators.push("performance_issue");
+              riskScore += 2;
+            }
+            
+            if (indicators.length > 0) {
+              event.Put("security.indicators", indicators);
+              event.Put("security.risk_score", riskScore);
+              if (riskScore >= 5) {
+                event.Put("alert.priority", "high");
+              } else {
+                event.Put("alert.priority", "medium");
+              }
+            }
+          }
+
+# Container Security Logs
+- type: container
+  id: container-security-logs
+  enabled: true
+  paths:
+    - '/var/lib/docker/containers/*/*.log'
+  
+  # Container-specific configuration
+  stream: "all"
+  format: "auto"
+  
+  # Include container metadata
+  containers.ids:
+    - "*"
+  containers.path: "/var/lib/docker/containers"
+  
+  fields:
+    log_type: "container_security"
+    criticality: "medium"
+  
+  processors:
+    - add_docker_metadata:
+        host: "unix:///var/run/docker.sock"
+        match_fields: ["container.id"]
+        match_pids: ["process.pid", "process.parent.pid"]
+        match_source: true
+        match_source_index: 4
+        match_short_id: false
+        cleanup_timeout: 60s
+        labels.dedot: false
+    
+    - add_kubernetes_metadata:
+        host: "${NODE_NAME}"
+        scope: node
+        node: "${NODE_NAME}"
+        in_cluster: true
+        kube_config: ~/.kube/config
+        default_indexers.enabled: true
+        default_matchers.enabled: true
+        include_labels: ["app", "version", "environment"]
+        include_annotations: ["security.isectech.com/*"]
+
+# Network Security Logs (via syslog)
+- type: syslog
+  protocol.udp:
+    host: "0.0.0.0:514"
+    max_message_size: 65536
+  protocol.tcp:
+    host: "0.0.0.0:1514"
+    max_message_size: 65536
+    line_delimiter: "\n"
+    timeout: 300s
+    max_connections: 4
+  
+  fields:
+    log_type: "network_security"
+    criticality: "high"
+  
+  processors:
+    - decode_cef:
+        field: "message"
+        target_field: "cef"
+        ecs: true
+    
+    - script:
+        lang: javascript
+        id: network_security_analysis
+        source: >
+          function process(event) {
+            var message = event.Get("message");
+            var indicators = [];
+            var riskScore = 0;
+            
+            // DDoS indicators
+            if (message.match(/flood|ddos|dos attack/i)) {
+              indicators.push("ddos");
+              riskScore += 8;
+            }
+            
+            // Port scanning
+            if (message.match(/port scan|stealth scan|syn flood/i)) {
+              indicators.push("port_scan");
+              riskScore += 6;
+            }
+            
+            // Intrusion attempts
+            if (message.match(/intrusion|malware|trojan|backdoor/i)) {
+              indicators.push("intrusion_attempt");
+              riskScore += 9;
+            }
+            
+            // Firewall denials
+            if (message.match(/denied|blocked|dropped/i)) {
+              indicators.push("firewall_denial");
+              riskScore += 2;
+            }
+            
+            if (indicators.length > 0) {
+              event.Put("security.indicators", indicators);
+              event.Put("security.risk_score", riskScore);
+              if (riskScore >= 7) {
+                event.Put("alert.priority", "critical");
+              } else if (riskScore >= 4) {
+                event.Put("alert.priority", "high");
+              } else {
+                event.Put("alert.priority", "medium");
+              }
+            }
+          }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODULES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+filebeat.modules:
+
+# System module for OS-level security events
+- module: system
+  syslog:
+    enabled: true
+    var.paths: ["/var/log/syslog*", "/var/log/messages*"]
+    var.convert_timezone: true
+  
+  auth:
+    enabled: true
+    var.paths: ["/var/log/auth.log*", "/var/log/secure*"]
+    var.convert_timezone: true
+
+# Nginx module for web security
+- module: nginx
+  access:
+    enabled: true
+    var.paths: ["/var/log/nginx/access.log*"]
+  
+  error:
+    enabled: true
+    var.paths: ["/var/log/nginx/error.log*"]
+
+# Apache module
+- module: apache
+  access:
+    enabled: true
+    var.paths: ["/var/log/apache2/access.log*"]
+  
+  error:
+    enabled: true
+    var.paths: ["/var/log/apache2/error.log*"]
+
+# MySQL module for database security
+- module: mysql
+  error:
+    enabled: true
+    var.paths: ["/var/log/mysql/error.log*"]
+  
+  slowlog:
+    enabled: true
+    var.paths: ["/var/log/mysql/mysql-slow.log*"]
+
+# PostgreSQL module
+- module: postgresql
+  log:
+    enabled: true
+    var.paths: ["/var/log/postgresql/postgresql-*.log*"]
+
+# Auditd module for system call auditing
+- module: auditd
+  log:
+    enabled: true
+    var.paths: ["/var/log/audit/audit.log*"]
+    var.close_renamed: true
+    var.close_removed: true
+    var.close_eof: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROCESSORS - GLOBAL EVENT ENRICHMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+processors:
+  # Add timestamp
+  - timestamp:
+      field: "@timestamp"
+      layouts:
+        - '2006-01-02T15:04:05.000Z'
+        - '2006-01-02 15:04:05'
+        - 'Jan _2 15:04:05'
+      test:
+        - '2023-12-01T10:30:45.123Z'
+  
+  # Add environment information
+  - add_fields:
+      target: "environment"
+      fields:
+        name: "${ENVIRONMENT:production}"
+        datacenter: "${DATACENTER:primary}"
+        zone: "${AVAILABILITY_ZONE:unknown}"
+        tenant_id: "${TENANT_ID:default}"
+  
+  # Add agent information
+  - add_fields:
+      target: "agent"
+      fields:
+        type: "filebeat"
+        version: "8.11.0"
+        name: "${BEAT_NAME:filebeat-security}"
+  
+  # Drop empty or debug messages
+  - drop_event:
+      when:
+        or:
+          - equals:
+              message: ""
+          - regexp:
+              message: "^\\s*$"
+          - contains:
+              message: "DEBUG"
+              
+  # Deduplicate events
+  - fingerprint:
+      fields: ["message", "host.name", "log.file.path"]
+      target_field: "event.hash"
+      method: "sha256"
+      encoding: "hex"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Primary output to Kafka for stream processing
+output.kafka:
+  enabled: true
+  hosts:
+    - "kafka-1.isectech.local:9092"
+    - "kafka-2.isectech.local:9092"
+    - "kafka-3.isectech.local:9092"
+  
+  # Topic routing based on log type
+  topic: "security-logs-%{[fields.log_type]:unknown}"
+  partition.round_robin:
+    reachable_only: false
+    group_events: 1
+  
+  # Kafka client settings
+  client_id: "filebeat-security"
+  version: "2.8.0"
+  username: "${KAFKA_USERNAME:filebeat}"
+  password: "${KAFKA_PASSWORD}"
+  
+  # Performance settings
+  max_message_bytes: 10000000  # 10MB
+  required_acks: 1
+  compression: gzip
+  max_retries: 3
+  backoff.init: 1s
+  backoff.max: 60s
+  bulk_max_size: 2048
+  timeout: 30s
+  broker_timeout: 10s
+  channel_buffer_size: 256
+  keep_alive: 30s
+  
+  # TLS Configuration
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
+  ssl.certificate: "/etc/filebeat/certs/filebeat.crt"
+  ssl.key: "/etc/filebeat/certs/filebeat.key"
+  ssl.verification_mode: "strict"
+  ssl.cipher_suites:
+    - "TLS_AES_256_GCM_SHA384"
+    - "TLS_AES_128_GCM_SHA256"
+    - "TLS_CHACHA20_POLY1305_SHA256"
+  ssl.curve_types:
+    - "P-256"
+    - "P-384"
+    - "P-521"
+
+# Backup output to Elasticsearch
+#output.elasticsearch:
+#  hosts:
+#    - "elasticsearch-1.isectech.local:9200"
+#    - "elasticsearch-2.isectech.local:9200"
+#    - "elasticsearch-3.isectech.local:9200"
+#  
+#  index: "filebeat-security-%{+yyyy.MM.dd}"
+#  template.name: "filebeat-security"
+#  template.pattern: "filebeat-security-*"
+#  template.settings:
+#    index.number_of_shards: 3
+#    index.number_of_replicas: 1
+#    index.refresh_interval: "5s"
+#    index.codec: "best_compression"
+#  
+#  username: "${ELASTICSEARCH_USERNAME:filebeat}"
+#  password: "${ELASTICSEARCH_PASSWORD}"
+#  
+#  ssl.enabled: true
+#  ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
+#  ssl.certificate: "/etc/filebeat/certs/filebeat.crt"
+#  ssl.key: "/etc/filebeat/certs/filebeat.key"
+#  ssl.verification_mode: "strict"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING AND MONITORING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: "/var/log/filebeat"
+  name: "filebeat-security"
+  keepfiles: 7
+  permissions: 0600
+  interval: 24h
+  rotateeverybytes: 104857600  # 100MB
+
+# Metrics monitoring
+monitoring.enabled: true
+monitoring.cluster_uuid: "${ELASTICSEARCH_CLUSTER_UUID}"
+
+# Internal metrics
+http.enabled: true
+http.host: "0.0.0.0"
+http.port: 5066
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Keystore for sensitive information
+keystore.path: "/etc/filebeat/filebeat.keystore"
+
+# Process security
+seccomp:
+  default_action: "errno"
+  syscalls:
+    - action: "allow"
+      name: "rseq"
+
+# File permissions
+path.config: "/etc/filebeat"
+path.data: "/var/lib/filebeat"
+path.logs: "/var/log/filebeat"
+path.home: "/usr/share/filebeat"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MEMORY AND PERFORMANCE TUNING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Memory settings
+queue.mem:
+  events: 65536
+  flush.min_events: 8192
+  flush.timeout: 5s
+
+# File harvesting settings
+filebeat.inputs[0].harvester_buffer_size: 32768
+filebeat.inputs[0].max_bytes: 1048576
+
+# Resource limits
+max_procs: 4

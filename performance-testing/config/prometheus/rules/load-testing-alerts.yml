@@ -1,0 +1,259 @@
+# Prometheus Alerting Rules for Load Testing
+# Performance degradation and system health alerts
+
+groups:
+  - name: load_testing_performance
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: (sum(rate(http_requests_total{status!~"2.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: load-testing
+          category: performance
+        annotations:
+          summary: "High error rate detected during load testing"
+          description: "Error rate is {{ $value }}% which is above the 5% threshold"
+
+      # Critical error rate alert
+      - alert: CriticalErrorRate
+        expr: (sum(rate(http_requests_total{status!~"2.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 10
+        for: 1m
+        labels:
+          severity: critical
+          service: load-testing
+          category: performance
+        annotations:
+          summary: "Critical error rate detected during load testing"
+          description: "Error rate is {{ $value }}% which is above the critical 10% threshold"
+
+      # High response time alert
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000 > 1000
+        for: 3m
+        labels:
+          severity: warning
+          service: load-testing
+          category: performance
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}ms, above 1000ms threshold"
+
+      # Critical response time alert
+      - alert: CriticalResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000 > 2000
+        for: 2m
+        labels:
+          severity: critical
+          service: load-testing
+          category: performance
+        annotations:
+          summary: "Critical response time detected"
+          description: "95th percentile response time is {{ $value }}ms, above critical 2000ms threshold"
+
+      # k6 specific alerts
+      - alert: K6VUsThresholdExceeded
+        expr: k6_vus > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: k6
+          category: load-testing
+        annotations:
+          summary: "k6 virtual users threshold exceeded"
+          description: "Current VUs: {{ $value }}, threshold: 1000"
+
+      - alert: K6SecurityEventProcessingFailure
+        expr: k6_security_event_processing_success_rate < 0.95
+        for: 2m
+        labels:
+          severity: critical
+          service: k6
+          category: security
+        annotations:
+          summary: "k6 security event processing failure rate too high"
+          description: "Security event processing success rate: {{ $value }}, below 95% threshold"
+
+      # Artillery specific alerts
+      - alert: ArtilleryHighConcurrency
+        expr: artillery_concurrent_users > 500
+        for: 5m
+        labels:
+          severity: warning
+          service: artillery
+          category: load-testing
+        annotations:
+          summary: "Artillery concurrent users threshold exceeded"
+          description: "Current concurrent users: {{ $value }}, threshold: 500"
+
+  - name: system_health
+    rules:
+      # CPU usage alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+          category: resource
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+          category: resource
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # Memory usage alerts
+      - alert: HighMemoryUsage
+        expr: 100 * (1 - ((node_memory_MemAvailable_bytes or node_memory_Buffers_bytes + node_memory_Cached_bytes + node_memory_MemFree_bytes) / node_memory_MemTotal_bytes)) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+          category: resource
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: CriticalMemoryUsage
+        expr: 100 * (1 - ((node_memory_MemAvailable_bytes or node_memory_Buffers_bytes + node_memory_Cached_bytes + node_memory_MemFree_bytes) / node_memory_MemTotal_bytes)) > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+          category: resource
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # Disk usage alerts
+      - alert: HighDiskUsage
+        expr: 100 - ((node_filesystem_avail_bytes{mountpoint="/"} * 100) / node_filesystem_size_bytes{mountpoint="/"}) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+          category: resource
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: CriticalDiskUsage
+        expr: 100 - ((node_filesystem_avail_bytes{mountpoint="/"} * 100) / node_filesystem_size_bytes{mountpoint="/"}) > 95
+        for: 1m
+        labels:
+          severity: critical
+          service: system
+          category: resource
+        annotations:
+          summary: "Critical disk usage detected"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }}"
+
+  - name: database_health
+    rules:
+      # Database connection alerts
+      - alert: HighDatabaseConnections
+        expr: postgres_stat_activity_count / postgres_settings_max_connections * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: postgresql
+          category: database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database connection usage is {{ $value }}%"
+
+      - alert: CriticalDatabaseConnections
+        expr: postgres_stat_activity_count / postgres_settings_max_connections * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: postgresql
+          category: database
+        annotations:
+          summary: "Critical database connection usage"
+          description: "Database connection usage is {{ $value }}%"
+
+      # Database query performance
+      - alert: SlowDatabaseQueries
+        expr: rate(postgres_stat_database_tup_fetched_total[5m]) / rate(postgres_stat_database_tup_returned_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: postgresql
+          category: performance
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Database query efficiency ratio: {{ $value }}"
+
+  - name: application_health
+    rules:
+      # Application service health
+      - alert: ServiceDown
+        expr: up{job="isectech-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: isectech-api
+          category: availability
+        annotations:
+          summary: "iSECTECH API service is down"
+          description: "The iSECTECH API service on {{ $labels.instance }} has been down for more than 1 minute"
+
+      # High application error logs
+      - alert: HighApplicationErrors
+        expr: increase(application_errors_total[5m]) > 50
+        for: 2m
+        labels:
+          severity: warning
+          service: isectech-api
+          category: application
+        annotations:
+          summary: "High application error rate"
+          description: "{{ $value }} application errors in the last 5 minutes"
+
+  - name: security_specific
+    rules:
+      # Security processing alerts
+      - alert: ThreatDetectionLatencyHigh
+        expr: threat_detection_latency_seconds > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: security
+          category: performance
+        annotations:
+          summary: "High threat detection latency"
+          description: "Threat detection latency is {{ $value }} seconds"
+
+      - alert: AlertCorrelationFailure
+        expr: alert_correlation_success_rate < 0.90
+        for: 2m
+        labels:
+          severity: critical
+          service: security
+          category: functionality
+        annotations:
+          summary: "Alert correlation failure rate too high"
+          description: "Alert correlation success rate: {{ $value }}"
+
+      # Authentication failures
+      - alert: HighAuthenticationFailures
+        expr: rate(authentication_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: security
+          category: authentication
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value }} authentication failures per second"

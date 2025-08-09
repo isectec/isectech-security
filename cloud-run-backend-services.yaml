@@ -1,0 +1,636 @@
+# iSECTECH Backend Services - Cloud Run Deployment Configuration
+# Comprehensive configuration for all Go microservices
+# Author: Claude Code - iSECTECH Infrastructure Team
+# Version: 2.0.0
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: isectech-backend-services
+  namespace: default
+  labels:
+    app: isectech-backend-services
+    tier: application
+    component: microservices
+    version: "2.0.0"
+    environment: production
+    managed-by: isectech-platform
+  annotations:
+    # Cloud Run specific annotations
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/launch-stage: GA
+    
+    # IAM annotations
+    run.googleapis.com/invoker: allUsers
+    
+    # Binary authorization
+    run.googleapis.com/binary-authorization-policy: default
+    
+    # VPC connector for private networking
+    run.googleapis.com/vpc-access-connector: isectech-vpc-connector
+    run.googleapis.com/vpc-access-egress: private-ranges-only
+    
+    # Custom domain
+    run.googleapis.com/custom-audiences: api.isectech.com
+    
+    # Revision naming
+    run.googleapis.com/revision-suffix: "backend-v2-0-0"
+    
+    # Traffic allocation
+    run.googleapis.com/rollout-policy: gradual
+    
+    # Security
+    run.googleapis.com/secure-headers: true
+    
+    # Monitoring
+    run.googleapis.com/cpu-throttling: false
+    run.googleapis.com/enable-audit-logs: true
+    
+spec:
+  template:
+    metadata:
+      labels:
+        app: isectech-backend-services
+        version: "2.0.0"
+        tier: application
+      annotations:
+        # Resource allocation
+        run.googleapis.com/memory: "2Gi"
+        run.googleapis.com/cpu: "2000m"
+        
+        # Scaling configuration
+        autoscaling.knative.dev/minScale: "2"
+        autoscaling.knative.dev/maxScale: "200"
+        
+        # Concurrency settings
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/max-instances: "200"
+        run.googleapis.com/min-instances: "2"
+        
+        # Timeout and startup
+        run.googleapis.com/timeout: "900s"
+        run.googleapis.com/startup-probe-timeout: "240s"
+        
+        # Security context
+        run.googleapis.com/sandbox: gvisor
+        
+        # Secrets manager integration (comprehensive backend secrets)
+        run.googleapis.com/secrets: |
+          POSTGRES_PASSWORD:isectech-postgres-password:latest,
+          MONGODB_PASSWORD:isectech-mongodb-password:latest,
+          REDIS_PASSWORD:isectech-redis-password:latest,
+          CLICKHOUSE_PASSWORD:isectech-clickhouse-password:latest,
+          JWT_ACCESS_SECRET:isectech-jwt-access-secret:latest,
+          JWT_REFRESH_SECRET:isectech-jwt-refresh-secret:latest,
+          SERVICE_API_KEY:isectech-service-api-key:latest,
+          APP_ENCRYPTION_KEY:isectech-app-encryption-key:latest,
+          PII_ENCRYPTION_KEY:isectech-pii-encryption-key:latest,
+          VIRUSTOTAL_API_KEY:isectech-virustotal-api-key:latest,
+          RECORDED_FUTURE_API_KEY:isectech-recorded-future-api-key:latest,
+          MISP_API_KEY:isectech-misp-api-key:latest,
+          NESSUS_API_KEY:isectech-nessus-api-key:latest,
+          OPENVAS_PASSWORD:isectech-openvas-password:latest,
+          SPLUNK_HEC_TOKEN:isectech-splunk-hec-token:latest,
+          ELASTIC_PASSWORD:isectech-elastic-password:latest,
+          SMTP_PASSWORD:isectech-smtp-password:latest,
+          SLACK_BOT_TOKEN:isectech-slack-bot-token:latest,
+          TWILIO_AUTH_TOKEN:isectech-twilio-auth-token:latest,
+          PAGERDUTY_INTEGRATION_KEY:isectech-pagerduty-integration-key:latest
+        
+        # Service account
+        run.googleapis.com/service-account: isectech-backend-services-sa@isectech-security-platform.iam.gserviceaccount.com
+        
+    spec:
+      containerConcurrency: 100
+      timeoutSeconds: 900
+      
+      containers:
+      - name: isectech-backend-services
+        image: us-central1-docker.pkg.dev/isectech-security-platform/isectech-production/backend-services:latest
+        
+        # Resource limits and requests
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        # Port configuration
+        ports:
+        - name: http1
+          containerPort: 8080
+          protocol: TCP
+        
+        # Environment variables
+        env:
+        # Application Configuration
+        - name: GO_ENV
+          value: "production"
+        - name: GIN_MODE
+          value: "release"
+        - name: SERVICE_NAME
+          value: "isectech-backend-services"
+        - name: SERVICE_VERSION
+          value: "2.0.0"
+        - name: ENVIRONMENT
+          value: "production"
+        
+        # Network Configuration
+        - name: PORT
+          value: "8080"
+        - name: HOST
+          value: "0.0.0.0"
+        
+        # Database Configuration (from Secret Manager)
+        - name: POSTGRES_HOST
+          value: "127.0.0.1"  # Via Cloud SQL Proxy
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: isectech-postgres-user
+              key: latest
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-postgres-password
+              key: latest
+        - name: POSTGRES_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: isectech-postgres-database
+              key: latest
+        - name: POSTGRES_SSL_MODE
+          value: "require"
+        
+        # MongoDB Configuration (from Secret Manager)
+        - name: MONGODB_HOST
+          value: "mongodb+srv://prod-cluster.isectech.mongodb.net"
+        - name: MONGODB_USER
+          valueFrom:
+            secretKeyRef:
+              name: isectech-mongodb-user
+              key: latest
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-mongodb-password
+              key: latest
+        - name: MONGODB_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: isectech-mongodb-database
+              key: latest
+        - name: MONGODB_AUTH_SOURCE
+          value: "admin"
+        
+        # Redis Configuration (from Secret Manager)
+        - name: REDIS_HOST
+          value: "10.0.0.100"  # Private IP in VPC
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-redis-password
+              key: latest
+        - name: REDIS_DATABASE
+          value: "0"
+        
+        # ClickHouse Configuration (from Secret Manager)
+        - name: CLICKHOUSE_HOST
+          value: "clickhouse-prod.isectech.com"
+        - name: CLICKHOUSE_PORT
+          value: "8443"
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: isectech-clickhouse-user
+              key: latest
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-clickhouse-password
+              key: latest
+        - name: CLICKHOUSE_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: isectech-clickhouse-database
+              key: latest
+        
+        # JWT Configuration (from Secret Manager)
+        - name: JWT_ACCESS_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: isectech-jwt-access-secret
+              key: latest
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: isectech-jwt-refresh-secret
+              key: latest
+        - name: JWT_ACCESS_EXPIRY
+          value: "15m"
+        - name: JWT_REFRESH_EXPIRY
+          value: "7d"
+        
+        # Service-to-Service Authentication
+        - name: SERVICE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-service-api-key
+              key: latest
+        
+        # Encryption Keys (from Secret Manager)
+        - name: APP_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-app-encryption-key
+              key: latest
+        - name: PII_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-pii-encryption-key
+              key: latest
+        - name: LOG_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-log-encryption-key
+              key: latest
+        
+        # Threat Intelligence APIs (from Secret Manager)
+        - name: VIRUSTOTAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-virustotal-api-key
+              key: latest
+        - name: VIRUSTOTAL_API_URL
+          value: "https://www.virustotal.com/vtapi/v2"
+        - name: RECORDED_FUTURE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-recorded-future-api-key
+              key: latest
+        - name: RECORDED_FUTURE_API_URL
+          value: "https://api.recordedfuture.com/v2"
+        - name: MISP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-misp-api-key
+              key: latest
+        - name: MISP_API_URL
+          value: "https://misp.isectech.com"
+        
+        # Security Tools APIs (from Secret Manager)
+        - name: NESSUS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-nessus-api-key
+              key: latest
+        - name: NESSUS_API_URL
+          value: "https://nessus.isectech.com:8834"
+        - name: OPENVAS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-openvas-password
+              key: latest
+        - name: OPENVAS_API_URL
+          value: "https://openvas.isectech.com:9392"
+        - name: QUALYS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-qualys-api-key
+              key: latest
+        
+        # SIEM Integration (from Secret Manager)
+        - name: SPLUNK_HEC_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: isectech-splunk-hec-token
+              key: latest
+        - name: SPLUNK_HEC_URL
+          value: "https://splunk.isectech.com:8088/services/collector"
+        - name: ELASTIC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-elastic-password
+              key: latest
+        - name: ELASTICSEARCH_URL
+          value: "https://elasticsearch.isectech.com:9200"
+        
+        # SOAR Integration (from Secret Manager)
+        - name: PHANTOM_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: isectech-phantom-auth-token
+              key: latest
+        - name: PHANTOM_API_URL
+          value: "https://phantom.isectech.com/rest"
+        - name: DEMISTO_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-demisto-api-key
+              key: latest
+        - name: DEMISTO_API_URL
+          value: "https://demisto.isectech.com/api/v1"
+        
+        # Communication Services (from Secret Manager)
+        - name: SMTP_HOST
+          value: "smtp.sendgrid.net"
+        - name: SMTP_PORT
+          value: "587"
+        - name: SMTP_USERNAME
+          value: "apikey"
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-smtp-password
+              key: latest
+        - name: SMTP_FROM_ADDRESS
+          value: "alerts@isectech.com"
+        
+        # Slack Integration (from Secret Manager)
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: isectech-slack-bot-token
+              key: latest
+        - name: SLACK_CHANNEL
+          value: "#security-alerts"
+        
+        # SMS/Voice Notifications (from Secret Manager)
+        - name: TWILIO_ACCOUNT_SID
+          value: "AC1234567890abcdef1234567890abcdef"
+        - name: TWILIO_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: isectech-twilio-auth-token
+              key: latest
+        - name: TWILIO_PHONE_NUMBER
+          value: "+15551234567"
+        
+        # PagerDuty Integration (from Secret Manager)
+        - name: PAGERDUTY_INTEGRATION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-pagerduty-integration-key
+              key: latest
+        - name: PAGERDUTY_API_URL
+          value: "https://api.pagerduty.com"
+        
+        # Kafka Configuration
+        - name: KAFKA_BROKERS
+          value: "kafka.isectech.com:9092"
+        - name: KAFKA_SASL_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: isectech-kafka-sasl-username
+              key: latest
+        - name: KAFKA_SASL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: isectech-kafka-sasl-password
+              key: latest
+        - name: KAFKA_SECURITY_PROTOCOL
+          value: "SASL_SSL"
+        - name: KAFKA_SASL_MECHANISM
+          value: "PLAIN"
+        
+        # Consul Configuration
+        - name: CONSUL_ADDRESS
+          value: "consul.isectech.com:8500"
+        - name: CONSUL_ENCRYPT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: isectech-consul-encrypt-key
+              key: latest
+        
+        # Performance Configuration
+        - name: MAX_CONNECTIONS
+          value: "100"
+        - name: CONNECTION_TIMEOUT
+          value: "30s"
+        - name: READ_TIMEOUT
+          value: "60s"
+        - name: WRITE_TIMEOUT
+          value: "60s"
+        - name: IDLE_TIMEOUT
+          value: "120s"
+        
+        # Logging Configuration
+        - name: LOG_LEVEL
+          value: "info"
+        - name: LOG_FORMAT
+          value: "json"
+        - name: LOG_OUTPUT
+          value: "stdout"
+        - name: ACCESS_LOG_ENABLED
+          value: "true"
+        - name: ERROR_LOG_ENABLED
+          value: "true"
+        - name: AUDIT_LOG_ENABLED
+          value: "true"
+        
+        # Security Configuration
+        - name: CORS_ENABLED
+          value: "true"
+        - name: CORS_ALLOWED_ORIGINS
+          value: "https://protect.isectech.com,https://api.isectech.com"
+        - name: RATE_LIMIT_ENABLED
+          value: "true"
+        - name: RATE_LIMIT_REQUESTS_PER_MINUTE
+          value: "1000"
+        - name: RATE_LIMIT_BURST
+          value: "100"
+        
+        # Feature Flags
+        - name: FEATURE_THREAT_INTELLIGENCE
+          value: "true"
+        - name: FEATURE_VULNERABILITY_SCANNING
+          value: "true"
+        - name: FEATURE_SIEM_INTEGRATION
+          value: "true"
+        - name: FEATURE_SOAR_INTEGRATION
+          value: "true"
+        - name: FEATURE_REAL_TIME_ALERTS
+          value: "true"
+        - name: FEATURE_MACHINE_LEARNING
+          value: "true"
+        - name: FEATURE_AUTOMATED_RESPONSE
+          value: "false"  # Disabled by default for safety
+        
+        # Monitoring Configuration
+        - name: METRICS_ENABLED
+          value: "true"
+        - name: METRICS_PORT
+          value: "9090"
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        - name: TRACING_ENABLED
+          value: "true"
+        - name: TRACING_SAMPLE_RATE
+          value: "0.1"
+        
+        # Build Information (populated by CI/CD)
+        - name: BUILD_DATE
+          value: "2024-01-01T00:00:00Z"
+        - name: BUILD_VERSION
+          value: "2.0.0"
+        - name: BUILD_COMMIT
+          value: "latest"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            httpHeaders:
+            - name: User-Agent
+              value: "GoogleHC/1.0"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+            httpHeaders:
+            - name: User-Agent
+              value: "GoogleHC/1.0"
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 8080
+            httpHeaders:
+            - name: User-Agent
+              value: "GoogleHC/1.0"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+          successThreshold: 1
+        
+        # Security Context - hardened configuration
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true  # Enable read-only root filesystem
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        
+        # Volume mounts
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: var-log
+          mountPath: /var/log
+        - name: app-config
+          mountPath: /app/config
+          readOnly: true
+      
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: var-log
+        emptyDir: {}
+      - name: app-config
+        configMap:
+          name: isectech-backend-config
+      
+      # Service account
+      serviceAccountName: isectech-backend-services-sa
+
+---
+# Configuration map for backend services
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: isectech-backend-config
+  namespace: default
+  labels:
+    app: isectech-backend-services
+data:
+  app.yaml: |
+    server:
+      port: 8080
+      read_timeout: 60s
+      write_timeout: 60s
+      idle_timeout: 120s
+      max_header_bytes: 1048576
+    
+    database:
+      max_open_connections: 100
+      max_idle_connections: 10
+      connection_max_lifetime: 1h
+      connection_max_idle_time: 30m
+    
+    redis:
+      max_connections: 50
+      idle_timeout: 300s
+      connection_timeout: 5s
+    
+    logging:
+      level: info
+      format: json
+      access_log: true
+      error_log: true
+      audit_log: true
+    
+    security:
+      cors_enabled: true
+      rate_limit_enabled: true
+      auth_timeout: 30m
+      session_timeout: 8h
+    
+    monitoring:
+      metrics_enabled: true
+      tracing_enabled: true
+      health_check_interval: 30s
+
+---
+# Custom domain mapping
+apiVersion: serving.knative.dev/v1alpha1
+kind: DomainMapping
+metadata:
+  name: api.isectech.com
+  namespace: default
+  labels:
+    app: isectech-backend-services
+spec:
+  ref:
+    name: isectech-backend-services
+    kind: Service
+    apiVersion: serving.knative.dev/v1
+  certificateMode: AUTOMATIC
+  forceOverride: true
+
+---
+# IAM Policy for the backend services
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: isectech-backend-services-sa
+  namespace: default
+  labels:
+    app: isectech-backend-services
+  annotations:
+    iam.gke.io/gcp-service-account: isectech-backend-services-sa@isectech-security-platform.iam.gserviceaccount.com

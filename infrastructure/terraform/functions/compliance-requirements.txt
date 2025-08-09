@@ -1,0 +1,37 @@
+# iSECTECH Compliance Automation Dependencies
+# Production-grade Cloud Function requirements for compliance automation and reporting
+# Version: 1.0.0 - Task 70.6 Implementation
+
+# Google Cloud SDK components for compliance automation
+google-cloud-asset>=3.20.0
+google-cloud-storage>=2.10.0
+google-cloud-bigquery>=3.12.0
+google-cloud-monitoring>=2.16.0
+google-cloud-pubsub>=2.18.0
+google-cloud-logging>=3.8.0
+google-cloud-secret-manager>=2.16.0
+
+# Data processing and analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Report generation libraries
+reportlab>=4.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# HTTP requests for external integrations
+requests>=2.31.0
+
+# JSON handling and validation
+jsonschema>=4.19.0
+
+# Date and time utilities
+python-dateutil>=2.8.2
+
+# Functions Framework for local testing
+functions-framework>=3.4.0
+
+# Additional utilities for compliance processing
+pyyaml>=6.0
+jinja2>=3.1.0

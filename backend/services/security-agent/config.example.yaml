@@ -1,0 +1,511 @@
+# iSECTECH Security Agent Configuration
+# This is an example configuration file for the security agent
+
+# Server configuration
+server:
+  http_port: 8080
+  grpc_port: 9090
+  read_timeout: 30s
+  write_timeout: 30s
+  shutdown_timeout: 30s
+  max_header_size: 1048576
+  enable_tls: true
+  tls_cert_path: "/etc/isectech/certs/server.crt"
+  tls_key_path: "/etc/isectech/certs/server.key"
+  enable_profiling: false
+  enable_metrics: true
+
+# Local database configuration (SQLite)
+database:
+  path: "./data/agent.db"
+  max_connections: 10
+  connection_timeout: 10s
+  enable_encryption: true
+  encryption_key: "${ISECTECH_AGENT_DB_KEY}"
+  backup_interval: 24h
+  backup_retention: 7
+  vacuum_interval: 168h
+  enable_wal: true
+  synchronous_mode: "NORMAL"
+
+# Security configuration
+security:
+  enable_tamper_resistance: true
+  enable_code_signing: true
+  signing_cert_path: "/etc/isectech/certs/signing.crt"
+  enable_anti_debugging: true
+  trusted_certificates:
+    - "/etc/isectech/certs/ca.crt"
+    - "/etc/isectech/certs/backend-ca.crt"
+  
+  certificate_pinning:
+    enabled: true
+    pins:
+      - "sha256/YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
+      - "sha256/Vjs8r4z+80wjNcr1YKepWQboSIRi63WsWXhIMN+eWys="
+    backup_pins:
+      - "sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
+    max_age: 86400
+    include_subdomains: true
+
+  encryption:
+    algorithm: "AES-256-GCM"
+    key_size: 256
+    local_key_path: "/etc/isectech/keys/local.key"
+    rotation_interval: 720h
+    enable_hsm: false
+
+  audit_log:
+    enabled: true
+    path: "/var/log/isectech/audit.log"
+    max_size: 100
+    max_backups: 10
+    max_age: 30
+    compress: true
+    local_buffer: true
+    buffer_size: 1000
+    flush_interval: 10s
+    sign_entries: true
+    encrypt_entries: true
+
+# Backend communication configuration
+communication:
+  backend_url: "https://api.isectech.com"
+  enable_mtls: true
+  client_cert_path: "/etc/isectech/certs/client.crt"
+  client_key_path: "/etc/isectech/certs/client.key"
+  ca_cert_path: "/etc/isectech/certs/ca.crt"
+  tls_version: "1.3"
+  cipher_suites:
+    - "TLS_AES_256_GCM_SHA384"
+    - "TLS_AES_128_GCM_SHA256"
+    - "TLS_CHACHA20_POLY1305_SHA256"
+  connect_timeout: 10s
+  request_timeout: 30s
+  
+  retry_policy:
+    max_retries: 3
+    initial_interval: 1s
+    max_interval: 30s
+    multiplier: 2.0
+    random_jitter: true
+
+  compression_enabled: true
+  keep_alive_interval: 30s
+  max_idle_connections: 10
+  max_connections: 100
+  enable_heartbeat: true
+  heartbeat_interval: 30s
+
+# Agent configuration
+agent:
+  id: "${ISECTECH_AGENT_ID}"
+  name: "${HOSTNAME}-security-agent"
+  version: "1.0.0"
+  environment: "production"
+
+  # Update settings
+  update:
+    enabled: true
+    check_interval: 1h
+    update_channel: "stable"
+    update_url: "https://updates.isectech.com/agent"
+    enable_rollback: true
+    rollback_timeout: 300s
+    verify_signatures: true
+    staged_rollout: true
+    max_download_size: 104857600  # 100MB
+    
+    update_window:
+      enabled: true
+      start_time: "02:00"
+      end_time: "04:00"
+      days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      timezone: "UTC"
+
+  # Resource limits
+  resource_limits:
+    max_cpu_percent: 2.0
+    max_memory_mb: 100
+    max_disk_mb: 50
+    max_network_kbps: 1000
+    monitor_interval: 10s
+    enforce_limits: true
+    
+    alert_thresholds:
+      cpu_percent: 1.5
+      memory_percent: 80.0
+      disk_percent: 80.0
+      network_percent: 80.0
+
+  # Offline mode configuration
+  offline_mode:
+    enabled: true
+    max_offline_hours: 24
+    local_buffer_size: 10000
+    compression_enabled: true
+    priority_queuing: true
+    sync_interval: 5m
+    conflict_resolution: "server_wins"
+
+  # Data collection configuration
+  data_collection:
+    process_monitoring:
+      enabled: true
+      sampling_rate: 1.0
+      collect_arguments: true
+      collect_environment: false
+      collect_modules: true
+      collect_networks: true
+      monitor_children: true
+      exclude_processes:
+        - "isectech-security-agent"
+      max_process_age: 24h
+      hash_executables: true
+
+    network_monitoring:
+      enabled: true
+      monitor_dns: true
+      monitor_http: true
+      monitor_tls: true
+      capture_payloads: false
+      max_payload_size: 1024
+      exclude_networks:
+        - "127.0.0.0/8"
+        - "::1/128"
+      exclude_ports:
+        - 22
+        - 8080
+        - 9090
+      sampling_rate: 1.0
+      geo_location_enabled: true
+
+    filesystem_monitoring:
+      enabled: true
+      monitor_reads: false
+      monitor_writes: true
+      monitor_deletes: true
+      monitor_permissions: true
+      hash_files: true
+      max_file_size: 10485760  # 10MB
+      exclude_paths:
+        - "/tmp"
+        - "/var/tmp"
+        - "/proc"
+        - "/sys"
+      exclude_extensions:
+        - ".tmp"
+        - ".log"
+      recursive_monitoring: true
+      max_depth: 10
+
+    registry_monitoring:
+      enabled: true  # Windows only
+      monitor_keys:
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      exclude_keys:
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Installer"
+      monitor_values: true
+      monitor_security: true
+      sampling_rate: 1.0
+
+    user_activity_monitoring:
+      enabled: true
+      monitor_logins: true
+      monitor_logouts: true
+      monitor_failed_auth: true
+      monitor_priv_esc: true
+      session_timeout: 1h
+      exclude_users:
+        - "SYSTEM"
+        - "LOCAL SERVICE"
+        - "NETWORK SERVICE"
+      exclude_service_accounts: true
+
+    application_inventory:
+      enabled: true
+      scan_interval: 24h
+      include_versions: true
+      include_signatures: true
+      include_hashes: true
+      exclude_paths:
+        - "/tmp"
+        - "/var/tmp"
+      scan_depth: 5
+
+    vulnerability_scanning:
+      enabled: true
+      scan_interval: 24h
+      scan_depth: "full"
+      include_os: true
+      include_apps: true
+      include_libraries: true
+      cve_database: "https://cve.isectech.com"
+      update_interval: 4h
+      risk_threshold: "medium"
+
+  # Policy enforcement configuration
+  policy_enforcement:
+    enabled: true
+    enforcement_mode: "enforce"  # enforce, monitor, disabled
+    dry_run_mode: false
+    alert_before_enforcement: true
+    enforcement_delay: 5s
+
+    process_control:
+      enabled: true
+      allow_process_kill: true
+      allow_process_suspend: true
+      whitelist_enabled: false
+      blacklist_enabled: true
+      blacklist_paths:
+        - "/tmp/malware"
+      require_signatures: false
+
+    network_control:
+      enabled: true
+      allow_connection_block: true
+      allow_traffic_shape: false
+      allow_dns_redirect: false
+      blocked_domains:
+        - "malware.example.com"
+      blocked_ips:
+        - "192.168.100.100"
+      blocked_ports:
+        - 4444
+        - 5555
+
+    file_control:
+      enabled: true
+      allow_quarantine: true
+      allow_delete: false
+      allow_permission_change: true
+      quarantine_path: "/var/quarantine"
+      protected_paths:
+        - "/etc/isectech"
+      restricted_extensions:
+        - ".exe"
+        - ".scr"
+      require_encryption: false
+
+    application_control:
+      enabled: false
+      whitelist_mode: false
+      blacklist_mode: true
+      blocked_applications:
+        - "calc.exe"
+      require_signatures: false
+      allow_script_execution: true
+
+    user_session_control:
+      enabled: true
+      allow_session_kill: true
+      allow_user_lock: true
+      max_session_duration: 8h
+      idle_timeout: 30m
+      concurrent_sessions: 3
+      restricted_users: []
+
+  # Telemetry configuration
+  telemetry:
+    enabled: true
+    collection_interval: 10s
+    transmission_interval: 60s
+    batch_size: 100
+    compression_enabled: true
+    encryption_enabled: true
+    local_buffering: true
+    buffer_size: 10000
+    
+    anonymization:
+      enabled: false
+      anonymize_ips: false
+      anonymize_users: false
+      anonymize_paths: false
+      hash_salt: "${ISECTECH_AGENT_HASH_SALT}"
+      exclude_fields:
+        - "password"
+        - "token"
+
+  # Platform-specific configuration
+  platform_specific:
+    windows:
+      etw:
+        enabled: true
+        session_name: "iSECTECH-Agent"
+        buffer_size: 64
+        max_buffers: 100
+        flush_timer: 1
+        enabled_providers:
+          - "Microsoft-Windows-Kernel-File"
+          - "Microsoft-Windows-Kernel-Process"
+          - "Microsoft-Windows-Kernel-Network"
+        log_level: "info"
+
+      wmi:
+        enabled: true
+        namespace: "root\\cimv2"
+        query_timeout: 30s
+        max_connections: 5
+        enabled_classes:
+          - "Win32_Process"
+          - "Win32_Service"
+
+      service:
+        service_name: "iSECTECH Security Agent"
+        display_name: "iSECTECH Security Agent"
+        description: "iSECTECH Endpoint Security Agent"
+        start_type: "automatic"
+        dependencies:
+          - "Winmgmt"
+        recovery_actions:
+          - "restart"
+          - "restart"
+          - "reboot"
+
+    macos:
+      endpoint_security:
+        enabled: true
+        require_entitlement: true
+        enabled_events:
+          - "ES_EVENT_TYPE_AUTH_EXEC"
+          - "ES_EVENT_TYPE_NOTIFY_EXEC"
+          - "ES_EVENT_TYPE_NOTIFY_EXIT"
+        auth_requests: true
+        auth_timeout: 30s
+
+      fs_events:
+        enabled: true
+        watch_paths:
+          - "/"
+        exclude_paths:
+          - "/tmp"
+          - "/var/tmp"
+        latency: 1s
+        watch_root: true
+        ignore_self: true
+        file_events: true
+
+      launch_daemon:
+        label: "com.isectech.security-agent"
+        program_arguments:
+          - "/usr/local/bin/isectech-security-agent"
+        run_at_load: true
+        keep_alive: true
+
+    linux:
+      ebpf:
+        enabled: true
+        require_privileged: true
+        programs:
+          - "process_monitor"
+          - "network_monitor"
+          - "file_monitor"
+        attach_points:
+          - "sys_execve"
+          - "sys_connect"
+          - "sys_openat"
+        verifier_log: false
+
+      systemd:
+        service_name: "isectech-security-agent"
+        service_type: "simple"
+        exec_start: "/usr/local/bin/isectech-security-agent"
+        restart: "always"
+        restart_sec: 5
+        capability_bounding_set:
+          - "CAP_SYS_PTRACE"
+          - "CAP_SYS_ADMIN"
+
+      auditd:
+        enabled: true
+        rules:
+          - "-w /etc/passwd -p wa -k passwd_changes"
+          - "-w /etc/shadow -p wa -k shadow_changes"
+        log_format: "enriched"
+        max_log_file: 100
+        num_logs: 10
+        flush_mode: "incremental_async"
+
+    mobile:
+      ios:
+        mdm_integration: true
+        keychain_access: true
+        network_extension: false
+        app_groups:
+          - "group.com.isectech.security"
+
+      android:
+        admin_rights: true
+        vpn_service: false
+        accessibility_service: false
+        work_profile: true
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  metrics_port: 9100
+  health_check_port: 8081
+  profiling_enabled: false
+  tracing_enabled: false
+  tracing_endpoint: "http://jaeger:14268/api/traces"
+  metrics_prefix: "isectech_agent"
+  alerting_enabled: true
+  alerting_endpoint: "https://alerts.isectech.com"
+
+  custom_metrics:
+    - name: "events_processed_total"
+      type: "counter"
+      description: "Total number of events processed"
+      labels:
+        service: "security-agent"
+      interval: 10s
+
+# Logging configuration
+logging:
+  level: "info"
+  format: "json"
+  output:
+    - "stdout"
+    - "/var/log/isectech/agent.log"
+  
+  file:
+    path: "/var/log/isectech/agent.log"
+    max_size: 100
+    max_backups: 10
+    max_age: 30
+    compress: true
+    local_time: true
+
+  syslog:
+    enabled: false
+    network: "udp"
+    address: "localhost:514"
+    priority: "info"
+    tag: "isectech-agent"
+    facility: "daemon"
+
+  remote:
+    enabled: false
+    endpoint: "https://logs.isectech.com"
+    protocol: "https"
+    auth_token: "${ISECTECH_LOGGING_TOKEN}"
+    timeout: 10s
+    buffer_size: 1000
+    flush_interval: 30s
+
+  structured_logs: true
+  enable_caller: true
+  enable_stack_trace: false
+  sampling_enabled: false
+  sampling_rate: 0.1
+
+  fields:
+    environment: "production"
+    datacenter: "us-east-1"
+
+  filters:
+    - level: "debug"
+      pattern: "health_check"
+      action: "drop"

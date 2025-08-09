@@ -1,0 +1,170 @@
+# Redocly configuration for API documentation validation and linting
+# https://redocly.com/docs/cli/configuration/
+
+apis:
+  isectech-frontend@v2:
+    root: app/api/openapi-complete.json
+  isectech-backend@v1:
+    root: backend/openapi-backend-services.json
+  isectech-extended@v1:
+    root: app/api/openapi-extended-apis.json
+
+# Linting rules configuration
+lint:
+  extends:
+    - recommended
+  
+  rules:
+    # API Design Rules
+    info-contact: error
+    info-license: warn
+    info-license-url: warn
+    
+    # Security Rules
+    security-defined: error
+    no-unresolved-refs: error
+    
+    # Documentation Rules
+    operation-description: warn
+    operation-operationId-unique: error
+    operation-operationId: error
+    operation-singular-tag: error
+    operation-tag-defined: error
+    operation-tags: error
+    
+    # Schema Rules
+    path-declaration-must-exist: error
+    path-not-include-query: error
+    path-parameters-defined: error
+    
+    # Response Rules
+    operation-success-response: error
+    operation-4xx-response: warn
+    
+    # Custom rules for iSECTECH
+    no-example-value-and-examples: error
+    no-identical-paths: error
+    no-invalid-media-type-examples: error
+    no-server-example.com: error
+    no-server-trailing-slash: error
+    
+    # Rate limiting documentation
+    operation-2xx-response: error
+    operation-4xx-response: warn
+    
+  # Custom rules for security APIs
+  rules-override:
+    # Security endpoints should have detailed descriptions
+    paths:
+      "/auth/**":
+        operation-description: error
+        security-defined: error
+      "/trust-score/**":
+        operation-description: error
+        operation-success-response: error
+      "/policy/**":
+        operation-description: error
+        security-defined: error
+
+# Decorators for enhancing documentation
+decorators:
+  remove-unused-components: on
+  
+  # Add security information to operations
+  security-audit/add-security-headers: on
+  
+  # Add rate limiting information
+  rate-limiting/add-rate-limit-headers: on
+
+# Build configuration for documentation generation
+referenceDocs:
+  htmlTemplate: ./docs/api/templates/custom-template.hbs
+  theme:
+    colors:
+      primary:
+        main: '#1a1a2e'
+      success:
+        main: '#28a745'
+      warning:
+        main: '#ffc107'
+      error:
+        main: '#dc3545'
+    typography:
+      fontSize: '14px'
+      fontFamily: 'Roboto, sans-serif'
+      headings:
+        fontFamily: 'Montserrat, sans-serif'
+    sidebar:
+      backgroundColor: '#f8f9fa'
+      width: '280px'
+    rightPanel:
+      backgroundColor: '#1a1a2e'
+      width: '40%'
+  
+  # Custom options for security documentation
+  options:
+    scrollYOffset: 60
+    hideDownloadButton: false
+    hideHostname: false
+    hideLoading: false
+    lazyRendering: true
+    menuToggle: true
+    nativeScrollbars: false
+    pathInMiddlePanel: true
+    requiredPropsFirst: true
+    sortTagsAlphabetically: true
+    expandResponses: "200,201"
+    expandSingleSchemaField: true
+    showExtensions: true
+    sortPropsAlphabetically: true
+    
+    # Security-specific options
+    expandDefaultServerVariables: true
+    showObjectSchemaExamples: true
+    maxDisplayedEnumValues: 5
+
+# Preview docs configuration
+preview-docs:
+  pagination: on
+  
+# Bundle configuration
+bundle:
+  lint: true
+  
+# Custom theme settings for iSECTECH branding
+theme:
+  openapi:
+    generateCodeSamples:
+      languages:
+        - lang: curl
+        - lang: Node.js
+          label: JavaScript
+        - lang: Python
+        - lang: Go
+        - lang: PHP
+        - lang: Java
+    pagination: on
+    
+  colors:
+    primary: '#1a1a2e'
+    border: '#e1e5e9'
+    text: '#263238'
+    warning: '#ffc107'
+    error: '#dc3545'
+    success: '#28a745'
+    http:
+      get: '#6bbd5b'
+      post: '#248fb2'
+      put: '#9b708b'
+      delete: '#e27d60'
+
+# Feature toggles
+features:
+  openapi:
+    generateCodeSamples: true
+    showConsole: true
+    
+# Plugin configuration
+plugins:
+  - './docs/api/plugins/security-plugin.js'
+  - './docs/api/plugins/rate-limiting-plugin.js'

@@ -1,0 +1,265 @@
+# Docker Compose for Distributed Load Testing
+# Local development and CI/CD distributed load testing setup
+
+version: '3.8'
+
+services:
+  # InfluxDB for metrics storage
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb-load-testing
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123!
+      - DOCKER_INFLUXDB_INIT_ORG=isectech
+      - DOCKER_INFLUXDB_INIT_BUCKET=k6_metrics
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - load-testing-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Prometheus Pushgateway for metrics collection
+  prometheus-pushgateway:
+    image: prom/pushgateway:v1.6.2
+    container_name: prometheus-pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - load-testing-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana-load-testing
+    ports:
+      - "3001:3000"  # Avoid conflict with app port
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123!
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=localhost
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - load-testing-network
+    depends_on:
+      - influxdb
+      - prometheus-pushgateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # k6 Coordinator
+  k6-coordinator:
+    build:
+      context: .
+      dockerfile: k6-distributed.dockerfile
+    container_name: k6-coordinator
+    ports:
+      - "6565:6565"
+      - "8080:8080"
+    environment:
+      - K6_DISTRIBUTED_MODE=coordinator
+      - K6_WORKER_ID=coordinator
+      - LOG_LEVEL=info
+      - K6_PROMETHEUS_REMOTE_URL=http://prometheus-pushgateway:9091/metrics/job/k6
+      - K6_INFLUX_DB=http://influxdb:8086/api/v2/write?org=isectech&bucket=k6_metrics
+    networks:
+      - load-testing-network
+    depends_on:
+      - influxdb
+      - prometheus-pushgateway
+    volumes:
+      - ./k6:/app/tests:ro
+      - k6_reports:/app/reports
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # k6 Workers
+  k6-worker-1:
+    build:
+      context: .
+      dockerfile: k6-distributed.dockerfile
+    container_name: k6-worker-1
+    environment:
+      - K6_DISTRIBUTED_MODE=worker
+      - K6_MASTER_HOST=k6-coordinator
+      - K6_WORKER_ID=worker-1
+      - K6_TEST_TYPE=${K6_TEST_TYPE:-baseline}
+      - K6_ENVIRONMENT=${K6_ENVIRONMENT:-development}
+      - LOG_LEVEL=info
+      - K6_PROMETHEUS_REMOTE_URL=http://prometheus-pushgateway:9091/metrics/job/k6
+      - K6_INFLUX_DB=http://influxdb:8086/api/v2/write?org=isectech&bucket=k6_metrics
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:3000}
+      - ANALYST_TOKEN=${ANALYST_TOKEN:-dev-analyst-token}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-dev-admin-token}
+      - VIEWER_TOKEN=${VIEWER_TOKEN:-dev-viewer-token}
+    networks:
+      - load-testing-network
+    depends_on:
+      - k6-coordinator
+      - influxdb
+    volumes:
+      - ./k6:/app/tests:ro
+      - k6_reports:/app/reports
+    scale: 2  # Can be overridden
+
+  k6-worker-2:
+    build:
+      context: .
+      dockerfile: k6-distributed.dockerfile
+    container_name: k6-worker-2
+    environment:
+      - K6_DISTRIBUTED_MODE=worker
+      - K6_MASTER_HOST=k6-coordinator
+      - K6_WORKER_ID=worker-2
+      - K6_TEST_TYPE=${K6_TEST_TYPE:-baseline}
+      - K6_ENVIRONMENT=${K6_ENVIRONMENT:-development}
+      - LOG_LEVEL=info
+      - K6_PROMETHEUS_REMOTE_URL=http://prometheus-pushgateway:9091/metrics/job/k6
+      - K6_INFLUX_DB=http://influxdb:8086/api/v2/write?org=isectech&bucket=k6_metrics
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:3000}
+      - ANALYST_TOKEN=${ANALYST_TOKEN:-dev-analyst-token}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-dev-admin-token}
+      - VIEWER_TOKEN=${VIEWER_TOKEN:-dev-viewer-token}
+    networks:
+      - load-testing-network
+    depends_on:
+      - k6-coordinator
+      - influxdb
+    volumes:
+      - ./k6:/app/tests:ro
+      - k6_reports:/app/reports
+
+  # Artillery Coordinator
+  artillery-coordinator:
+    build:
+      context: .
+      dockerfile: artillery-distributed.dockerfile
+    container_name: artillery-coordinator
+    ports:
+      - "8081:8080"
+      - "9090:9090"
+    environment:
+      - ARTILLERY_DISTRIBUTED_MODE=coordinator
+      - ARTILLERY_WORKER_ID=coordinator
+      - LOG_LEVEL=info
+      - ARTILLERY_PROMETHEUS_ENDPOINT=http://prometheus-pushgateway:9091
+      - AWS_REGION=us-east-1
+    networks:
+      - load-testing-network
+    depends_on:
+      - prometheus-pushgateway
+    volumes:
+      - ./artillery:/app/tests:ro
+      - artillery_reports:/app/reports
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Artillery Workers
+  artillery-worker-1:
+    build:
+      context: .
+      dockerfile: artillery-distributed.dockerfile
+    container_name: artillery-worker-1
+    environment:
+      - ARTILLERY_DISTRIBUTED_MODE=worker
+      - ARTILLERY_COORDINATOR=artillery-coordinator:8080
+      - ARTILLERY_WORKER_ID=worker-1
+      - ARTILLERY_TEST_TYPE=${ARTILLERY_TEST_TYPE:-comprehensive}
+      - ARTILLERY_ENVIRONMENT=${ARTILLERY_ENVIRONMENT:-development}
+      - LOG_LEVEL=info
+      - ARTILLERY_PROMETHEUS_ENDPOINT=http://prometheus-pushgateway:9091
+      - METRICS_INTERVAL=30
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:3000}
+      - ANALYST_TOKEN=${ANALYST_TOKEN:-dev-analyst-token}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-dev-admin-token}
+      - VIEWER_TOKEN=${VIEWER_TOKEN:-dev-viewer-token}
+    networks:
+      - load-testing-network
+    depends_on:
+      - artillery-coordinator
+    volumes:
+      - ./artillery:/app/tests:ro
+      - artillery_reports:/app/reports
+
+  artillery-worker-2:
+    build:
+      context: .
+      dockerfile: artillery-distributed.dockerfile
+    container_name: artillery-worker-2
+    environment:
+      - ARTILLERY_DISTRIBUTED_MODE=worker
+      - ARTILLERY_COORDINATOR=artillery-coordinator:8080
+      - ARTILLERY_WORKER_ID=worker-2
+      - ARTILLERY_TEST_TYPE=${ARTILLERY_TEST_TYPE:-comprehensive}
+      - ARTILLERY_ENVIRONMENT=${ARTILLERY_ENVIRONMENT:-development}
+      - LOG_LEVEL=info
+      - ARTILLERY_PROMETHEUS_ENDPOINT=http://prometheus-pushgateway:9091
+      - METRICS_INTERVAL=30
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:3000}
+      - ANALYST_TOKEN=${ANALYST_TOKEN:-dev-analyst-token}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-dev-admin-token}
+      - VIEWER_TOKEN=${VIEWER_TOKEN:-dev-viewer-token}
+    networks:
+      - load-testing-network
+    depends_on:
+      - artillery-coordinator
+    volumes:
+      - ./artillery:/app/tests:ro
+      - artillery_reports:/app/reports
+
+networks:
+  load-testing-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  influxdb_data:
+    driver: local
+  influxdb_config:
+    driver: local
+  grafana_data:
+    driver: local
+  k6_reports:
+    driver: local
+  artillery_reports:
+    driver: local
+
+# Override services for different testing scenarios
+# Usage examples:
+# docker-compose -f docker-compose.distributed.yml up influxdb grafana prometheus-pushgateway
+# docker-compose -f docker-compose.distributed.yml up k6-coordinator k6-worker-1 k6-worker-2
+# docker-compose -f docker-compose.distributed.yml up artillery-coordinator artillery-worker-1 artillery-worker-2
+# 
+# Environment variables can be set via .env file:
+# K6_TEST_TYPE=stress
+# ARTILLERY_TEST_TYPE=comprehensive
+# API_BASE_URL=https://staging.isectech.com
+# ANALYST_TOKEN=your-staging-token

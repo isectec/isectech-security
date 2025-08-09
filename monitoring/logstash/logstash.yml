@@ -1,0 +1,69 @@
+# iSECTECH Logstash Configuration
+# Production-grade log processing pipeline configuration
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NODE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+node.name: logstash-isectech
+path.data: /usr/share/logstash/data
+path.config: /usr/share/logstash/pipeline
+path.logs: /usr/share/logstash/logs
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PIPELINE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+pipeline.workers: 4
+pipeline.batch.size: 1000
+pipeline.batch.delay: 50
+pipeline.unsafe_shutdown: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# QUEUE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+queue.type: persisted
+queue.max_events: 0
+queue.max_bytes: 1gb
+queue.checkpoint.writes: 1024
+queue.checkpoint.acks: 1024
+queue.checkpoint.interval: 1000
+queue.checkpoint.retry: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HTTP API CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+http.host: "0.0.0.0"
+http.port: 9600
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+log.level: info
+log.format: plain
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERFORMANCE AND MONITORING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+monitoring.enabled: true
+monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+monitoring.elasticsearch.username: "logstash_system"
+monitoring.elasticsearch.password: "${LOGSTASH_SYSTEM_PASSWORD}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+config.reload.automatic: true
+config.reload.interval: 3s
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEAD LETTER QUEUE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 1gb

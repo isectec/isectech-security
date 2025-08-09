@@ -1,0 +1,360 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "API Validation Monitoring Dashboard",
+    "tags": ["api", "validation", "monitoring", "security"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Validation Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(api_validation:success_ratio_5m)",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(api_validation:error_rate_5m)",
+            "legendFormat": "Error Rate",
+            "refId": "B"
+          },
+          {
+            "expr": "sum(api_validation:total_rate_5m)",
+            "legendFormat": "Total Throughput",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"displayMode": "list", "orientation": "horizontal"},
+            "unit": "percentunit"
+          }
+        },
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Validation Error Rate by Type",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (validation_type) (api_validation:error_rate_5m)",
+            "legendFormat": "{{validation_type}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 80}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "single", "sort": "none"},
+          "legend": {"displayMode": "visible", "placement": "bottom"},
+          "displayMode": "single"
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+      },
+      {
+        "id": 3,
+        "title": "Validation Success Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "api_validation:success_ratio_5m",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "area"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.95}, {"color": "green", "value": 0.99}]},
+            "unit": "percentunit",
+            "min": 0.9,
+            "max": 1.0
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "single", "sort": "none"},
+          "legend": {"displayMode": "hidden", "placement": "bottom"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+      },
+      {
+        "id": 4,
+        "title": "Schema Validation Errors by Field",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (field) (api_validation:error_rate_5m{validation_type=\"schema\"}))",
+            "legendFormat": "{{field}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"hideFrom": {"legend": false, "tooltip": false, "vis": false}},
+            "mappings": [],
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+          "pieType": "pie",
+          "tooltip": {"mode": "single", "sort": "none"},
+          "legend": {"displayMode": "visible", "placement": "right"},
+          "displayLabels": ["name", "value"]
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14}
+      },
+      {
+        "id": 5,
+        "title": "Business Rule Violations",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (rule_name) (api_validation:error_rate_5m{validation_type=\"business_rule\"}))",
+            "legendFormat": "{{rule_name}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"orientation": "horizontal", "displayMode": "gradient"},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14}
+      },
+      {
+        "id": 6,
+        "title": "Compliance Violations by Framework",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "sum by (framework, rule_id, severity) (rate(api_compliance_violations_total[5m]))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"align": "auto", "displayMode": "color-background", "filterable": true},
+            "mappings": [
+              {"options": {"error": {"color": "red", "index": 0}}, "type": "value"},
+              {"options": {"warning": {"color": "yellow", "index": 1}}, "type": "value"}
+            ],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.1}, {"color": "red", "value": 1}]}
+          },
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "framework"}, "properties": [{"id": "custom.width", "value": 120}]},
+            {"matcher": {"id": "byName", "options": "rule_id"}, "properties": [{"id": "custom.width", "value": 200}]},
+            {"matcher": {"id": "byName", "options": "severity"}, "properties": [{"id": "custom.width", "value": 100}, {"id": "custom.displayMode", "value": "color-background"}]}
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"desc": true, "displayName": "Value"}]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 22}
+      },
+      {
+        "id": 7,
+        "title": "Validation Latency Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(api_validation_duration_seconds_bucket[5m])) by (le)",
+            "format": "heatmap",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "spectrum"},
+            "custom": {"hideFrom": {"legend": false, "tooltip": false, "vis": false}}
+          }
+        },
+        "options": {
+          "calculate": false,
+          "yAxis": {"unit": "s"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30}
+      },
+      {
+        "id": 8,
+        "title": "Validation Queue Depth",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (tenant_id) (api_validation_queue_depth)",
+            "legendFormat": "{{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "line"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 5000}]},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30}
+      },
+      {
+        "id": 9,
+        "title": "Data Integrity Errors by Type",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (error_type) (api_validation:error_rate_5m{validation_type=\"data_integrity\"})",
+            "legendFormat": "{{error_type}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "bars", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 100, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "normal", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 38}
+      },
+      {
+        "id": 10,
+        "title": "Tenant Error Rate Comparison",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "topk(5, sum by (tenant_id) (api_validation:error_rate_5m))",
+            "legendFormat": "{{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 0, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 38}
+      },
+      {
+        "id": 11,
+        "title": "SLO Error Budget Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "api_validation:slo_error_budget_remaining_30d",
+            "legendFormat": "{{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"orientation": "horizontal", "textMode": "auto"},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.2}, {"color": "green", "value": 0.5}]},
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "options": {
+          "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+          "orientation": "horizontal",
+          "textMode": "value_and_name",
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "center"
+        },
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 46}
+      }
+    ],
+    "time": {"from": "now-6h", "to": "now"},
+    "timepicker": {},
+    "timezone": "",
+    "refresh": "30s",
+    "schemaVersion": 30,
+    "version": 1,
+    "links": [
+      {
+        "type": "link",
+        "title": "API Validation Runbook",
+        "url": "https://docs.isectech.internal/runbooks/api-validation",
+        "icon": "external link"
+      },
+      {
+        "type": "link", 
+        "title": "Alert Manager",
+        "url": "https://alertmanager.isectech.internal",
+        "icon": "bell"
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "tenant",
+          "type": "query",
+          "query": "label_values(api_validation_failures_total, tenant_id)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*",
+          "multi": true
+        },
+        {
+          "name": "validation_type",
+          "type": "query", 
+          "query": "label_values(api_validation_failures_total, validation_type)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*",
+          "multi": true
+        }
+      ]
+    }
+  }
+}

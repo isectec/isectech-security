@@ -1,0 +1,478 @@
+# Istio Gateway and VirtualService Resources for iSECTECH Zero Trust Architecture
+# Configure secure ingress traffic management and routing
+
+---
+# Main iSECTECH Gateway for public traffic
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: isectech-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  # HTTP server (redirect to HTTPS)
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*.isectech.com"
+    - "api.isectech.com"
+    - "app.isectech.com"
+    - "admin.isectech.com"
+    tls:
+      httpsRedirect: true
+  
+  # HTTPS server with TLS termination
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - "*.isectech.com"
+    - "api.isectech.com"
+    - "app.isectech.com"  
+    - "admin.isectech.com"
+    tls:
+      mode: SIMPLE
+      credentialName: isectech-tls-secret
+      minProtocolVersion: TLSV1_2
+      maxProtocolVersion: TLSV1_3
+      cipherSuites:
+      - ECDHE-ECDSA-AES128-GCM-SHA256
+      - ECDHE-RSA-AES128-GCM-SHA256
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+
+---
+# Internal Gateway for service-to-service communication
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: isectech-internal-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 8080
+      name: http-internal
+      protocol: HTTP
+    hosts:
+    - "internal.isectech.com"
+    - "*.internal.isectech.com"
+
+---
+# Admin Gateway with enhanced security
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: isectech-admin-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 8443
+      name: https-admin
+      protocol: HTTPS
+    hosts:
+    - "admin.isectech.com"
+    - "kong-admin.isectech.com"
+    tls:
+      mode: MUTUAL  # Require client certificate
+      credentialName: isectech-admin-tls-secret
+      minProtocolVersion: TLSV1_3
+      cipherSuites:
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+
+---
+# VirtualService for API traffic routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-api-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "api.isectech.com"
+  gateways:
+  - isectech-gateway
+  http:
+  # API rate limiting and security headers
+  - match:
+    - uri:
+        prefix: "/api/v1/"
+    headers:
+      request:
+        set:
+          X-Forwarded-Proto: "https"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+      response:
+        remove:
+        - X-Powered-By
+        - Server
+        set:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+    fault:
+      delay:
+        fixedDelay: 0.1s
+        percentage:
+          value: 0.1
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+      retryOn: 5xx,gateway-error,connect-failure,refused-stream
+    route:
+    - destination:
+        host: kong-proxy.isectech-api-gateway.svc.cluster.local
+        port:
+          number: 8000
+      weight: 100
+
+---
+# VirtualService for Frontend application
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-app-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "app.isectech.com"
+  gateways:
+  - isectech-gateway
+  http:
+  # Static assets with caching
+  - match:
+    - uri:
+        regex: "^/(static|assets|images|css|js)/.*"
+    headers:
+      response:
+        set:
+          Cache-Control: "public, max-age=31536000"
+          X-Content-Type-Options: "nosniff"
+    route:
+    - destination:
+        host: frontend-app.isectech-frontend.svc.cluster.local
+        port:
+          number: 3000
+  
+  # Application routes
+  - match:
+    - uri:
+        prefix: "/"
+    headers:
+      request:
+        set:
+          X-Forwarded-Proto: "https"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      response:
+        remove:
+        - X-Powered-By
+        - Server
+        set:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+    timeout: 15s
+    route:
+    - destination:
+        host: frontend-app.isectech-frontend.svc.cluster.local
+        port:
+          number: 3000
+      weight: 100
+
+---
+# VirtualService for Admin interface (extra security)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-admin-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "admin.isectech.com"
+  gateways:
+  - isectech-admin-gateway
+  http:
+  # Admin API with strict security
+  - match:
+    - uri:
+        prefix: "/admin/"
+    headers:
+      request:
+        set:
+          X-Forwarded-Proto: "https"
+          X-Admin-Access: "true"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+      response:
+        remove:
+        - X-Powered-By
+        - Server
+        - X-Kong-Response-Latency
+        set:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Cache-Control: "no-cache, no-store, must-revalidate"
+          Pragma: "no-cache"
+          Expires: "0"
+    timeout: 10s
+    retries:
+      attempts: 1
+      perTryTimeout: 5s
+    route:
+    - destination:
+        host: kong-admin.isectech-api-gateway.svc.cluster.local
+        port:
+          number: 8001
+      weight: 100
+
+---
+# VirtualService for Kong Admin GUI
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: kong-admin-gui-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "kong-admin.isectech.com"
+  gateways:
+  - isectech-admin-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/"
+    headers:
+      request:
+        set:
+          X-Forwarded-Proto: "https"
+          X-Admin-GUI: "true"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+      response:
+        remove:
+        - X-Powered-By
+        - Server
+        set:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Cache-Control: "no-cache, no-store, must-revalidate"
+    timeout: 10s
+    route:
+    - destination:
+        host: kong-admin.isectech-api-gateway.svc.cluster.local
+        port:
+          number: 8002
+      weight: 100
+
+---
+# VirtualService for internal service communication
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-internal-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "internal.isectech.com"
+  gateways:
+  - isectech-internal-gateway
+  http:
+  # Authentication service
+  - match:
+    - uri:
+        prefix: "/auth/"
+    route:
+    - destination:
+        host: auth-service.isectech-services.svc.cluster.local
+        port:
+          number: 8080
+      weight: 100
+  
+  # Security agent service
+  - match:
+    - uri:
+        prefix: "/security-agent/"
+    route:
+    - destination:
+        host: security-agent.isectech-services.svc.cluster.local
+        port:
+          number: 8080
+      weight: 100
+  
+  # Threat detection service
+  - match:
+    - uri:
+        prefix: "/threat-detection/"
+    route:
+    - destination:
+        host: threat-detection.isectech-services.svc.cluster.local
+        port:
+          number: 8080
+      weight: 100
+
+---
+# VirtualService for AI/ML services
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ai-services-vs
+  namespace: isectech-ai
+spec:
+  hosts:
+  - "ai.internal.isectech.com"
+  gateways:
+  - istio-system/isectech-internal-gateway
+  http:
+  # Behavioral analysis service
+  - match:
+    - uri:
+        prefix: "/behavioral-analysis/"
+    timeout: 60s
+    route:
+    - destination:
+        host: behavioral-analysis.isectech-ai.svc.cluster.local
+        port:
+          number: 8080
+      weight: 100
+  
+  # Anomaly detection service
+  - match:
+    - uri:
+        prefix: "/anomaly-detection/"
+    timeout: 30s
+    route:
+    - destination:
+        host: anomaly-detection.isectech-ai.svc.cluster.local
+        port:
+          number: 8080
+      weight: 100
+
+---
+# VirtualService for monitoring and observability
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: monitoring-vs
+  namespace: monitoring
+spec:
+  hosts:
+  - "monitoring.internal.isectech.com"
+  gateways:
+  - istio-system/isectech-internal-gateway
+  http:
+  # Grafana
+  - match:
+    - uri:
+        prefix: "/grafana/"
+    route:
+    - destination:
+        host: grafana.monitoring.svc.cluster.local
+        port:
+          number: 3000
+      weight: 100
+  
+  # Prometheus
+  - match:
+    - uri:
+        prefix: "/prometheus/"
+    route:
+    - destination:
+        host: prometheus.monitoring.svc.cluster.local
+        port:
+          number: 9090
+      weight: 100
+  
+  # Jaeger
+  - match:
+    - uri:
+        prefix: "/jaeger/"
+    route:
+    - destination:
+        host: jaeger-query.monitoring.svc.cluster.local
+        port:
+          number: 16686
+      weight: 100
+
+---
+# Traffic splitting for canary deployments
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: canary-deployment-vs
+  namespace: isectech-services
+spec:
+  hosts:
+  - auth-service.isectech-services.svc.cluster.local
+  http:
+  # Canary traffic routing (90% stable, 10% canary)
+  - match:
+    - headers:
+        x-canary-user:
+          exact: "true"
+    route:
+    - destination:
+        host: auth-service.isectech-services.svc.cluster.local
+        subset: v2
+      weight: 100
+  
+  # Default traffic to stable version
+  - route:
+    - destination:
+        host: auth-service.isectech-services.svc.cluster.local
+        subset: v1
+      weight: 90
+    - destination:
+        host: auth-service.isectech-services.svc.cluster.local
+        subset: v2
+      weight: 10
+
+---
+# TLS certificate secret reference (to be created separately)
+# This is a reference - actual secrets should be created via cert-manager or manual process
+apiVersion: v1
+kind: Secret
+metadata:
+  name: isectech-tls-secret
+  namespace: istio-system
+type: kubernetes.io/tls
+data:
+  # Replace with actual base64 encoded certificate and key
+  tls.crt: LS0tLS1CRUdJTi...
+  tls.key: LS0tLS1CRUdJTi...
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: isectech-admin-tls-secret
+  namespace: istio-system
+type: kubernetes.io/tls
+data:
+  # Replace with actual base64 encoded certificate and key for mTLS
+  tls.crt: LS0tLS1CRUdJTi...
+  tls.key: LS0tLS1CRUdJTi...
+  ca.crt: LS0tLS1CRUdJTi...  # CA certificate for client cert validation

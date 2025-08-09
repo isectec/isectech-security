@@ -1,0 +1,560 @@
+# Vector Configuration for iSECTECH Security Log Processing
+# High-performance alternative to Logstash with built-in ECS compliance
+# Production-grade configuration with custom format support
+
+# Global settings
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+playground = false
+
+[log]
+level = "info"
+format = "json"
+
+# Data directory for buffers and state
+data_dir = "/var/lib/vector"
+
+# Sources - Input data streams
+[sources.beats_input]
+type = "socket"
+address = "0.0.0.0:5044"
+mode = "tcp"
+max_connections = 1000
+receive_buffer_bytes = 1048576
+host_key = "host"
+port_key = "port"
+
+[sources.kafka_security_logs]
+type = "kafka"
+bootstrap_servers = "${KAFKA_BROKERS:-localhost:9092}"
+group_id = "vector-security"
+topics = ["security-logs", "threat-intel", "audit-logs"]
+session_timeout_ms = 30000
+socket_timeout_ms = 60000
+fetch_wait_max_ms = 100
+commit_interval_ms = 5000
+auto_offset_reset = "earliest"
+librdkafka_options.security.protocol = "SSL"
+librdkafka_options.ssl.ca.location = "/opt/vector/certs/ca.pem"
+librdkafka_options.ssl.certificate.location = "/opt/vector/certs/vector.pem"
+librdkafka_options.ssl.key.location = "/opt/vector/certs/vector-key.pem"
+
+[sources.syslog_network]
+type = "syslog"
+address = "0.0.0.0:514"
+mode = "tcp"
+max_connections = 1000
+host_key = "host"
+
+[sources.http_webhooks]
+type = "http"
+address = "0.0.0.0:8080"
+encoding = "json"
+headers = ["user-agent", "x-forwarded-for", "x-real-ip"]
+tls.enabled = true
+tls.crt_file = "/opt/vector/certs/vector.crt"
+tls.key_file = "/opt/vector/certs/vector.key"
+
+[sources.file_watcher]
+type = "file"
+include = ["/var/log/security/*.log", "/var/log/audit/*.log"]
+ignore_older_secs = 600
+read_from = "beginning"
+max_read_bytes = 1048576
+host_key = "hostname"
+
+# Transforms - Data processing and normalization
+
+# Initial log parsing and format detection
+[transforms.parse_initial]
+type = "remap"
+inputs = ["beats_input", "kafka_security_logs", "syslog_network", "http_webhooks", "file_watcher"]
+source = '''
+# Add processing metadata
+.metadata.processing_timestamp = now()
+.metadata.pipeline = "vector-security"
+.metadata.version = "1.0.0"
+
+# Extract raw log content
+if exists(.message) {
+    .metadata.raw_log = .message
+} else if exists(.log) {
+    .metadata.raw_log = .log
+} else if exists(.event) {
+    .metadata.raw_log = to_string(.event)
+} else {
+    .metadata.raw_log = to_string(.)
+}
+
+# Auto-detect log format
+raw_log = .metadata.raw_log
+if match(raw_log, r'^\{.*\}$') {
+    .metadata.format = "json"
+} else if match(raw_log, r'^<\d+>') {
+    .metadata.format = "syslog"
+} else if match(raw_log, r'^\S+ \S+ \S+ \[[\d\/\w:+\s]+\] "\w+ \S+ HTTP') {
+    .metadata.format = "apache"
+} else if contains(raw_log, ",") && length(split(raw_log, ",")) > 3 {
+    .metadata.format = "csv"
+} else {
+    .metadata.format = "unknown"
+}
+
+# Add ECS base fields
+.ecs.version = "8.11.0"
+if !exists(.@timestamp) {
+    .@timestamp = now()
+}
+'''
+
+# JSON log parsing
+[transforms.parse_json]
+type = "remap"
+inputs = ["parse_initial"]
+source = '''
+if .metadata.format == "json" {
+    parsed_result = parse_json(.metadata.raw_log)
+    if parsed_result != null {
+        . = merge(., parsed_result)
+    }
+}
+'''
+
+# Syslog parsing
+[transforms.parse_syslog]
+type = "remap"
+inputs = ["parse_json"]
+source = '''
+if .metadata.format == "syslog" {
+    parsed_syslog = parse_syslog(.metadata.raw_log)
+    if parsed_syslog != null {
+        .syslog = parsed_syslog
+        .@timestamp = .syslog.timestamp
+        .host.name = .syslog.hostname
+        .process.name = .syslog.appname
+        .process.pid = .syslog.procid
+        .message = .syslog.message
+        
+        # Calculate facility and severity
+        if exists(.syslog.severity) {
+            .syslog.facility = .syslog.severity / 8
+            .syslog.level = .syslog.severity % 8
+        }
+    }
+}
+'''
+
+# Apache/Web log parsing
+[transforms.parse_apache]
+type = "remap"
+inputs = ["parse_syslog"]
+source = '''
+if .metadata.format == "apache" {
+    parsed_apache = parse_apache_log(.metadata.raw_log, "combined")
+    if parsed_apache != null {
+        .source.ip = parsed_apache.host
+        .user.name = parsed_apache.user
+        .@timestamp = parsed_apache.timestamp
+        .http.request.method = parsed_apache.method
+        .url.original = parsed_apache.path
+        .http.version = parsed_apache.protocol
+        .http.response.status_code = parsed_apache.status
+        .http.response.body.bytes = parsed_apache.size
+        .http.request.referrer = parsed_apache.referer
+        .user_agent.original = parsed_apache.agent
+    }
+}
+'''
+
+# Custom security format parsing
+[transforms.parse_security_formats]
+type = "remap"
+inputs = ["parse_apache"]
+source = '''
+# CrowdStrike Falcon parsing
+if exists(.agent.name) && match(.agent.name, r'(?i)crowdstrike|falcon') {
+    if exists(.event_simpleName) {
+        .event.action = .event_simpleName
+        .event.provider = "crowdstrike_falcon"
+        .metadata.custom_format = "crowdstrike_falcon"
+    }
+    
+    # Map CrowdStrike fields to ECS
+    if exists(.ComputerName) { .host.name = .ComputerName }
+    if exists(.UserName) { .user.name = .UserName }
+    if exists(.ProcessId) { .process.pid = to_int(.ProcessId) ?? null }
+    if exists(.ParentProcessId) { .process.parent.pid = to_int(.ParentProcessId) ?? null }
+    if exists(.ImageFileName) { .process.name = .ImageFileName }
+    if exists(.CommandLine) { .process.command_line = .CommandLine }
+    if exists(.MD5HashData) { .process.hash.md5 = .MD5HashData }
+    if exists(.SHA256HashData) { .process.hash.sha256 = .SHA256HashData }
+    if exists(.LocalAddressIP4) { .source.ip = .LocalAddressIP4 }
+    if exists(.RemoteAddressIP4) { .destination.ip = .RemoteAddressIP4 }
+    if exists(.LocalPort) { .source.port = to_int(.LocalPort) ?? null }
+    if exists(.RemotePort) { .destination.port = to_int(.RemotePort) ?? null }
+    if exists(.DetectName) { .rule.name = .DetectName }
+    if exists(.Severity) { .event.severity_label = .Severity }
+    if exists(.Tactic) { .threat.tactic.name = .Tactic }
+    if exists(.Technique) { .threat.technique.name = .Technique }
+}
+
+# Microsoft Defender ATP parsing
+if exists(.agent.name) && match(.agent.name, r'(?i)microsoft|defender|winlogbeat') {
+    if exists(.ActionType) {
+        .event.action = .ActionType
+        .event.provider = "microsoft_defender"
+        .metadata.custom_format = "microsoft_defender_atp"
+    }
+    
+    # Map Defender fields to ECS
+    if exists(.DeviceName) { .host.name = .DeviceName }
+    if exists(.AccountName) { .user.name = .AccountName }
+    if exists(.ProcessCommandLine) { .process.command_line = .ProcessCommandLine }
+    if exists(.FileName) { .file.name = .FileName }
+    if exists(.SHA256) { .file.hash.sha256 = .SHA256 }
+    if exists(.LocalIP) { .source.ip = .LocalIP }
+    if exists(.RemoteIP) { .destination.ip = .RemoteIP }
+    if exists(.ThreatFamily) { .threat.technique.name = .ThreatFamily }
+}
+
+# Okta system log parsing
+if exists(.agent.name) && match(.agent.name, r'(?i)okta') {
+    if exists(.eventType) {
+        .event.action = .eventType
+        .event.provider = "okta"
+        .metadata.custom_format = "okta_system_log"
+    }
+    
+    # Map Okta fields to ECS
+    if exists(.actor.alternateId) { .user.email = .actor.alternateId }
+    if exists(.actor.displayName) { .user.full_name = .actor.displayName }
+    if exists(.client.ipAddress) { .source.ip = .client.ipAddress }
+    if exists(.client.userAgent.rawUserAgent) { .user_agent.original = .client.userAgent.rawUserAgent }
+    if exists(.outcome.result) { .event.outcome = .outcome.result }
+}
+
+# Palo Alto Networks threat log parsing
+if .metadata.format == "csv" && match(.metadata.raw_log, r'^[^,]*,[^,]*,THREAT') {
+    csv_fields = split(.metadata.raw_log, ",")
+    if length(csv_fields) >= 30 {
+        .event.provider = "palo_alto_networks"
+        .metadata.custom_format = "palo_alto_threat"
+        .@timestamp = parse_timestamp(csv_fields[0], "%Y/%m/%d %H:%M:%S") ?? now()
+        .source.ip = csv_fields[6]
+        .destination.ip = csv_fields[7]
+        .source.port = to_int(csv_fields[23]) ?? null
+        .destination.port = to_int(csv_fields[24]) ?? null
+        .rule.name = csv_fields[10]
+        .threat.technique.id = csv_fields[31]
+        .threat.tactic.name = csv_fields[32]
+        .event.action = csv_fields[29]
+        .event.severity_label = csv_fields[33]
+    }
+}
+'''
+
+# Field normalization and ECS compliance
+[transforms.normalize_fields]
+type = "remap"
+inputs = ["parse_security_formats"]
+source = '''
+# Normalize severity to numeric scale
+if exists(.event.severity_label) {
+    severity_text = downcase(.event.severity_label)
+    if match(severity_text, r'critical|fatal') {
+        .event.severity = 90
+    } else if match(severity_text, r'high|error') {
+        .event.severity = 70
+    } else if match(severity_text, r'medium|warning') {
+        .event.severity = 50
+    } else if match(severity_text, r'low') {
+        .event.severity = 30
+    } else if match(severity_text, r'info|informational') {
+        .event.severity = 10
+    } else {
+        .event.severity = 0
+    }
+}
+
+# Normalize event outcome
+if exists(.event.outcome) {
+    outcome_text = downcase(.event.outcome)
+    if match(outcome_text, r'success|allowed|pass') {
+        .event.outcome = "success"
+    } else if match(outcome_text, r'fail|failure|denied|blocked|error') {
+        .event.outcome = "failure"
+    } else {
+        .event.outcome = "unknown"
+    }
+}
+
+# Normalize network protocol
+if exists(.network.protocol) {
+    protocol = downcase(.network.protocol)
+    if protocol == "6" || protocol == "tcp" {
+        .network.protocol = "tcp"
+    } else if protocol == "17" || protocol == "udp" {
+        .network.protocol = "udp"
+    } else if protocol == "1" || protocol == "icmp" {
+        .network.protocol = "icmp"
+    }
+}
+
+# Data type conversions
+if exists(.source.port) { .source.port = to_int(.source.port) ?? null }
+if exists(.destination.port) { .destination.port = to_int(.destination.port) ?? null }
+if exists(.process.pid) { .process.pid = to_int(.process.pid) ?? null }
+if exists(.process.parent.pid) { .process.parent.pid = to_int(.process.parent.pid) ?? null }
+
+# Validate IP addresses
+if exists(.source.ip) && !is_ipv4(.source.ip) && !is_ipv6(.source.ip) {
+    del(.source.ip)
+}
+if exists(.destination.ip) && !is_ipv4(.destination.ip) && !is_ipv6(.destination.ip) {
+    del(.destination.ip)
+}
+
+# Add iSECTECH specific labels
+.labels.isectech_tenant_id = get_env_var("ISECTECH_TENANT_ID") ?? "default"
+.labels.isectech_environment = get_env_var("ISECTECH_ENVIRONMENT") ?? "production"
+.labels.isectech_pipeline = "vector-security"
+'''
+
+# GeoIP enrichment
+[transforms.geoip_enrichment]
+type = "geoip"
+inputs = ["normalize_fields"]
+database = "/opt/vector/geoip/GeoLite2-City.mmdb"
+source = "source.ip"
+target = "source.geo"
+
+[transforms.geoip_enrichment_dest]
+type = "geoip"
+inputs = ["geoip_enrichment"]
+database = "/opt/vector/geoip/GeoLite2-City.mmdb"
+source = "destination.ip"
+target = "destination.geo"
+
+# User agent parsing
+[transforms.user_agent_parsing]
+type = "remap"
+inputs = ["geoip_enrichment_dest"]
+source = '''
+if exists(.user_agent.original) {
+    parsed_ua = parse_user_agent(.user_agent.original)
+    if parsed_ua != null {
+        .user_agent.device.name = parsed_ua.device
+        .user_agent.name = parsed_ua.browser
+        .user_agent.version = parsed_ua.version
+        .user_agent.os.name = parsed_ua.os
+        .user_agent.os.version = parsed_ua.os_version
+    }
+}
+'''
+
+# Risk scoring
+[transforms.risk_scoring]
+type = "remap"
+inputs = ["user_agent_parsing"]
+source = '''
+risk_score = 0
+
+# Severity contribution (0-40 points)
+if exists(.event.severity) {
+    risk_score = risk_score + (.event.severity * 0.4)
+}
+
+# Threat intelligence contribution (0-30 points)
+if exists(.threat.technique.name) {
+    risk_score = risk_score + 20
+}
+if exists(.threat.tactic.name) {
+    risk_score = risk_score + 10
+}
+
+# Source reputation contribution (0-20 points)
+if exists(.source.ip) {
+    if match(.source.ip, r'^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)') {
+        # Private IP, lower risk
+        risk_score = risk_score + 5
+    } else {
+        # Public IP, higher risk
+        risk_score = risk_score + 15
+    }
+}
+
+# Event outcome contribution (0-10 points)
+if .event.outcome == "failure" {
+    risk_score = risk_score + 10
+} else if .event.outcome == "success" {
+    risk_score = risk_score + 3
+}
+
+.event.risk_score = min(risk_score, 100)
+'''
+
+# Generate event fingerprint
+[transforms.fingerprint]
+type = "remap"
+inputs = ["risk_scoring"]
+source = '''
+fingerprint_data = to_string(.@timestamp) + "|" + 
+                  (to_string(.source.ip) ?? "") + "|" + 
+                  (to_string(.destination.ip) ?? "") + "|" + 
+                  (to_string(.event.action) ?? "") + "|" + 
+                  (to_string(.host.name) ?? "")
+
+.event.hash = encode_base64(sha2(fingerprint_data, "256"))[0:16]
+'''
+
+# Cleanup and final processing
+[transforms.cleanup]
+type = "remap"
+inputs = ["fingerprint"]
+source = '''
+# Remove metadata and temporary fields
+del(.metadata)
+del(.beat)
+del(.prospector)
+del(.input)
+del(.offset)
+del(.source)
+del(.fields)
+
+# Ensure required ECS fields exist
+if !exists(.event.action) {
+    .event.action = "unknown"
+}
+if !exists(.host.name) {
+    .host.name = get_hostname()
+}
+
+# Add event categories based on action
+action = downcase(.event.action ?? "")
+if match(action, r'login|logon|authentication') {
+    .event.category = ["authentication"]
+    .event.type = ["start"]
+} else if match(action, r'logout|logoff') {
+    .event.category = ["authentication"]
+    .event.type = ["end"]
+} else if match(action, r'process|execution') {
+    .event.category = ["process"]
+    .event.type = ["start"]
+} else if match(action, r'network|connection') {
+    .event.category = ["network"]
+    .event.type = ["connection"]
+} else if match(action, r'file|creation|modification|deletion') {
+    .event.category = ["file"]
+    .event.type = ["change"]
+} else if match(action, r'registry') {
+    .event.category = ["registry"]
+    .event.type = ["change"]
+} else if match(action, r'threat|malware|detection') {
+    .event.category = ["malware", "intrusion_detection"]
+    .event.type = ["indicator"]
+} else {
+    .event.category = ["host"]
+    .event.type = ["info"]
+}
+'''
+
+# Filter high-risk events for real-time alerting
+[transforms.high_risk_filter]
+type = "filter"
+inputs = ["cleanup"]
+condition = '.event.risk_score >= 70'
+
+# Sinks - Output destinations
+
+# Primary Elasticsearch sink
+[sinks.elasticsearch_security]
+type = "elasticsearch"
+inputs = ["cleanup"]
+endpoints = ["${ELASTICSEARCH_HOSTS:-https://localhost:9200}"]
+index = "isectech-security-logs-%Y.%m.%d"
+doc_type = "_doc"
+id_key = "event.hash"
+pipeline = "isectech-security-enrichment"
+
+# Authentication
+auth.strategy = "basic"
+auth.user = "${ELASTICSEARCH_USERNAME}"
+auth.password = "${ELASTICSEARCH_PASSWORD}"
+
+# TLS configuration
+tls.verify_certificate = true
+tls.ca_file = "/opt/vector/certs/ca.pem"
+
+# Bulk configuration
+bulk.index = "isectech-security-logs-%Y.%m.%d"
+bulk.action = "index"
+
+# Buffer configuration
+buffer.type = "disk"
+buffer.max_size = 1073741824  # 1GB
+buffer.when_full = "block"
+
+# High-priority alerts to Kafka
+[sinks.kafka_alerts]
+type = "kafka"
+inputs = ["high_risk_filter"]
+bootstrap_servers = "${KAFKA_BROKERS:-localhost:9092}"
+topic = "high-priority-alerts"
+key_field = "event.hash"
+compression = "snappy"
+
+# Security configuration
+librdkafka_options.security.protocol = "SSL"
+librdkafka_options.ssl.ca.location = "/opt/vector/certs/ca.pem"
+librdkafka_options.ssl.certificate.location = "/opt/vector/certs/vector.pem"
+librdkafka_options.ssl.key.location = "/opt/vector/certs/vector-key.pem"
+
+# Buffer configuration
+buffer.type = "memory"
+buffer.max_events = 10000
+buffer.when_full = "drop_newest"
+
+# Long-term storage for compliance
+[sinks.s3_archive]
+type = "aws_s3"
+inputs = ["cleanup"]
+bucket = "${S3_ARCHIVE_BUCKET:-isectech-security-archive}"
+key_prefix = "year=%Y/month=%m/day=%d/hour=%H/"
+compression = "gzip"
+encoding.codec = "json"
+
+# Buffer and batch configuration
+buffer.type = "disk"
+buffer.max_size = 2147483648  # 2GB
+batch.max_bytes = 10485760    # 10MB
+batch.timeout_secs = 300      # 5 minutes
+
+# AWS configuration
+region = "${AWS_REGION:-us-east-1}"
+auth.access_key_id = "${AWS_ACCESS_KEY_ID}"
+auth.secret_access_key = "${AWS_SECRET_ACCESS_KEY}"
+
+# Metrics sink for monitoring
+[sinks.prometheus_metrics]
+type = "prometheus_exporter"
+inputs = ["cleanup"]
+address = "0.0.0.0:9090"
+namespace = "isectech_security"
+
+# Debug output (only in development)
+[sinks.console_debug]
+type = "console"
+inputs = ["cleanup"]
+encoding.codec = "json"
+target = "stdout"
+
+[sinks.console_debug.buffer]
+type = "memory"
+max_events = 100
+when_full = "drop_newest"
+
+# Conditional output based on environment
+[[sinks.console_debug.conditions]]
+type = "vrl"
+source = 'get_env_var("VECTOR_DEBUG") == "true"'

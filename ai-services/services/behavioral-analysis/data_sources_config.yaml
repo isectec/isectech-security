@@ -1,0 +1,527 @@
+# Data Sources Configuration for ML User Behavior Analysis
+# This file defines all data source integrations required for comprehensive
+# user behavior monitoring and analysis
+
+# Global data collection settings
+global_settings:
+  collection_mode: "hybrid"  # batch, streaming, hybrid
+  default_batch_size: 1000
+  default_collection_interval_seconds: 60
+  max_concurrent_connections: 10
+  connection_pool_size: 20
+  data_retention_days: 365
+  enable_data_quality_monitoring: true
+  enable_real_time_processing: true
+
+# Performance optimization settings
+performance:
+  # Memory management
+  max_events_in_memory: 50000
+  event_buffer_flush_interval_seconds: 30
+  memory_cleanup_interval_minutes: 15
+  
+  # Processing optimization  
+  parallel_processing_workers: 8
+  async_batch_processing: true
+  connection_pooling: true
+  cache_normalized_events: true
+  
+  # Network optimization
+  connection_timeout_seconds: 30
+  read_timeout_seconds: 60
+  max_retries: 3
+  retry_backoff_factor: 2.0
+
+# Data sources configuration
+data_sources:
+  # Authentication and Identity Sources
+  auth_logs_main:
+    source_id: "auth_logs_main"
+    source_type: "authentication_logs"
+    name: "Primary Authentication System"
+    description: "Central authentication logs from identity provider"
+    enabled: true
+    priority: "critical"
+    connection_config:
+      type: "postgresql"
+      host: "${AUTH_DB_HOST:-localhost}"
+      port: "${AUTH_DB_PORT:-5432}"
+      database: "${AUTH_DB_NAME:-security_logs}"
+      username: "${AUTH_DB_USER:-behavior_reader}"
+      password: "${AUTH_DB_PASSWORD}"
+      ssl_mode: "require"
+      connection_pool_size: 10
+      query: |
+        SELECT 
+          user_id,
+          session_id,
+          timestamp,
+          action,
+          result,
+          source_ip,
+          user_agent,
+          device_fingerprint,
+          location_country,
+          location_city,
+          mfa_method,
+          risk_score
+        FROM authentication_events 
+        WHERE timestamp BETWEEN $1 AND $2 
+          AND user_id IS NOT NULL
+        ORDER BY timestamp ASC 
+        LIMIT $3
+    schema_mapping:
+      user_id: "user_id"
+      session_id: "session_id"
+      timestamp: "timestamp"
+      event_type: "action"
+      result: "result"
+      source_ip: "source_ip"
+      user_agent: "user_agent"
+      device_info: "device_fingerprint"
+      location_info: "location_country,location_city"
+      mfa_info: "mfa_method"
+      risk_score: "risk_score"
+    collection_interval_seconds: 30
+    batch_size: 2000
+    data_classification: "confidential"
+    quality_checks:
+      - "timestamp_validation"
+      - "user_id_format_validation"
+      - "ip_address_validation"
+      - "completeness_check"
+
+  # Application Activity Sources
+  web_app_logs:
+    source_id: "web_app_logs"
+    source_type: "application_logs"
+    name: "Web Application Access Logs"
+    description: "User interactions with web applications"
+    enabled: true
+    priority: "high"
+    connection_config:
+      type: "elasticsearch"
+      hosts:
+        - "${ELASTICSEARCH_HOST:-localhost}:${ELASTICSEARCH_PORT:-9200}"
+      index_pattern: "webapp-logs-*"
+      use_ssl: "${ELASTICSEARCH_SSL:-false}"
+      username: "${ELASTICSEARCH_USER}"
+      password: "${ELASTICSEARCH_PASSWORD}"
+      verify_certs: true
+      ca_certs_path: "/etc/ssl/certs/elasticsearch-ca.pem"
+    schema_mapping:
+      user_id: "user.id"
+      session_id: "session.id"
+      timestamp: "@timestamp"
+      event_type: "action.type"
+      application: "app.name"
+      resource: "url.path"
+      method: "http.request.method"
+      response_code: "http.response.status_code"
+      duration: "event.duration"
+      bytes_sent: "http.response.bytes"
+      referrer: "http.request.referrer"
+    collection_interval_seconds: 45
+    batch_size: 3000
+    data_classification: "internal"
+
+  api_access_logs:
+    source_id: "api_access_logs"
+    source_type: "application_logs"
+    name: "API Access Logs"
+    description: "RESTful API and GraphQL access patterns"
+    enabled: true
+    priority: "high"
+    connection_config:
+      type: "kafka"
+      bootstrap_servers:
+        - "${KAFKA_BROKER_1:-localhost:9092}"
+        - "${KAFKA_BROKER_2:-localhost:9093}"
+        - "${KAFKA_BROKER_3:-localhost:9094}"
+      topics:
+        - "api-access-events"
+        - "graphql-events"
+      group_id: "behavior-analysis-api"
+      auto_offset_reset: "latest"
+      security_protocol: "SASL_SSL"
+      sasl_mechanism: "PLAIN"
+      sasl_username: "${KAFKA_USER}"
+      sasl_password: "${KAFKA_PASSWORD}"
+    schema_mapping:
+      user_id: "user_id"
+      session_id: "session_id"
+      timestamp: "timestamp"
+      event_type: "operation"
+      api_endpoint: "endpoint"
+      method: "http_method"
+      response_code: "response_status"
+      request_size: "request_bytes"
+      response_size: "response_bytes"
+      execution_time: "duration_ms"
+    collection_interval_seconds: 15
+    batch_size: 5000
+    data_classification: "internal"
+
+  # Network and Infrastructure Sources
+  network_traffic:
+    source_id: "network_traffic"
+    source_type: "network_logs"
+    name: "Network Traffic Analysis"
+    description: "Network flow data and connection patterns"
+    enabled: true
+    priority: "medium"
+    connection_config:
+      type: "elasticsearch"
+      hosts:
+        - "${NETWORK_ES_HOST:-localhost}:${NETWORK_ES_PORT:-9200}"
+      index_pattern: "netflow-*,firewall-*"
+      use_ssl: true
+      username: "${NETWORK_ES_USER}"
+      password: "${NETWORK_ES_PASSWORD}"
+    schema_mapping:
+      user_id: "user.name"
+      timestamp: "@timestamp"
+      source_ip: "source.ip"
+      destination_ip: "destination.ip"
+      source_port: "source.port"
+      destination_port: "destination.port"
+      protocol: "network.protocol"
+      bytes_sent: "source.bytes"
+      bytes_received: "destination.bytes"
+      packets_sent: "source.packets"
+      packets_received: "destination.packets"
+      duration: "event.duration"
+      flags: "network.flags"
+    collection_interval_seconds: 30
+    batch_size: 4000
+    data_classification: "confidential"
+
+  vpn_connections:
+    source_id: "vpn_connections"
+    source_type: "vpn_logs"
+    name: "VPN Connection Logs"
+    description: "VPN connect/disconnect and tunnel activity"
+    enabled: true
+    priority: "high"
+    connection_config:
+      type: "syslog"
+      host: "${VPN_SYSLOG_HOST:-localhost}"
+      port: "${VPN_SYSLOG_PORT:-514}"
+      protocol: "udp"
+      facility: "local0"
+    schema_mapping:
+      user_id: "username"
+      timestamp: "timestamp"
+      event_type: "action"
+      source_ip: "client_ip"
+      server_ip: "server_ip"
+      tunnel_ip: "tunnel_ip"
+      bytes_sent: "bytes_out"
+      bytes_received: "bytes_in"
+      duration: "session_duration"
+      disconnect_reason: "reason"
+    collection_interval_seconds: 60
+    batch_size: 1000
+    data_classification: "confidential"
+
+  # Device and Endpoint Sources
+  endpoint_security:
+    source_id: "endpoint_security"
+    source_type: "endpoint_security"
+    name: "Endpoint Detection and Response"
+    description: "Endpoint security events and telemetry"
+    enabled: true
+    priority: "critical"
+    connection_config:
+      type: "api"
+      base_url: "${EDR_API_URL}"
+      authentication:
+        type: "bearer_token"
+        token: "${EDR_API_TOKEN}"
+      endpoints:
+        events: "/api/v1/events"
+        alerts: "/api/v1/alerts"
+      rate_limit: 100  # requests per minute
+    schema_mapping:
+      user_id: "user.name"
+      device_id: "host.id"
+      timestamp: "event.created"
+      event_type: "event.category"
+      process_name: "process.name"
+      process_path: "process.executable"
+      parent_process: "process.parent.name"
+      command_line: "process.command_line"
+      file_path: "file.path"
+      hash_sha256: "file.hash.sha256"
+      network_connection: "network.destination.ip"
+    collection_interval_seconds: 30
+    batch_size: 2500
+    data_classification: "restricted"
+
+  device_inventory:
+    source_id: "device_inventory"
+    source_type: "device_metadata"
+    name: "Device Inventory System"
+    description: "Device registration and metadata"
+    enabled: true
+    priority: "medium"
+    connection_config:
+      type: "rest_api"
+      base_url: "${MDM_API_URL}"
+      authentication:
+        type: "oauth2"
+        client_id: "${MDM_CLIENT_ID}"
+        client_secret: "${MDM_CLIENT_SECRET}"
+        token_url: "${MDM_TOKEN_URL}"
+      polling_interval_minutes: 30
+    schema_mapping:
+      device_id: "device.id"
+      user_id: "device.owner.id"
+      device_type: "device.type"
+      os_type: "device.os.name"
+      os_version: "device.os.version"
+      last_seen: "device.last_seen"
+      compliance_status: "device.compliance.status"
+      risk_score: "device.risk.score"
+      location: "device.location"
+    collection_interval_seconds: 1800  # 30 minutes
+    batch_size: 500
+    data_classification: "internal"
+
+  # Email and Communication Sources  
+  email_security:
+    source_id: "email_security"
+    source_type: "email_activity"
+    name: "Email Security Gateway"
+    description: "Email send/receive patterns and security events"
+    enabled: true
+    priority: "medium"
+    connection_config:
+      type: "rest_api"
+      base_url: "${EMAIL_GATEWAY_URL}"
+      authentication:
+        type: "api_key"
+        header_name: "X-API-Key"
+        api_key: "${EMAIL_GATEWAY_KEY}"
+    schema_mapping:
+      user_id: "sender.email"
+      timestamp: "message.timestamp"
+      event_type: "action"
+      recipient_count: "recipients.count"
+      subject_hash: "subject.hash"
+      attachment_count: "attachments.count"
+      message_size: "message.size_bytes"
+      threat_score: "security.threat_score"
+      policy_action: "policy.action"
+    collection_interval_seconds: 120
+    batch_size: 1500
+    data_classification: "confidential"
+
+  # Database and File Access
+  database_activity:
+    source_id: "database_activity"
+    source_type: "database_activity"
+    name: "Database Access Monitoring"
+    description: "Database query and access patterns"
+    enabled: true
+    priority: "high"
+    connection_config:
+      type: "postgresql"
+      host: "${DB_AUDIT_HOST:-localhost}"
+      port: "${DB_AUDIT_PORT:-5432}"
+      database: "${DB_AUDIT_NAME:-audit_logs}"
+      username: "${DB_AUDIT_USER:-audit_reader}"
+      password: "${DB_AUDIT_PASSWORD}"
+      query: |
+        SELECT 
+          user_name as user_id,
+          session_id,
+          timestamp,
+          operation_type,
+          database_name,
+          table_name,
+          query_hash,
+          execution_time_ms,
+          rows_affected,
+          source_ip,
+          application_name
+        FROM database_audit_log 
+        WHERE timestamp BETWEEN $1 AND $2 
+        ORDER BY timestamp ASC 
+        LIMIT $3
+    schema_mapping:
+      user_id: "user_id"
+      session_id: "session_id"
+      timestamp: "timestamp"
+      event_type: "operation_type"
+      database: "database_name"
+      table: "table_name"
+      query_hash: "query_hash"
+      execution_time: "execution_time_ms"
+      rows_affected: "rows_affected"
+      source_ip: "source_ip"
+      application: "application_name"
+    collection_interval_seconds: 60
+    batch_size: 2000
+    data_classification: "restricted"
+
+  file_access_logs:
+    source_id: "file_access_logs"
+    source_type: "file_access_logs"
+    name: "File System Access Monitoring"
+    description: "File and directory access patterns"
+    enabled: true
+    priority: "medium"
+    connection_config:
+      type: "siem_connector"
+      siem_type: "splunk"
+      host: "${SPLUNK_HOST}"
+      port: "${SPLUNK_PORT:-8089}"
+      username: "${SPLUNK_USER}"
+      password: "${SPLUNK_PASSWORD}"
+      search_query: |
+        search index=file_access earliest=-1h@h latest=now 
+        | fields _time, user, action, file_path, file_type, file_size, 
+                access_type, source_host, process_name
+        | rename _time as timestamp, user as user_id
+    schema_mapping:
+      user_id: "user_id"
+      timestamp: "timestamp"
+      event_type: "action"
+      file_path: "file_path"
+      file_type: "file_type"
+      file_size: "file_size"
+      access_type: "access_type"
+      source_host: "source_host"
+      process_name: "process_name"
+    collection_interval_seconds: 180
+    batch_size: 3000
+    data_classification: "confidential"
+
+# Data quality and validation rules
+data_quality:
+  # Global validation rules
+  global_rules:
+    required_fields: ["user_id", "timestamp", "event_type", "source"]
+    timestamp_format: "iso8601"
+    user_id_min_length: 1
+    user_id_max_length: 256
+    event_type_allowed_chars: "alphanumeric_underscore"
+    
+  # Quality thresholds
+  quality_thresholds:
+    minimum_completeness: 0.85  # 85% field completeness
+    minimum_validity: 0.90      # 90% valid data
+    minimum_consistency: 0.80   # 80% temporal consistency
+    minimum_uniqueness: 0.95    # 95% unique events
+    maximum_latency_minutes: 60 # Max 1 hour data latency
+    
+  # Quality monitoring
+  monitoring:
+    enable_real_time_quality_check: true
+    quality_report_interval_minutes: 15
+    alert_on_quality_degradation: true
+    quality_trend_analysis: true
+    auto_disable_poor_sources: false
+    quality_score_threshold: 0.6
+
+# Data normalization and enrichment
+normalization:
+  # Field standardization
+  field_standardization:
+    timestamp_timezone: "UTC"
+    ip_address_format: "ipv4_or_ipv6"
+    user_id_case: "lowercase"
+    event_type_case: "lowercase"
+    
+  # Data enrichment
+  enrichment:
+    enable_geolocation: true
+    enable_device_categorization: true
+    enable_risk_scoring: true
+    enable_threat_intelligence: true
+    
+    # Geolocation service
+    geolocation_service:
+      provider: "maxmind"
+      database_path: "/opt/geoip/GeoLite2-City.mmdb"
+      cache_results: true
+      cache_ttl_hours: 24
+      
+    # Device categorization
+    device_categorization:
+      user_agent_parsing: true
+      device_fingerprinting: true
+      os_detection: true
+      browser_detection: true
+      
+    # Risk scoring
+    risk_scoring:
+      enable_behavioral_risk: true
+      enable_contextual_risk: true
+      enable_temporal_risk: true
+      risk_score_range: [0.0, 1.0]
+      
+# Performance monitoring and alerting
+monitoring:
+  # Collection performance
+  collection_metrics:
+    - "events_collected_per_second"
+    - "collection_latency_p95"
+    - "collection_success_rate"
+    - "data_source_availability"
+    
+  # Processing performance  
+  processing_metrics:
+    - "normalization_latency_p95"
+    - "validation_success_rate"
+    - "enrichment_latency_p95"
+    - "throughput_events_per_second"
+    
+  # System resource metrics
+  resource_metrics:
+    - "memory_usage_percentage"
+    - "cpu_utilization"
+    - "disk_io_rate"
+    - "network_io_rate"
+    - "connection_pool_usage"
+    
+  # Alerting thresholds
+  alerts:
+    collection_latency_warning_ms: 5000
+    collection_latency_critical_ms: 10000
+    success_rate_warning_percent: 95
+    success_rate_critical_percent: 90
+    memory_usage_warning_percent: 80
+    memory_usage_critical_percent: 90
+
+# Security and compliance settings
+security:
+  # Data encryption
+  encryption:
+    encrypt_data_in_transit: true
+    encrypt_data_at_rest: true
+    encryption_algorithm: "AES-256-GCM"
+    key_rotation_days: 90
+    
+  # Access control
+  access_control:
+    require_authentication: true
+    require_authorization: true
+    audit_access_logs: true
+    session_timeout_minutes: 480  # 8 hours
+    
+  # Privacy protection
+  privacy:
+    enable_data_anonymization: false
+    pii_detection: true
+    pii_masking: true
+    data_retention_enforcement: true
+    
+  # Compliance
+  compliance:
+    gdpr_compliance: true
+    hipaa_compliance: false
+    pci_compliance: true
+    sox_compliance: true
+    audit_trail_retention_years: 7

@@ -1,0 +1,212 @@
+# SOC Automation - Incident Response Orchestration
+# Docker Compose for development and testing
+
+version: '3.8'
+
+services:
+  # Redis for message queuing and caching
+  redis:
+    image: redis:7-alpine
+    container_name: soc-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - soc-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Elasticsearch for data storage
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    container_name: soc-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - soc-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Kibana for Elasticsearch visualization (optional)
+  kibana:
+    image: kibana:7.17.0
+    container_name: soc-kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - soc-network
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # TheHive Case Management (optional)
+  thehive:
+    image: thehiveproject/thehive:4.1
+    container_name: soc-thehive
+    restart: unless-stopped
+    environment:
+      - JVM_OPTS="-Xms1024m -Xmx1024m"
+    volumes:
+      - thehive_data:/opt/thp/thehive/data
+      - thehive_index:/opt/thp/thehive/index
+      - ./config/thehive.conf:/opt/thp/thehive/conf/application.conf
+    ports:
+      - "9000:9000"
+    networks:
+      - soc-network
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/api/status || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  # Incident Response Service
+  incident-response:
+    build: .
+    container_name: soc-incident-response
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - THEHIVE_API_KEY=${THEHIVE_API_KEY:-demo_api_key}
+      - EDR_CLIENT_ID=${EDR_CLIENT_ID:-demo_client}
+      - EDR_CLIENT_SECRET=${EDR_CLIENT_SECRET:-demo_secret}
+      - NETWORK_MONITOR_API_KEY=${NETWORK_MONITOR_API_KEY:-demo_key}
+    volumes:
+      - evidence_storage:/evidence
+      - ./config/incident-response.yaml:/etc/soc-automation/incident-response.yaml:ro
+      - ./logs:/var/log/soc-automation
+    ports:
+      - "8080:8080"
+    networks:
+      - soc-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: soc-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - soc-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: soc-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - soc-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alert Generator for Testing (optional)
+  alert-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-generator
+    container_name: soc-alert-generator
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - ALERT_INTERVAL=60
+      - ALERT_TYPES=malware,phishing,data_breach
+    networks:
+      - soc-network
+    depends_on:
+      - redis
+    profiles:
+      - testing
+
+volumes:
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  thehive_data:
+    driver: local
+  thehive_index:
+    driver: local
+  evidence_storage:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  soc-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

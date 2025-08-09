@@ -1,0 +1,86 @@
+# Task ID: 84
+# Title: Implement Pod Security Standards and Container Hardening
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Enforce Pod Security Standards across all Kubernetes namespaces and implement container security hardening measures.
+# Details:
+1. Configure Pod Security Standards (PSS) admission controller
+2. Create namespace-level Pod Security profiles
+3. Implement security context constraints for all containers
+4. Set up container image scanning in CI/CD pipeline
+5. Configure runtime security monitoring with Falco
+6. Implement network policies for pod-to-pod communication
+7. Eliminate privileged containers and minimize capabilities
+
+Pod Security Standards configuration:
+```yaml
+# Namespace-level PSS configuration
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+```
+
+Security context example:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-pod
+spec:
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+    fsGroup: 1000
+  containers:
+  - name: app
+    image: app:latest
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: true
+      runAsUser: 1000
+      runAsGroup: 1000
+```
+
+Falco configuration for runtime security:
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: security
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      containers:
+      - name: falco
+        image: falcosecurity/falco:0.34.1
+        securityContext:
+          privileged: true
+```
+
+Implement using Kubernetes 1.25+ with PSS admission controller, Falco 0.34+ for runtime security, and Trivy or Clair for image scanning.
+
+# Test Strategy:
+1. Verify PSS enforcement by attempting to deploy non-compliant pods
+2. Test security context constraints with various container configurations
+3. Validate container image scanning in CI/CD pipeline
+4. Test runtime security monitoring with simulated attacks
+5. Verify network policy enforcement
+6. Test for privileged container prevention
+7. Validate audit logging of security violations

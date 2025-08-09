@@ -1,0 +1,262 @@
+# iSECTECH Application Alerting Rules
+# Critical monitoring alerts for application services
+
+groups:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # APPLICATION SERVICE ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: application.alerts
+    rules:
+      # Service down alerts
+      - alert: FrontendServiceDown
+        expr: up{job="isectech-frontend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: frontend
+          category: availability
+          service: frontend
+        annotations:
+          summary: "iSECTECH Frontend service is down"
+          description: "Frontend service has been down for more than 2 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/frontend-down"
+
+      - alert: BackendServiceDown
+        expr: up{job="isectech-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: availability
+          service: backend
+        annotations:
+          summary: "iSECTECH Backend service is down"
+          description: "Backend service has been down for more than 2 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/backend-down"
+
+      - alert: AIServiceDown
+        expr: up{job="isectech-ai-services"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          team: ai
+          category: availability
+          service: ai
+        annotations:
+          summary: "iSECTECH AI service is down"
+          description: "AI service has been down for more than 3 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/ai-service-down"
+
+      # High HTTP error rate
+      - alert: HighHTTPErrorRate
+        expr: rate(http_requests_total{code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+          category: errors
+        annotations:
+          summary: "High HTTP error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has error rate above 5% for 5 minutes. Current rate: {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.isectech.com/runbooks/high-error-rate"
+
+      # Critical HTTP error rate
+      - alert: CriticalHTTPErrorRate
+        expr: rate(http_requests_total{code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: errors
+        annotations:
+          summary: "Critical HTTP error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has error rate above 15% for 2 minutes. Current rate: {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-error-rate"
+
+      # High response time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+          category: performance
+        annotations:
+          summary: "High response time on {{ $labels.service }}"
+          description: "95th percentile response time is above 2 seconds for {{ $labels.service }}. Current value: {{ $value }}s"
+          runbook_url: "https://docs.isectech.com/runbooks/high-response-time"
+
+      # Critical response time
+      - alert: CriticalResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: performance
+        annotations:
+          summary: "Critical response time on {{ $labels.service }}"
+          description: "95th percentile response time is above 5 seconds for {{ $labels.service }}. Current value: {{ $value }}s"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-response-time"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SECURITY AND THREAT DETECTION ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: security.alerts
+    rules:
+      # Authentication failure spike
+      - alert: AuthenticationFailureSpike
+        expr: rate(authentication_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+          category: security
+        annotations:
+          summary: "High authentication failure rate detected"
+          description: "Authentication failure rate is above 10/minute for 2 minutes. Current rate: {{ $value }}/min"
+          runbook_url: "https://docs.isectech.com/runbooks/auth-failure-spike"
+
+      # Critical authentication failure spike
+      - alert: CriticalAuthenticationFailureSpike
+        expr: rate(authentication_failures_total[5m]) > 50
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+          category: security
+        annotations:
+          summary: "Critical authentication failure rate detected"
+          description: "Authentication failure rate is above 50/minute for 1 minute. Possible brute force attack. Current rate: {{ $value }}/min"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-auth-failure"
+
+      # Suspicious IP access
+      - alert: SuspiciousIPAccess
+        expr: rate(suspicious_ip_requests_total[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          team: security
+          category: security
+        annotations:
+          summary: "Suspicious IP access detected"
+          description: "Requests from suspicious IPs detected at {{ $value }}/minute for 3 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/suspicious-ip"
+
+      # Vulnerability scan detected
+      - alert: VulnerabilityScanDetected
+        expr: rate(vulnerability_scan_attempts_total[5m]) > 1
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+          category: security
+        annotations:
+          summary: "Vulnerability scanning activity detected"
+          description: "Potential vulnerability scanning detected. Rate: {{ $value }}/minute"
+          runbook_url: "https://docs.isectech.com/runbooks/vuln-scan-detected"
+
+      # Malware detection
+      - alert: MalwareDetected
+        expr: increase(malware_detections_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          team: security
+          category: security
+        annotations:
+          summary: "Malware detected in the system"
+          description: "{{ $value }} malware instances detected in the last 5 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/malware-detected"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BUSINESS METRICS ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: business.alerts
+    rules:
+      # Low user activity
+      - alert: LowUserActivity
+        expr: rate(user_sessions_total[1h]) < 10
+        for: 30m
+        labels:
+          severity: warning
+          team: product
+          category: business
+        annotations:
+          summary: "Low user activity detected"
+          description: "User session rate has been below 10/hour for 30 minutes. Current rate: {{ $value }}/hour"
+          runbook_url: "https://docs.isectech.com/runbooks/low-user-activity"
+
+      # High API rate limiting
+      - alert: HighAPIRateLimiting
+        expr: rate(api_rate_limited_requests_total[5m]) / rate(api_requests_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          category: performance
+        annotations:
+          summary: "High API rate limiting detected"
+          description: "API rate limiting is affecting more than 10% of requests for 10 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/high-rate-limiting"
+
+      # Payment processing failures
+      - alert: PaymentProcessingFailures
+        expr: rate(payment_failures_total[5m]) > 2
+        for: 5m
+        labels:
+          severity: critical
+          team: payments
+          category: business
+        annotations:
+          summary: "Payment processing failures detected"
+          description: "Payment processing failure rate is above 2/minute for 5 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/payment-failures"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # COMPLIANCE AND AUDIT ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: compliance.alerts
+    rules:
+      # Unauthorized access attempt
+      - alert: UnauthorizedAccessAttempt
+        expr: increase(unauthorized_access_attempts_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: security
+          category: compliance
+        annotations:
+          summary: "Multiple unauthorized access attempts detected"
+          description: "{{ $value }} unauthorized access attempts in the last 5 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/unauthorized-access"
+
+      # Data export anomaly
+      - alert: DataExportAnomaly
+        expr: rate(data_exports_total[1h]) > 100
+        for: 15m
+        labels:
+          severity: warning
+          team: security
+          category: compliance
+        annotations:
+          summary: "Unusual data export activity detected"
+          description: "Data export rate is above 100/hour for 15 minutes. Current rate: {{ $value }}/hour"
+          runbook_url: "https://docs.isectech.com/runbooks/data-export-anomaly"
+
+      # Privilege escalation detected
+      - alert: PrivilegeEscalationDetected
+        expr: increase(privilege_escalation_attempts_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          team: security
+          category: compliance
+        annotations:
+          summary: "Privilege escalation attempt detected"
+          description: "{{ $value }} privilege escalation attempts detected in the last 5 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/privilege-escalation"

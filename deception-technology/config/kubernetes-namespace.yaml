@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deception
+  labels:
+    security.isectech.com/deception: "true"
+    network-policy: "isolated"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+  annotations:
+    security.isectech.com/description: "Isolated namespace for deception technology deployment"
+    security.isectech.com/owner: "security-team"
+    security.isectech.com/created: "2024-01-01"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deception-isolation
+  namespace: deception
+  labels:
+    app: deception-infrastructure
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow internal communication within deception namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: deception
+  # Allow monitoring access from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080  # Metrics endpoint
+    - protocol: TCP
+      port: 9090  # Health checks
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS for external integrations (SIEM, SOAR)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow Elasticsearch/SIEM integration
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9200  # Elasticsearch
+    - protocol: TCP
+      port: 5601  # Kibana
+  # Allow internal namespace communication
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: deception
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: deception-quota
+  namespace: deception
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: "16Gi"
+    limits.cpu: "16"
+    limits.memory: "32Gi"
+    persistentvolumeclaims: "10"
+    services: "20"
+    secrets: "20"
+    configmaps: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: deception-limits
+  namespace: deception
+spec:
+  limits:
+  - default:
+      cpu: "500m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "256Mi"
+    type: Container
+  - max:
+      cpu: "2"
+      memory: "4Gi"
+    min:
+      cpu: "50m"
+      memory: "128Mi"
+    type: Container

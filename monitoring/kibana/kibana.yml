@@ -1,0 +1,159 @@
+# iSECTECH Kibana Configuration
+# Production-grade Kibana configuration for log visualization and analysis
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+server.name: "isectech-kibana"
+server.host: "0.0.0.0"
+server.port: 5601
+server.basePath: ""
+server.publicBaseUrl: "https://kibana.isectech.com"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ELASTICSEARCH CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+elasticsearch.username: "kibana_system"
+elasticsearch.password: "${KIBANA_SYSTEM_PASSWORD}"
+elasticsearch.requestTimeout: 30000
+elasticsearch.shardTimeout: 30000
+elasticsearch.pingTimeout: 1500
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Encryption keys for session management
+xpack.encryptedSavedObjects.encryptionKey: "${KIBANA_ENCRYPTION_KEY}"
+xpack.security.encryptionKey: "${KIBANA_SECURITY_KEY}"
+xpack.reporting.encryptionKey: "${KIBANA_REPORTING_KEY}"
+
+# Session configuration
+xpack.security.session.idleTimeout: "1h"
+xpack.security.session.lifespan: "24h"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTHENTICATION AND AUTHORIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.security.enabled: true
+elasticsearch.ssl.verificationMode: certificate
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MONITORING AND OBSERVABILITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+monitoring.ui.enabled: true
+monitoring.kibana.collection.enabled: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ALERTING AND ACTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.actions.enabled: true
+xpack.alerting.enabled: true
+
+# Email action configuration
+xpack.actions.connectorTypes.email:
+  service:
+    host: "smtp.isectech.com"
+    port: 587
+    secure: false
+  from: "alerts@isectech.com"
+
+# Slack action configuration
+xpack.actions.connectorTypes.slack:
+  enabled: true
+
+# Webhook action configuration
+xpack.actions.connectorTypes.webhook:
+  enabled: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MACHINE LEARNING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.ml.enabled: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REPORTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+xpack.reporting.enabled: true
+xpack.reporting.kibanaServer.hostname: "kibana.isectech.com"
+xpack.reporting.kibanaServer.protocol: "https"
+xpack.reporting.kibanaServer.port: 443
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+logging.root.level: info
+logging.loggers:
+  - name: plugins.security
+    level: debug
+  - name: elasticsearch.query
+    level: debug
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERFORMANCE AND MEMORY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elasticsearch.requestHeadersWhitelist: ["authorization", "content-type"]
+elasticsearch.customHeaders: {}
+
+# Memory circuit breaker
+elasticsearch.memoryCircuitBreaker.enabled: true
+elasticsearch.memoryCircuitBreaker.maxPercentage: 0.95
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INDEX PATTERNS AND DEFAULTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Default index pattern for iSECTECH logs
+kibana.defaultAppId: "discover"
+kibana.index: ".kibana"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE FLAGS AND CUSTOMIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Advanced settings
+kibana.autocompleteTimeout: 1000
+kibana.autocompleteTerminateAfter: 100000
+
+# Maps configuration
+map.includeElasticMapsService: true
+
+# Telemetry (disable for security)
+telemetry.enabled: false
+telemetry.optIn: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SAVED OBJECTS AND DATA VIEWS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+savedObjects.maxImportPayloadBytes: 26214400
+savedObjects.maxImportExportSize: 10000
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOM ISECTECH CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Custom branding
+server.name: "iSECTECH Security Operations Center"
+
+# Custom time ranges for security operations
+timelion.enabled: true
+
+# Dashboard auto-refresh settings
+dashboard.defaultAppId: "dashboard"
+
+# Console settings for development
+console.enabled: true
+
+# Canvas for custom visualizations
+canvas.enabled: true

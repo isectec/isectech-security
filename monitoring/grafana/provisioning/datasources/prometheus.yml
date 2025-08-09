@@ -1,0 +1,130 @@
+# iSECTECH Grafana Datasource Configuration
+# Prometheus datasource provisioning for monitoring dashboards
+
+apiVersion: 1
+
+datasources:
+  # Primary Prometheus datasource
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    orgId: 1
+    version: 1
+    jsonData:
+      httpMethod: POST
+      keepCookies: []
+      queryTimeout: 60s
+      timeInterval: 15s
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: High
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: 10m
+      disableRecordingRules: false
+
+  # Jaeger for distributed tracing
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger-query:16686
+    isDefault: false
+    editable: true
+    orgId: 1
+    version: 1
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['job', 'instance', 'pod', 'namespace']
+        mappedTags: [
+          { key: 'service.name', value: 'service' },
+          { key: 'service.namespace', value: 'namespace' }
+        ]
+        mapTagNamesEnabled: true
+        spanStartTimeShift: 1h
+        spanEndTimeShift: 1h
+        filterByTraceID: false
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags: [
+          { key: 'service.name', value: 'service' },
+          { key: 'job' }
+        ]
+        queries:
+          - name: 'Sample query'
+            query: 'sum(rate(traces_spanmetrics_latency_bucket{$__tags}[5m]))'
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki
+
+  # Loki for log aggregation
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    orgId: 1
+    version: 1
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: jaeger
+          matcherRegex: "traceID=(\\w+)"
+          name: TraceID
+          url: "$${__value.raw}"
+        - datasourceUid: jaeger
+          matcherRegex: "trace_id=(\\w+)"
+          name: TraceID
+          url: "$${__value.raw}"
+
+  # Elasticsearch for log search
+  - name: Elasticsearch
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    isDefault: false
+    editable: true
+    orgId: 1
+    version: 1
+    database: "[logs-*]"
+    jsonData:
+      index: logs-*
+      timeField: "@timestamp"
+      esVersion: "8.0.0"
+      includeFrozen: false
+      logMessageField: message
+      logLevelField: level
+      interval: Daily
+      timeInterval: 10s
+      maxConcurrentShardRequests: 5
+
+  # Alertmanager for alert management
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    isDefault: false
+    editable: true
+    orgId: 1
+    version: 1
+    jsonData:
+      implementation: prometheus
+
+  # TestData for development/testing
+  - name: TestData
+    type: testdata
+    access: proxy
+    isDefault: false
+    editable: true
+    orgId: 1
+    version: 1

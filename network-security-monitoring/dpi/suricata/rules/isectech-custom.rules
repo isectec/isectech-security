@@ -1,0 +1,217 @@
+# iSECTECH Custom Suricata Rules
+# Production-grade security rules tailored for iSECTECH environment
+#
+# Rule Categories:
+# - Lateral Movement Detection
+# - Data Exfiltration Detection
+# - Command & Control Detection
+# - Malware Detection
+# - Protocol Anomaly Detection
+# - Insider Threat Detection
+# - Advanced Persistent Threat (APT) Detection
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LATERAL MOVEMENT DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Detect PsExec-style lateral movement
+alert tcp $HOME_NET any -> $HOME_NET 445 (msg:"iSECTECH: Potential PsExec lateral movement"; content:"|00|IPC|00|"; content:"PSEXESVC"; distance:0; within:100; sid:10001001; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1570/)
+
+# SMB pipe creation for remote execution
+alert smb any any -> $HOME_NET any (msg:"iSECTECH: Suspicious SMB named pipe creation"; smb.named_pipe; content:"ADMIN$"; sid:10001002; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1021/)
+
+# WMI lateral movement detection
+alert tcp $HOME_NET any -> $HOME_NET 135 (msg:"iSECTECH: WMI lateral movement attempt"; content:"|05 00 0b 03 10 00 00 00|"; offset:0; depth:8; sid:10001003; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1047/)
+
+# RDP lateral movement from internal hosts
+alert tcp $HOME_NET any -> $HOME_NET 3389 (msg:"iSECTECH: Internal RDP connection - potential lateral movement"; flags:S; threshold:type both, track by_src, count 3, seconds 300; sid:10001004; rev:1; classtype:suspicious-login; reference:url,attack.mitre.org/techniques/T1021/)
+
+# SSH lateral movement detection
+alert tcp $HOME_NET any -> $HOME_NET 22 (msg:"iSECTECH: Multiple SSH connections - potential lateral movement"; flags:S; threshold:type both, track by_src, count 5, seconds 300; sid:10001005; rev:1; classtype:suspicious-login; reference:url,attack.mitre.org/techniques/T1021/)
+
+# Pass-the-Hash detection via SMB
+alert smb any any -> $HOME_NET any (msg:"iSECTECH: Potential Pass-the-Hash attack via SMB"; smb.ntlmssp; content:"|01 00 00 00|"; distance:24; within:4; sid:10001006; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1550/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA EXFILTRATION DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Large HTTP POST data uploads
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Large HTTP POST - potential data exfiltration"; http.method; content:"POST"; http.content_len; byte_test:4,>,10485760,0,string,dec; sid:10002001; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1041/)
+
+# FTP data exfiltration to external hosts
+alert ftp-data $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Large FTP upload to external host"; dsize:>5242880; sid:10002002; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1041/)
+
+# DNS tunneling detection - long query names
+alert dns $HOME_NET any -> any 53 (msg:"iSECTECH: DNS tunneling - excessive query length"; dns.query; content:"|00 01 00 01|"; dns.query; isdataat:200,relative; sid:10002003; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1071/)
+
+# ICMP tunneling detection
+alert icmp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: ICMP tunneling - large payload"; dsize:>1024; icmp_type:8; sid:10002004; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1572/)
+
+# Email with large attachments
+alert smtp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Large email attachment - potential data exfiltration"; content:"Content-Type: application/"; content:"Content-Transfer-Encoding: base64"; distance:0; within:200; byte_test:4,>,10485760,0,string,dec; sid:10002005; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1041/)
+
+# Cloud storage upload detection
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Cloud storage upload detected"; http.host; content:"dropbox.com"; http.method; content:"POST"; http.uri; content:"upload"; sid:10002006; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1567/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMMAND & CONTROL DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# HTTP beaconing detection - regular intervals
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: HTTP beaconing - regular connection pattern"; http.method; content:"GET"; threshold:type both, track by_src, count 10, seconds 600; sid:10003001; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1071/)
+
+# Suspicious User-Agent strings
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Suspicious User-Agent - potential malware C2"; http.user_agent; content:"Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)"; sid:10003002; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1071/)
+
+# DNS beaconing to suspicious domains
+alert dns $HOME_NET any -> any 53 (msg:"iSECTECH: DNS beaconing - high entropy domain"; dns.query; pcre:"/^[a-z0-9]{20,}\.com$/"; threshold:type both, track by_src, count 5, seconds 300; sid:10003003; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1071/)
+
+# IRC C2 communication
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: IRC C2 communication detected"; content:"NICK "; depth:5; content:"USER "; distance:0; within:100; sid:10003004; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1071/)
+
+# TLS/SSL with suspicious certificate characteristics
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Suspicious TLS certificate - self-signed"; tls.cert_issuer; content:"CN="; tls.cert_subject; content:"CN="; byte_test:10,=,tls.cert_issuer,0,string; sid:10003005; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1573/)
+
+# Domain Generation Algorithm (DGA) detection
+alert dns $HOME_NET any -> any 53 (msg:"iSECTECH: DGA domain detected - high consonant ratio"; dns.query; pcre:"/^[bcdfghjklmnpqrstvwxyz]{8,20}\.(com|net|org)$/"; sid:10003006; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1568/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MALWARE DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# PE file download from suspicious sources
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"iSECTECH: PE file download from external source"; http.response_body; content:"MZ"; depth:2; content:"PE|00 00|"; distance:58; within:4; sid:10004001; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1105/)
+
+# Macro-enabled Office documents
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"iSECTECH: Macro-enabled Office document download"; http.response_body; content:"PK"; depth:2; content:"vbaProject.bin"; distance:0; sid:10004002; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1566/)
+
+# PowerShell encoded command execution
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: PowerShell encoded command detected"; content:"powershell"; nocase; content:"-EncodedCommand"; distance:0; within:50; sid:10004003; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1059/)
+
+# Suspicious script downloads
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"iSECTECH: Suspicious script download"; http.uri; pcre:"/\.(ps1|vbs|js|bat|cmd)$/"; http.response_body; content:"function"; distance:0; within:100; sid:10004004; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1105/)
+
+# Registry modification commands
+alert tcp $HOME_NET any -> any any (msg:"iSECTECH: Registry modification detected"; content:"reg add"; nocase; content:"HKLM"; distance:0; within:50; sid:10004005; rev:1; classtype:system-call-detect; reference:url,attack.mitre.org/techniques/T1112/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROTOCOL ANOMALY DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# HTTP protocol violations
+alert http any any -> any any (msg:"iSECTECH: HTTP protocol violation - invalid method"; http.method; pcre:"/^(?!GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE|CONNECT)/"; sid:10005001; rev:1; classtype:protocol-command-decode; reference:url,attack.mitre.org/techniques/T1071/)
+
+# DNS over HTTP tunneling
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: DNS over HTTP tunneling detected"; http.uri; content:"/dns-query"; http.header; content:"application/dns-message"; sid:10005002; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1572/)
+
+# TLS on non-standard ports
+alert tls $HOME_NET any -> $EXTERNAL_NET !443 (msg:"iSECTECH: TLS on non-standard port"; tls.handshake_type:1; sid:10005003; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1571/)
+
+# Large HTTP headers - potential buffer overflow
+alert http any any -> $HOME_NET any (msg:"iSECTECH: Oversized HTTP header - potential exploit"; http.header_raw; byte_test:4,>,8192,0; sid:10005004; rev:1; classtype:attempted-dos; reference:url,attack.mitre.org/techniques/T1190/)
+
+# Fragmented packets with suspicious content
+alert ip any any -> $HOME_NET any (msg:"iSECTECH: Fragmented packet with executable content"; fragbits:M; content:"MZ"; depth:2; sid:10005005; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1562/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INSIDER THREAT DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Off-hours data access
+alert tcp $HOME_NET any -> $DATABASE_VLAN any (msg:"iSECTECH: Off-hours database access"; content:"SELECT"; nocase; content:"*"; distance:0; within:20; time:0-6,19-23; sid:10006001; rev:1; classtype:suspicious-login; reference:url,attack.mitre.org/techniques/T1530/)
+
+# Unusual file sharing activity
+alert smb $HOME_NET any -> $HOME_NET any (msg:"iSECTECH: Bulk file access - potential insider threat"; smb.command:46; threshold:type both, track by_src, count 100, seconds 300; sid:10006002; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1005/)
+
+# Privileged account access from unusual location
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"iSECTECH: External SSH access to privileged account"; ssh.software; content:"OpenSSH"; threshold:type limit, track by_src, count 1, seconds 3600; sid:10006003; rev:1; classtype:suspicious-login; reference:url,attack.mitre.org/techniques/T1078/)
+
+# Data staging in temp directories
+alert smb $HOME_NET any -> $HOME_NET any (msg:"iSECTECH: Data staging in temp directory"; smb.share; content:"temp"; nocase; smb.command:46; dsize:>1048576; sid:10006004; rev:1; classtype:policy-violation; reference:url,attack.mitre.org/techniques/T1074/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADVANCED PERSISTENT THREAT (APT) DETECTION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Living off the land binaries (LOLBins)
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Suspicious use of legitimate binary - certutil"; content:"certutil"; nocase; content:"-urlcache"; distance:0; within:50; sid:10007001; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1105/)
+
+# WMI persistence mechanism
+alert tcp $HOME_NET any -> $HOME_NET 135 (msg:"iSECTECH: WMI persistence - event filter creation"; content:"SELECT * FROM __InstanceModificationEvent"; nocase; sid:10007002; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1546/)
+
+# Scheduled task creation via schtasks
+alert tcp $HOME_NET any -> any any (msg:"iSECTECH: Scheduled task creation detected"; content:"schtasks"; nocase; content:"/create"; distance:0; within:20; sid:10007003; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1053/)
+
+# Kerberoasting detection
+alert tcp $HOME_NET any -> $DC_SERVERS 88 (msg:"iSECTECH: Potential Kerberoasting - multiple SPN requests"; content:"|a0 03 02 01 05|"; threshold:type both, track by_src, count 10, seconds 300; sid:10007004; rev:1; classtype:attempted-recon; reference:url,attack.mitre.org/techniques/T1558/)
+
+# Golden ticket detection
+alert tcp $HOME_NET any -> $DC_SERVERS 88 (msg:"iSECTECH: Potential Golden Ticket - unusual TGT request"; content:"|a0 03 02 01 05|"; content:"krbtgt"; distance:0; within:100; time:0-5,22-23; sid:10007005; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1558/)
+
+# DCSync attack detection
+alert tcp $HOME_NET any -> $DC_SERVERS 135 (msg:"iSECTECH: DCSync attack - DRSUAPI replication"; content:"DsGetNCChanges"; nocase; content:"CN=Schema"; distance:0; within:100; sid:10007006; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/techniques/T1003/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOM MALWARE FAMILY SIGNATURES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Cobalt Strike beacon detection
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Cobalt Strike beacon - malleable profile"; http.uri; content:"/jquery-"; http.header; content:"Mozilla/5.0"; content:"(compatible; MSIE"; distance:0; within:50; sid:10008001; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/software/S0154/)
+
+# Metasploit Meterpreter detection
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Metasploit Meterpreter session"; content:"|00 00 00 08|"; depth:4; content:"recv"; distance:0; within:20; sid:10008002; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/software/S0051/)
+
+# Empire PowerShell agent
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Empire PowerShell agent communication"; http.user_agent; content:"Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko"; http.uri; pcre:"/\/[a-zA-Z0-9]{1,10}$/"; sid:10008003; rev:1; classtype:trojan-activity; reference:url,attack.mitre.org/software/S0363/)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOM FLOWBIT RULES FOR CORRELATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Set flowbit for suspicious host
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"iSECTECH: Suspicious outbound connection"; flags:S; flowbits:set,suspicious.host; flowbits:noalert; sid:10009001; rev:1; classtype:misc-activity;)
+
+# Check flowbit for escalation
+alert tcp any any -> $HOME_NET any (msg:"iSECTECH: Inbound connection to suspicious host"; flags:S; flowbits:isset,suspicious.host; sid:10009002; rev:1; classtype:suspicious-traffic;)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERFORMANCE OPTIMIZED RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Fast pattern matching for common threats
+alert tcp any any -> $HOME_NET any (msg:"iSECTECH: Fast malware hash detection"; content:"|4D 5A|"; depth:2; fast_pattern:only; content:"This program cannot be run in DOS mode"; distance:0; within:200; sid:10010001; rev:1; classtype:trojan-activity;)
+
+# Efficient regex for domain detection
+alert dns $HOME_NET any -> any 53 (msg:"iSECTECH: Efficient DGA detection"; dns.query; pcre:"/^[a-z]{10,20}\.(tk|ml|ga|cf)$/"; fast_pattern; sid:10010002; rev:1; classtype:trojan-activity;)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUPPRESSION AND THRESHOLD EXAMPLES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Suppress false positives for known good traffic
+# suppress gen_id 1, sig_id 10001004, track by_src, ip 10.0.1.100
+# threshold gen_id 1, sig_id 10003001, type both, track by_src, count 5, seconds 300
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA AND CLASSIFICATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# All rules include:
+# - Unique SID ranges (10001xxx - 10010xxx)
+# - Proper classification types
+# - MITRE ATT&CK technique references
+# - Revision tracking
+# - Performance considerations
+#
+# Rule ID Ranges:
+# 10001xxx - Lateral Movement
+# 10002xxx - Data Exfiltration  
+# 10003xxx - Command & Control
+# 10004xxx - Malware Detection
+# 10005xxx - Protocol Anomalies
+# 10006xxx - Insider Threats
+# 10007xxx - APT Techniques
+# 10008xxx - Malware Families
+# 10009xxx - Correlation Rules
+# 10010xxx - Performance Rules

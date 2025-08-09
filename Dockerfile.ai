@@ -1,0 +1,321 @@
+# iSECTECH AI Services - Production-Grade Python Application
+# Multi-stage Docker build optimized for ML/AI workloads and security
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Base Stage - Common Python setup with ML dependencies
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM python:3.11-slim AS base
+
+# Install system dependencies and security updates
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libc6-dev \
+    libffi-dev \
+    libssl-dev \
+    pkg-config \
+    gcc \
+    g++ \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd --system --gid 1001 aiapp && \
+    useradd --system --uid 1001 --gid aiapp --shell /bin/bash --create-home aiapp
+
+# Upgrade pip and install essential Python packages
+RUN python -m pip install --no-cache-dir --upgrade \
+    pip \
+    setuptools \
+    wheel
+
+WORKDIR /app
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dependencies Stage - Install Python dependencies
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS deps
+
+# Copy requirement files
+COPY requirements*.txt ./
+COPY pyproject.toml* ./
+COPY Pipfile* ./
+
+# Install Python dependencies with caching and security
+RUN echo "Installing Python dependencies..." && \
+    \
+    # Install from requirements.txt if available
+    if [ -f "requirements.txt" ]; then \
+        pip install --no-cache-dir -r requirements.txt; \
+    fi && \
+    \
+    # Install dev requirements if available
+    if [ -f "requirements-dev.txt" ]; then \
+        pip install --no-cache-dir -r requirements-dev.txt; \
+    fi && \
+    \
+    # Install from pyproject.toml if available
+    if [ -f "pyproject.toml" ]; then \
+        pip install --no-cache-dir poetry && \
+        poetry config virtualenvs.create false && \
+        poetry install --no-dev; \
+    fi && \
+    \
+    # Install from Pipfile if available
+    if [ -f "Pipfile" ]; then \
+        pip install --no-cache-dir pipenv && \
+        pipenv install --system --deploy; \
+    fi && \
+    \
+    # Install essential ML/AI packages for iSECTECH
+    pip install --no-cache-dir \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    pydantic==2.5.0 \
+    numpy==1.25.2 \
+    pandas==2.1.3 \
+    scikit-learn==1.3.2 \
+    tensorflow==2.15.0 \
+    torch==2.1.1 \
+    transformers==4.36.0 \
+    openai==1.3.0 \
+    langchain==0.0.340 \
+    celery==5.3.4 \
+    redis==5.0.1 \
+    psycopg2-binary==2.9.9 \
+    sqlalchemy==2.0.23 \
+    alembic==1.13.0 \
+    httpx==0.25.2 \
+    aiofiles==23.2.1 \
+    python-multipart==0.0.6 \
+    && \
+    \
+    # Security and monitoring packages
+    pip install --no-cache-dir \
+    cryptography==41.0.7 \
+    python-jose[cryptography]==3.3.0 \
+    passlib[bcrypt]==1.7.4 \
+    prometheus-client==0.19.0 \
+    structlog==23.2.0 \
+    && \
+    \
+    # Clean up pip cache
+    pip cache purge && \
+    echo "✅ Dependencies installed successfully"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Builder Stage - Prepare application code
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM deps AS builder
+
+WORKDIR /app
+
+# Copy application source code
+COPY . .
+
+# Install the application package
+RUN if [ -f "setup.py" ]; then \
+        pip install --no-cache-dir -e .; \
+    elif [ -f "pyproject.toml" ]; then \
+        pip install --no-cache-dir -e .; \
+    fi
+
+# Create necessary directories
+RUN mkdir -p /app/models /app/data /app/logs /app/tmp && \
+    chown -R aiapp:aiapp /app
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Production Stage - Final runtime image
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM python:3.11-slim AS runner
+
+# Install only runtime system dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --system --gid 1001 aiapp && \
+    useradd --system --uid 1001 --gid aiapp --shell /bin/bash --create-home aiapp
+
+WORKDIR /app
+
+# Copy Python environment from builder
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy application code and set permissions
+COPY --from=builder --chown=aiapp:aiapp /app /app
+
+# Create custom entrypoint script for security and configuration
+RUN cat > entrypoint.sh << 'EOF' && \
+    chmod +x entrypoint.sh
+#!/bin/bash
+
+# Security hardening
+echo "Starting iSECTECH AI Services with security hardening..."
+
+# Set secure umask
+umask 027
+
+# Environment validation
+if [ -z "$DATABASE_URL" ]; then
+    echo "WARNING: DATABASE_URL not set"
+fi
+
+if [ -z "$REDIS_URL" ]; then
+    echo "WARNING: REDIS_URL not set"
+fi
+
+if [ -z "$SECRET_KEY" ]; then
+    echo "ERROR: SECRET_KEY is required"
+    exit 1
+fi
+
+# Create necessary directories with proper permissions
+mkdir -p /app/models /app/data /app/logs /app/tmp
+chown -R aiapp:aiapp /app/models /app/data /app/logs /app/tmp
+chmod 750 /app/models /app/data /app/logs /app/tmp
+
+# Model initialization check
+if [ "$INIT_MODELS" = "true" ]; then
+    echo "Initializing AI models..."
+    python -c "
+import os
+import sys
+sys.path.append('/app')
+
+try:
+    from ai_services.models import initialize_models
+    initialize_models()
+    print('✅ Models initialized successfully')
+except Exception as e:
+    print(f'❌ Model initialization failed: {e}')
+    # Don't exit on model init failure in production
+" || echo "Model initialization completed with warnings"
+fi
+
+# Database migration check
+if [ "$RUN_MIGRATIONS" = "true" ]; then
+    echo "Running database migrations..."
+    python -c "
+import os
+import sys
+sys.path.append('/app')
+
+try:
+    from ai_services.database import run_migrations
+    run_migrations()
+    print('✅ Migrations completed successfully')
+except Exception as e:
+    print(f'❌ Migration failed: {e}')
+    exit 1
+"
+fi
+
+# Start the application
+echo "Starting AI services on port ${PORT:-8000}..."
+exec "$@"
+EOF
+
+# Health check script
+RUN cat > healthcheck.py << 'EOF' && \
+    chmod +x healthcheck.py
+#!/usr/bin/env python3
+import http.client
+import sys
+import os
+
+def health_check():
+    try:
+        port = int(os.environ.get('PORT', 8000))
+        conn = http.client.HTTPConnection('localhost', port, timeout=10)
+        conn.request('GET', '/health')
+        response = conn.getresponse()
+        
+        if response.status == 200:
+            print('✅ Health check passed')
+            sys.exit(0)
+        else:
+            print(f'❌ Health check failed: {response.status}')
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f'❌ Health check error: {e}')
+        sys.exit(1)
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
+
+if __name__ == '__main__':
+    health_check()
+EOF
+
+# Switch to non-root user
+USER aiapp:aiapp
+
+# Set production environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Application environment
+ENV ENV=production
+ENV PORT=8000
+ENV WORKERS=4
+ENV LOG_LEVEL=info
+
+# ML/AI specific environment variables
+ENV TOKENIZERS_PARALLELISM=false
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV CUDA_VISIBLE_DEVICES=""
+
+# Security environment variables
+ENV TZ=UTC
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=3 \
+    CMD python healthcheck.py
+
+# Use entrypoint for initialization
+ENTRYPOINT ["./entrypoint.sh"]
+
+# Default command - FastAPI with Uvicorn
+CMD ["uvicorn", "ai_services.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--access-log", "--log-level", "info"]
+
+# Security labels
+LABEL org.opencontainers.image.title="iSECTECH AI Services"
+LABEL org.opencontainers.image.description="Production-grade Python AI/ML services for iSECTECH cybersecurity platform"
+LABEL org.opencontainers.image.vendor="iSECTECH"
+LABEL org.opencontainers.image.version="1.0.0"
+LABEL security.contact="security@isectech.com"
+LABEL maintainer="iSECTECH AI Team"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Alternative Images for Different AI Services
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Celery worker variant for background tasks
+FROM runner AS celery-worker
+CMD ["celery", "-A", "ai_services.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+
+# Celery beat variant for scheduled tasks
+FROM runner AS celery-beat
+CMD ["celery", "-A", "ai_services.celery_app", "beat", "--loglevel=info"]
+
+# Model training variant with GPU support
+FROM runner AS model-trainer
+ENV CUDA_VISIBLE_DEVICES="0"
+CMD ["python", "-m", "ai_services.training.main"]

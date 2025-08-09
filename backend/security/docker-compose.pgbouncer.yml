@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: isectech-postgres
+    environment:
+      POSTGRES_DB: isectech
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./rbac_schema.sql:/docker-entrypoint-initdb.d/01-rbac_schema.sql
+      - ./context_management_functions.sql:/docker-entrypoint-initdb.d/02-context_management.sql
+      - ./pgbouncer_concurrency_tests.sql:/docker-entrypoint-initdb.d/03-concurrency_tests.sql
+      - ./postgres_users_setup.sql:/docker-entrypoint-initdb.d/04-users_setup.sql
+    ports:
+      - "5432:5432"
+    command: |
+      postgres -c log_statement=all 
+               -c log_destination=stderr 
+               -c logging_collector=on 
+               -c log_connections=on 
+               -c log_disconnections=on
+               -c max_connections=200
+               -c shared_buffers=256MB
+               -c effective_cache_size=1GB
+               -c work_mem=8MB
+               -c maintenance_work_mem=64MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d isectech"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: isectech-pgbouncer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASES_HOST: postgres
+      DATABASES_PORT: 5432
+      DATABASES_USER: isectech_pool
+      DATABASES_PASSWORD: pool_password
+      DATABASES_DBNAME: isectech
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+      MAX_DB_CONNECTIONS: 100
+      SERVER_RESET_QUERY: DISCARD ALL
+      SERVER_CHECK_DELAY: 30
+      SERVER_CHECK_QUERY: SELECT 1
+      LISTEN_PORT: 6432
+      LISTEN_ADDR: 0.0.0.0
+      AUTH_TYPE: scram-sha-256
+      AUTH_FILE: /etc/pgbouncer/userlist.txt
+      ADMIN_USERS: pgbouncer_admin
+      STATS_USERS: pgbouncer_stats
+      LOG_CONNECTIONS: 1
+      LOG_DISCONNECTIONS: 1
+      LOG_POOLER_ERRORS: 1
+      VERBOSE: 2
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+      - "6433:6433"  # Admin interface
+    healthcheck:
+      test: ["CMD-SHELL", "psql -h localhost -p 6432 -U isectech_pool -d isectech -c 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis for caching and session management (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: isectech-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass redis_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: isectech-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: isectech-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  default:
+    name: isectech-network

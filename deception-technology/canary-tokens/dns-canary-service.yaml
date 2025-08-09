@@ -1,0 +1,592 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dns-canary-service
+  namespace: deception
+  labels:
+    app: dns-canary-service
+    component: dns-tracking
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: dns-canary-service
+  template:
+    metadata:
+      labels:
+        app: dns-canary-service
+        component: dns-tracking
+      annotations:
+        security.isectech.com/purpose: "dns-canary-tracking"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: dns-canary-service-account
+      containers:
+      - name: dns-canary-server
+        image: isectech/dns-canary-server:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 53
+          name: dns-udp
+          protocol: UDP
+        - containerPort: 53
+          name: dns-tcp
+          protocol: TCP
+        - containerPort: 8080
+          name: http-api
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: DNS_DOMAIN
+          value: "canary.isectech.com"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: kafka.brokers
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: DNS_CANARY_CONFIG
+          value: |
+            {
+              "authoritative_zones": [
+                "canary.isectech.com",
+                "internal.isectech.com", 
+                "admin.isectech.com",
+                "backup.isectech.com",
+                "monitoring.isectech.com"
+              ],
+              "token_subdomain_patterns": [
+                "{token_id}.canary.isectech.com",
+                "{token_id}.admin.isectech.com",
+                "{token_id}.backup.isectech.com",
+                "api-{token_id}.internal.isectech.com",
+                "db-{token_id}.internal.isectech.com"
+              ],
+              "record_types": {
+                "A": {
+                  "enabled": true,
+                  "default_response": "192.0.2.1"
+                },
+                "AAAA": {
+                  "enabled": true,
+                  "default_response": "2001:db8::1"
+                },
+                "MX": {
+                  "enabled": true,
+                  "default_response": "10 mail.canary.isectech.com"
+                },
+                "TXT": {
+                  "enabled": true,
+                  "default_response": "v=spf1 include:_spf.google.com ~all"
+                },
+                "CNAME": {
+                  "enabled": true,
+                  "default_response": "canary.isectech.com"
+                },
+                "SRV": {
+                  "enabled": true,
+                  "default_response": "10 5 443 api.isectech.com"
+                }
+              },
+              "honeypot_services": {
+                "api.canary.isectech.com": {
+                  "type": "api_service",
+                  "response_ip": "192.0.2.10"
+                },
+                "admin.canary.isectech.com": {
+                  "type": "admin_panel", 
+                  "response_ip": "192.0.2.11"
+                },
+                "db.canary.isectech.com": {
+                  "type": "database",
+                  "response_ip": "192.0.2.12"
+                },
+                "backup.canary.isectech.com": {
+                  "type": "backup_service",
+                  "response_ip": "192.0.2.13"
+                }
+              }
+            }
+        - name: THREAT_DETECTION_CONFIG
+          value: |
+            {
+              "suspicious_patterns": {
+                "dns_enumeration": {
+                  "threshold": 10,
+                  "time_window": "5m",
+                  "pattern": "multiple_subdomain_queries"
+                },
+                "zone_transfer_attempt": {
+                  "threshold": 1,
+                  "time_window": "1m", 
+                  "pattern": "axfr_query"
+                },
+                "reverse_dns_scanning": {
+                  "threshold": 50,
+                  "time_window": "10m",
+                  "pattern": "ptr_enumeration"
+                },
+                "wildcard_testing": {
+                  "threshold": 5,
+                  "time_window": "2m",
+                  "pattern": "random_subdomain_queries"
+                }
+              },
+              "response_strategies": {
+                "normal_query": {
+                  "log_level": "info",
+                  "response_delay": "0ms"
+                },
+                "suspicious_query": {
+                  "log_level": "warn", 
+                  "response_delay": "100ms",
+                  "rate_limit": true
+                },
+                "attack_pattern": {
+                  "log_level": "error",
+                  "response_delay": "1000ms",
+                  "rate_limit": true,
+                  "alert": true
+                }
+              }
+            }
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          tcpSocket:
+            port: 53
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: dns-config
+          mountPath: /etc/dns
+          readOnly: true
+        - name: dns-zones
+          mountPath: /var/dns/zones
+          readOnly: true
+        - name: logs-volume
+          mountPath: /var/log/dns-canary
+        - name: tmp-volume
+          mountPath: /tmp
+      - name: dns-query-analyzer
+        image: isectech/dns-query-analyzer:v1.1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+          name: analyzer-api
+        env:
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: kafka.brokers
+        - name: ELASTICSEARCH_URL
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: elasticsearch.url
+        - name: ANALYSIS_CONFIG
+          value: |
+            {
+              "real_time_analysis": {
+                "enabled": true,
+                "analysis_window": "30s",
+                "batch_size": 1000
+              },
+              "ml_detection": {
+                "enabled": true,
+                "model_endpoint": "http://ml-inference.isectech.svc.cluster.local:8080/predict",
+                "features": [
+                  "query_frequency",
+                  "subdomain_entropy",
+                  "query_pattern_similarity",
+                  "time_distribution",
+                  "client_behavior_profile"
+                ]
+              },
+              "threat_scoring": {
+                "baseline_score": 0.1,
+                "enumeration_multiplier": 2.0,
+                "zone_transfer_multiplier": 10.0,
+                "automation_multiplier": 3.0,
+                "anomaly_multiplier": 1.5
+              }
+            }
+        resources:
+          requests:
+            cpu: "150m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        volumeMounts:
+        - name: analysis-cache
+          mountPath: /var/cache/dns-analysis
+      volumes:
+      - name: dns-config
+        configMap:
+          name: dns-canary-config
+      - name: dns-zones
+        configMap:
+          name: dns-canary-zones
+      - name: analysis-cache
+        emptyDir: {}
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - dns-canary-service
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dns-canary-service
+  namespace: deception
+  labels:
+    app: dns-canary-service
+    service-type: dns-tracking
+spec:
+  selector:
+    app: dns-canary-service
+  ports:
+  - name: dns-udp
+    port: 53
+    targetPort: 53
+    protocol: UDP
+  - name: dns-tcp
+    port: 53
+    targetPort: 53
+    protocol: TCP
+  - name: http-api
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: analyzer-api
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dns-canary-service-account
+  namespace: deception
+  labels:
+    app: dns-canary-service
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-canary-config
+  namespace: deception
+  labels:
+    app: dns-canary-service
+data:
+  named.conf: |
+    options {
+        directory "/var/dns";
+        listen-on { any; };
+        listen-on-v6 { any; };
+        
+        recursion no;
+        allow-transfer { none; };
+        allow-query { any; };
+        
+        version "9.18.18-canary";
+        hostname "ns1.canary.isectech.com";
+        
+        # Logging configuration
+        logging {
+            channel security_log {
+                file "/var/log/dns-canary/security.log" versions 3 size 100m;
+                severity info;
+                print-time yes;
+                print-severity yes;
+                print-category yes;
+            };
+            category security { security_log; };
+            category queries { security_log; };
+            category client { security_log; };
+        };
+    };
+    
+    # Canary zones
+    zone "canary.isectech.com" {
+        type master;
+        file "/var/dns/zones/canary.isectech.com.zone";
+        allow-update { none; };
+        allow-query { any; };
+        also-notify { };
+    };
+    
+    zone "internal.isectech.com" {
+        type master; 
+        file "/var/dns/zones/internal.isectech.com.zone";
+        allow-update { none; };
+        allow-query { any; };
+    };
+    
+    zone "admin.isectech.com" {
+        type master;
+        file "/var/dns/zones/admin.isectech.com.zone";
+        allow-update { none; };
+        allow-query { any; };
+    };
+    
+    zone "backup.isectech.com" {
+        type master;
+        file "/var/dns/zones/backup.isectech.com.zone";
+        allow-update { none; };
+        allow-query { any; };
+    };
+    
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-canary-zones
+  namespace: deception
+  labels:
+    app: dns-canary-service
+data:
+  canary.isectech.com.zone: |
+    $TTL 300
+    @       IN SOA  ns1.canary.isectech.com. admin.canary.isectech.com. (
+                    2024011501  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    300         ; minimum
+                    )
+    
+    ; Name servers
+    @       IN NS   ns1.canary.isectech.com.
+    @       IN NS   ns2.canary.isectech.com.
+    
+    ; A records - honeypot services
+    @       IN A    192.0.2.1
+    ns1     IN A    192.0.2.1
+    ns2     IN A    192.0.2.2
+    
+    ; API services (honeypots)
+    api     IN A    192.0.2.10
+    v1.api  IN A    192.0.2.10
+    v2.api  IN A    192.0.2.10
+    
+    ; Admin interfaces (honeypots)
+    admin   IN A    192.0.2.11
+    dashboard IN A  192.0.2.11
+    console IN A    192.0.2.11
+    
+    ; Database services (honeypots)
+    db      IN A    192.0.2.12
+    postgres IN A   192.0.2.12
+    mongo   IN A    192.0.2.12
+    redis   IN A    192.0.2.12
+    
+    ; Backup services (honeypots)
+    backup  IN A    192.0.2.13
+    backups IN A    192.0.2.13
+    
+    ; Monitoring (honeypots)
+    monitoring IN A 192.0.2.14
+    grafana IN A    192.0.2.14
+    kibana  IN A    192.0.2.14
+    
+    ; Development/staging (honeypots)
+    dev     IN A    192.0.2.15
+    staging IN A    192.0.2.16
+    test    IN A    192.0.2.17
+    
+    ; Mail records
+    @       IN MX   10 mail.canary.isectech.com.
+    mail    IN A    192.0.2.20
+    
+    ; TXT records for various purposes
+    @       IN TXT  "v=spf1 include:_spf.google.com ~all"
+    @       IN TXT  "google-site-verification=canary_token_verification_123456"
+    
+    ; SRV records
+    _https._tcp IN SRV 10 5 443 api.canary.isectech.com.
+    _postgresql._tcp IN SRV 10 5 5432 db.canary.isectech.com.
+    
+    ; Wildcard for dynamic canary tokens
+    *       IN A    192.0.2.99
+    
+  internal.isectech.com.zone: |
+    $TTL 300
+    @       IN SOA  ns1.canary.isectech.com. admin.internal.isectech.com. (
+                    2024011501  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    300         ; minimum
+                    )
+    
+    ; Name servers
+    @       IN NS   ns1.canary.isectech.com.
+    
+    ; Internal infrastructure (all honeypots)
+    k8s-master      IN A    10.10.1.10
+    k8s-worker-01   IN A    10.10.1.11
+    k8s-worker-02   IN A    10.10.1.12
+    k8s-worker-03   IN A    10.10.1.13
+    
+    ; Internal databases
+    postgres-master IN A    10.10.2.10
+    postgres-replica IN A   10.10.2.11
+    mongo-primary   IN A    10.10.2.20
+    mongo-secondary IN A    10.10.2.21
+    redis-cluster   IN A    10.10.2.30
+    
+    ; Internal services
+    auth-service    IN A    10.10.3.10
+    user-service    IN A    10.10.3.11
+    notification    IN A    10.10.3.12
+    analytics       IN A    10.10.3.13
+    
+    ; Management interfaces
+    jenkins         IN A    10.10.4.10
+    nexus           IN A    10.10.4.11
+    harbor          IN A    10.10.4.12
+    
+    ; Wildcard for token generation
+    *               IN A    10.10.9.99
+    
+  admin.isectech.com.zone: |
+    $TTL 300
+    @       IN SOA  ns1.canary.isectech.com. admin.admin.isectech.com. (
+                    2024011501  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    300         ; minimum
+                    )
+    
+    ; Name servers
+    @       IN NS   ns1.canary.isectech.com.
+    
+    ; Admin interfaces (all honeypots)
+    @           IN A    172.16.1.10
+    dashboard   IN A    172.16.1.10
+    console     IN A    172.16.1.11
+    panel       IN A    172.16.1.12
+    
+    ; Monitoring admin interfaces
+    grafana     IN A    172.16.2.10
+    kibana      IN A    172.16.2.11
+    prometheus  IN A    172.16.2.12
+    
+    ; Database admin tools
+    phpmyadmin  IN A    172.16.3.10
+    adminer     IN A    172.16.3.11
+    mongo-express IN A  172.16.3.12
+    
+    ; Infrastructure admin
+    portainer   IN A    172.16.4.10
+    rancher     IN A    172.16.4.11
+    kubernetes  IN A    172.16.4.12
+    
+    ; Wildcard for dynamic admin tokens
+    *           IN A    172.16.9.99
+    
+  backup.isectech.com.zone: |
+    $TTL 300
+    @       IN SOA  ns1.canary.isectech.com. admin.backup.isectech.com. (
+                    2024011501  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    300         ; minimum
+                    )
+    
+    ; Name servers
+    @       IN NS   ns1.canary.isectech.com.
+    
+    ; Backup services (all honeypots)
+    @           IN A    192.168.100.10
+    server      IN A    192.168.100.10
+    storage     IN A    192.168.100.11
+    
+    ; Database backup servers
+    db-backup   IN A    192.168.100.20
+    pg-backup   IN A    192.168.100.21
+    mongo-backup IN A   192.168.100.22
+    
+    ; File backup services
+    files       IN A    192.168.100.30
+    documents   IN A    192.168.100.31
+    archives    IN A    192.168.100.32
+    
+    ; Backup management
+    veeam       IN A    192.168.100.40
+    bacula      IN A    192.168.100.41
+    
+    ; Wildcard for backup token generation
+    *           IN A    192.168.100.99

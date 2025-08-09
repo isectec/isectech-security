@@ -1,0 +1,306 @@
+# Performance Profiling Configuration for iSECTECH
+# Comprehensive profiling setup for bottleneck identification
+
+profiling:
+  enabled: true
+  interval: 30s
+  duration: 10m
+  output_format: json
+  
+  # CPU profiling configuration
+  cpu:
+    enabled: true
+    sample_rate: 100  # samples per second
+    duration: 60s
+    flame_graph: true
+    top_functions: 50
+    thresholds:
+      high_cpu_function: 10.0  # percentage
+      slow_function_ms: 100
+    
+  # Memory profiling configuration  
+  memory:
+    enabled: true
+    heap_profile: true
+    alloc_profile: true
+    gc_profile: true
+    sample_rate: 1024  # bytes
+    thresholds:
+      memory_leak_mb: 100
+      gc_pressure_percent: 20
+      
+  # I/O profiling configuration
+  io:
+    enabled: true
+    disk_io: true
+    network_io: true
+    file_operations: true
+    thresholds:
+      slow_io_ms: 50
+      high_io_ops_per_sec: 1000
+      
+  # Database profiling
+  database:
+    enabled: true
+    query_profiling: true
+    connection_profiling: true
+    lock_profiling: true
+    thresholds:
+      slow_query_ms: 100
+      long_lock_ms: 200
+      high_connection_count: 80
+
+  # Application-specific profiling
+  application:
+    enabled: true
+    
+    # Security platform specific metrics
+    security_metrics:
+      threat_detection_latency: true
+      alert_correlation_time: true
+      event_processing_rate: true
+      authentication_latency: true
+      
+    # API endpoint profiling  
+    api_endpoints:
+      - path: "/api/alerts"
+        methods: ["GET", "POST"]
+        profile_payload: true
+        profile_response: true
+        
+      - path: "/api/threats"
+        methods: ["GET"]
+        profile_database_queries: true
+        
+      - path: "/api/events/search"
+        methods: ["POST"]
+        profile_search_performance: true
+        profile_aggregations: true
+        
+      - path: "/api/dashboard/summary"
+        methods: ["GET"]
+        profile_cache_hits: true
+        profile_computation_time: true
+
+# Bottleneck detection rules
+bottleneck_detection:
+  enabled: true
+  
+  # CPU bottlenecks
+  cpu_rules:
+    - name: high_cpu_usage
+      condition: "cpu_usage > 80"
+      severity: warning
+      action: "profile_cpu_intensive_functions"
+      
+    - name: critical_cpu_usage  
+      condition: "cpu_usage > 95"
+      severity: critical
+      action: "immediate_cpu_profiling"
+      
+  # Memory bottlenecks
+  memory_rules:
+    - name: high_memory_usage
+      condition: "memory_usage > 85"
+      severity: warning
+      action: "profile_memory_allocations"
+      
+    - name: memory_leak_detection
+      condition: "memory_growth_rate > 10MB/min"
+      severity: critical
+      action: "heap_dump_analysis"
+      
+  # Database bottlenecks
+  database_rules:
+    - name: slow_queries
+      condition: "query_time > 500ms"
+      severity: warning
+      action: "query_plan_analysis"
+      
+    - name: connection_pool_exhaustion
+      condition: "active_connections > 90% of pool_size"
+      severity: critical
+      action: "connection_leak_detection"
+      
+    - name: lock_contention
+      condition: "lock_wait_time > 100ms"
+      severity: warning
+      action: "lock_analysis"
+      
+  # API bottlenecks
+  api_rules:
+    - name: high_response_time
+      condition: "response_time_p95 > 1000ms"
+      severity: warning
+      action: "endpoint_profiling"
+      
+    - name: high_error_rate
+      condition: "error_rate > 2%"
+      severity: critical
+      action: "error_pattern_analysis"
+
+# Automated analysis configuration
+automated_analysis:
+  enabled: true
+  schedule: "*/15 * * * *"  # Every 15 minutes
+  
+  # Analysis types to run
+  analyses:
+    - type: performance_regression
+      enabled: true
+      baseline_period: "1h"
+      comparison_period: "15m"
+      threshold_deviation: 20  # percentage
+      
+    - type: resource_trend_analysis
+      enabled: true
+      trend_period: "6h"
+      prediction_window: "1h"
+      
+    - type: bottleneck_correlation
+      enabled: true
+      correlation_window: "30m"
+      minimum_correlation: 0.7
+      
+    - type: capacity_planning
+      enabled: true
+      growth_rate_analysis: true
+      utilization_forecasting: true
+      
+# Performance baselines
+baselines:
+  # Response time baselines (milliseconds)
+  response_times:
+    p50: 100
+    p95: 500
+    p99: 1000
+    p99_9: 2000
+    
+  # Throughput baselines (requests per second)
+  throughput:
+    minimum: 100
+    target: 500
+    maximum: 2000
+    
+  # Resource utilization baselines (percentage)
+  resources:
+    cpu:
+      normal: 40
+      warning: 70
+      critical: 90
+    memory:
+      normal: 60
+      warning: 80
+      critical: 95
+    disk_io:
+      normal: 30
+      warning: 60
+      critical: 85
+      
+  # Database performance baselines
+  database:
+    query_time_ms:
+      fast: 10
+      acceptable: 100
+      slow: 500
+      critical: 1000
+    connections:
+      normal: 20
+      high: 60
+      critical: 90
+
+# Reporting configuration  
+reporting:
+  enabled: true
+  
+  # Report types
+  reports:
+    - type: hourly_summary
+      enabled: true
+      schedule: "0 * * * *"
+      format: json
+      
+    - type: daily_analysis
+      enabled: true
+      schedule: "0 6 * * *"  # 6 AM daily
+      format: html
+      include_trends: true
+      include_recommendations: true
+      
+    - type: weekly_capacity_report
+      enabled: true
+      schedule: "0 8 * * 1"  # Monday 8 AM
+      format: html
+      include_forecasting: true
+      
+  # Report distribution
+  distribution:
+    email:
+      enabled: false
+      recipients: ["devops@isectech.com", "backend@isectech.com"]
+      
+    slack:
+      enabled: false
+      webhook_url: "https://hooks.slack.com/services/xxx"
+      channels: ["#performance-alerts"]
+      
+    file_storage:
+      enabled: true
+      directory: "./reports"
+      retention_days: 30
+
+# Integration configuration
+integrations:
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    endpoint: "http://localhost:9090"
+    push_gateway: "http://localhost:9091"
+    
+  # Grafana integration
+  grafana:
+    enabled: true
+    endpoint: "http://localhost:3001"
+    api_key: "${GRAFANA_API_KEY}"
+    
+  # InfluxDB integration
+  influxdb:
+    enabled: true
+    endpoint: "http://localhost:8086"
+    database: "performance_profiling"
+    
+  # Jaeger tracing integration
+  jaeger:
+    enabled: true
+    endpoint: "http://localhost:14268"
+    
+  # Application Performance Monitoring
+  apm:
+    enabled: true
+    provider: "custom"  # custom, newrelic, datadog, dynatrace
+    
+    # Custom APM configuration
+    custom:
+      endpoint: "http://localhost:8080/metrics"
+      authentication: "bearer_token"
+      token: "${APM_TOKEN}"
+
+# Security and compliance
+security:
+  # Data retention policies
+  data_retention:
+    profiling_data_days: 7
+    analysis_reports_days: 30
+    raw_metrics_days: 3
+    
+  # Sensitive data handling
+  sensitive_data:
+    mask_user_data: true
+    mask_api_keys: true
+    exclude_personal_info: true
+    
+  # Access control
+  access_control:
+    require_authentication: true
+    allowed_roles: ["performance_engineer", "devops", "backend_lead"]
+    audit_access: true

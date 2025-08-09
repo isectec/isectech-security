@@ -1,0 +1,534 @@
+# iSECTECH RTO/RPO Alerting Rules
+# Prometheus alerting rules for disaster recovery metrics monitoring
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rto-rpo-alerts
+  namespace: isectech-monitoring
+  labels:
+    app.kubernetes.io/name: rto-rpo-alerts
+    app.kubernetes.io/instance: isectech
+    prometheus: isectech
+    role: alert-rules
+spec:
+  groups:
+    - name: disaster_recovery.rules
+      interval: 30s
+      rules:
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # RTO (Recovery Time Objective) Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: RTOBreachCritical
+          expr: |
+            (
+              isectech_current_outage_duration_minutes > isectech_service_rto_target_minutes
+            ) and (
+              isectech_service_criticality == 1  # CRITICAL services
+            )
+          for: 0m
+          labels:
+            severity: critical
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rto_breach
+            impact: high
+          annotations:
+            summary: "CRITICAL: RTO breach for critical service {{ $labels.service_name }}"
+            description: |
+              Critical service {{ $labels.service_name }} has exceeded its RTO target.
+              - Current outage duration: {{ $value | printf "%.1f" }} minutes
+              - RTO target: {{ $labels.rto_target }} minutes
+              - Service criticality: CRITICAL
+              - Immediate escalation required
+            runbook_url: "https://docs.isectech.com/runbooks/rto-breach-critical"
+            dashboard_url: "https://grafana.isectech.com/d/rto-rpo/disaster-recovery"
+        
+        - alert: RTOBreachImportant
+          expr: |
+            (
+              isectech_current_outage_duration_minutes > isectech_service_rto_target_minutes
+            ) and (
+              isectech_service_criticality == 2  # IMPORTANT services
+            )
+          for: 2m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rto_breach
+            impact: medium
+          annotations:
+            summary: "RTO breach for important service {{ $labels.service_name }}"
+            description: |
+              Important service {{ $labels.service_name }} has exceeded its RTO target.
+              - Current outage duration: {{ $value | printf "%.1f" }} minutes
+              - RTO target: {{ $labels.rto_target }} minutes
+              - Service criticality: IMPORTANT
+            runbook_url: "https://docs.isectech.com/runbooks/rto-breach-important"
+
+        - alert: RTOApproachingBreach
+          expr: |
+            (
+              isectech_current_outage_duration_minutes > (isectech_service_rto_target_minutes * 0.8)
+            ) and (
+              isectech_current_outage_duration_minutes <= isectech_service_rto_target_minutes
+            )
+          for: 1m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rto_warning
+          annotations:
+            summary: "Service {{ $labels.service_name }} approaching RTO breach"
+            description: |
+              Service {{ $labels.service_name }} is approaching its RTO target (80% threshold).
+              - Current outage duration: {{ $value | printf "%.1f" }} minutes
+              - RTO target: {{ $labels.rto_target }} minutes
+              - Time remaining: {{ printf "%.1f" (sub $labels.rto_target $value) }} minutes
+            
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # RPO (Recovery Point Objective) Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: RPOBreachCritical
+          expr: |
+            (
+              isectech_last_backup_age_minutes > isectech_service_rpo_target_minutes
+            ) and (
+              isectech_service_criticality == 1  # CRITICAL services
+            )
+          for: 0m
+          labels:
+            severity: critical
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rpo_breach
+            impact: high
+          annotations:
+            summary: "CRITICAL: RPO breach for critical service {{ $labels.service_name }}"
+            description: |
+              Critical service {{ $labels.service_name }} has exceeded its RPO target.
+              - Last backup age: {{ $value | printf "%.1f" }} minutes
+              - RPO target: {{ $labels.rpo_target }} minutes
+              - Data loss risk: HIGH
+              - Immediate backup required
+            runbook_url: "https://docs.isectech.com/runbooks/rpo-breach-critical"
+
+        - alert: RPOBreachImportant
+          expr: |
+            (
+              isectech_last_backup_age_minutes > isectech_service_rpo_target_minutes
+            ) and (
+              isectech_service_criticality == 2  # IMPORTANT services
+            )
+          for: 5m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rpo_breach
+            impact: medium
+          annotations:
+            summary: "RPO breach for important service {{ $labels.service_name }}"
+            description: |
+              Important service {{ $labels.service_name }} has exceeded its RPO target.
+              - Last backup age: {{ $value | printf "%.1f" }} minutes
+              - RPO target: {{ $labels.rpo_target }} minutes
+
+        - alert: RPOApproachingBreach
+          expr: |
+            (
+              isectech_last_backup_age_minutes > (isectech_service_rpo_target_minutes * 0.8)
+            ) and (
+              isectech_last_backup_age_minutes <= isectech_service_rpo_target_minutes
+            )
+          for: 2m
+          labels:
+            severity: info
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: rpo_warning
+          annotations:
+            summary: "Service {{ $labels.service_name }} approaching RPO breach"
+            description: |
+              Service {{ $labels.service_name }} is approaching its RPO target (80% threshold).
+              - Last backup age: {{ $value | printf "%.1f" }} minutes
+              - RPO target: {{ $labels.rpo_target }} minutes
+              
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Service Availability Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: ServiceAvailabilityBreach
+          expr: |
+            isectech_service_actual_availability < isectech_service_availability_target
+          for: 5m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: availability_breach
+          annotations:
+            summary: "Service {{ $labels.service_name }} availability below SLA"
+            description: |
+              Service {{ $labels.service_name }} availability has fallen below SLA target.
+              - Current availability: {{ $value | printf "%.3f" }}%
+              - SLA target: {{ $labels.availability_target }}%
+
+        - alert: CriticalServiceDown
+          expr: |
+            (
+              isectech_service_health_status == 0
+            ) and (
+              isectech_service_criticality == 1  # CRITICAL services
+            )
+          for: 30s
+          labels:
+            severity: critical
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: service_down
+            impact: high
+          annotations:
+            summary: "CRITICAL: Service {{ $labels.service_name }} is DOWN"
+            description: |
+              Critical service {{ $labels.service_name }} is currently down.
+              - Service status: UNHEALTHY
+              - Business impact: {{ $labels.business_impact }}
+              - Estimated revenue loss: ${{ $labels.revenue_loss_rate }}/minute
+              - Affected users: {{ $labels.user_impact }}
+            runbook_url: "https://docs.isectech.com/runbooks/critical-service-down"
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Business Impact Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: HighBusinessImpact
+          expr: |
+            sum(isectech_business_impact_revenue_loss_rate) > 1000
+          for: 1m
+          labels:
+            severity: critical
+            team: executive
+            service: disaster-recovery
+            alert_type: business_impact
+            impact: financial
+          annotations:
+            summary: "High business impact from service outages"
+            description: |
+              Current outages are causing significant business impact.
+              - Total revenue loss rate: ${{ $value | printf "%.0f" }}/minute
+              - Multiple services may be affected
+              - Executive notification triggered
+            
+        - alert: MassUserImpact
+          expr: |
+            sum(isectech_business_impact_user_count) > 10000
+          for: 30s
+          labels:
+            severity: warning
+            team: customer-success
+            service: disaster-recovery
+            alert_type: user_impact
+            impact: users
+          annotations:
+            summary: "Large number of users affected by outages"
+            description: |
+              Current outages are affecting a large number of users.
+              - Total affected users: {{ $value | printf "%.0f" }}
+              - Customer communication may be required
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Disaster Recovery Testing Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: DRTestFailure
+          expr: |
+            isectech_dr_test_success_rate < 90
+          for: 0m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: dr_test_failure
+          annotations:
+            summary: "Disaster recovery test failure for {{ $labels.test_type }}"
+            description: |
+              Disaster recovery test has failed or has low success rate.
+              - Test type: {{ $labels.test_type }}
+              - Success rate: {{ $value | printf "%.1f" }}%
+              - Investigation required
+            runbook_url: "https://docs.isectech.com/runbooks/dr-test-failure"
+
+        - alert: DRTestOverdue
+          expr: |
+            (time() - isectech_dr_last_test_timestamp) / 3600 > 168  # 7 days
+          for: 0m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: dr_test_overdue
+          annotations:
+            summary: "Disaster recovery test overdue for {{ $labels.service_name }}"
+            description: |
+              Disaster recovery test is overdue for service {{ $labels.service_name }}.
+              - Last test: {{ $value | printf "%.0f" }} hours ago
+              - Schedule next test immediately
+              
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Backup System Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: BackupFailure
+          expr: |
+            increase(isectech_backup_failure_total[1h]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: backup_failure
+          annotations:
+            summary: "Backup failure for service {{ $labels.service_name }}"
+            description: |
+              Backup operation has failed for service {{ $labels.service_name }}.
+              - Backup type: {{ $labels.backup_type }}
+              - Failure count in last hour: {{ $value }}
+              - Check backup system status
+            runbook_url: "https://docs.isectech.com/runbooks/backup-failure"
+
+        - alert: CrossRegionReplicationFailure
+          expr: |
+            isectech_cross_region_replication_lag_seconds > 300
+          for: 5m
+          labels:
+            severity: critical
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: replication_failure
+          annotations:
+            summary: "Cross-region replication lag for {{ $labels.service_name }}"
+            description: |
+              Cross-region replication is lagging significantly.
+              - Service: {{ $labels.service_name }}
+              - Replication lag: {{ $value | printf "%.0f" }} seconds
+              - DR capability compromised
+            
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Capacity and Performance Alerts
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
+        - alert: DisasterRecoveryCapacityLow
+          expr: |
+            isectech_dr_capacity_utilization > 80
+          for: 10m
+          labels:
+            severity: warning
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: capacity_warning
+          annotations:
+            summary: "DR capacity utilization high for {{ $labels.service_name }}"
+            description: |
+              Disaster recovery capacity utilization is high.
+              - Service: {{ $labels.service_name }}
+              - Utilization: {{ $value | printf "%.1f" }}%
+              - Consider scaling DR resources
+
+        - alert: MTTRTrendIncreasing
+          expr: |
+            (
+              avg_over_time(isectech_mttr_minutes[7d]) - 
+              avg_over_time(isectech_mttr_minutes[7d] offset 7d)
+            ) > 5
+          for: 0m
+          labels:
+            severity: info
+            team: platform-engineering
+            service: disaster-recovery
+            alert_type: mttr_trend
+          annotations:
+            summary: "MTTR trend increasing for {{ $labels.service_name }}"
+            description: |
+              Mean Time to Recovery is trending upward.
+              - Service: {{ $labels.service_name }}
+              - 7-day MTTR increase: {{ $value | printf "%.1f" }} minutes
+              - Review incident response procedures
+
+---
+# Alert Manager Configuration for RTO/RPO Notifications
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-rto-rpo-config
+  namespace: isectech-monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager-config
+    app.kubernetes.io/instance: isectech
+data:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'smtp.isectech.com:587'
+      smtp_from: 'alerts@isectech.com'
+      smtp_auth_username: 'alerts@isectech.com'
+      slack_api_url: 'https://hooks.slack.com/services/WEBHOOK_URL'
+      
+    route:
+      group_by: ['alertname', 'service_name']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'default'
+      
+      routes:
+        # Critical RTO/RPO breaches - immediate escalation
+        - match:
+            severity: critical
+            alert_type: rto_breach
+          receiver: 'critical-rto-breach'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 5m
+          
+        - match:
+            severity: critical
+            alert_type: rpo_breach
+          receiver: 'critical-rpo-breach'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 5m
+          
+        # Critical service down
+        - match:
+            severity: critical
+            alert_type: service_down
+          receiver: 'critical-service-down'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 2m
+          
+        # Business impact alerts
+        - match:
+            alert_type: business_impact
+          receiver: 'business-impact'
+          group_wait: 30s
+          group_interval: 2m
+          repeat_interval: 30m
+          
+        # DR test failures
+        - match:
+            alert_type: dr_test_failure
+          receiver: 'dr-test-alerts'
+          group_wait: 5m
+          
+        # Warning level alerts
+        - match:
+            severity: warning
+          receiver: 'warning-alerts'
+          group_wait: 2m
+          group_interval: 10m
+          repeat_interval: 4h
+          
+    receivers:
+      - name: 'default'
+        slack_configs:
+          - channel: '#alerts-infrastructure'
+            title: 'iSECTECH Alert'
+            text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+            
+      - name: 'critical-rto-breach'
+        email_configs:
+          - to: 'platform-team@isectech.com,executives@isectech.com'
+            subject: '🚨 CRITICAL: RTO Breach - {{ .GroupLabels.service_name }}'
+            body: |
+              CRITICAL RTO BREACH DETECTED
+              
+              Service: {{ .GroupLabels.service_name }}
+              {{ range .Alerts }}
+              Summary: {{ .Annotations.summary }}
+              Description: {{ .Annotations.description }}
+              Dashboard: {{ .Annotations.dashboard_url }}
+              Runbook: {{ .Annotations.runbook_url }}
+              {{ end }}
+              
+        slack_configs:
+          - channel: '#alerts-critical'
+            title: '🚨 CRITICAL RTO BREACH'
+            text: |
+              Service: {{ .GroupLabels.service_name }}
+              {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+            color: 'danger'
+            
+        pagerduty_configs:
+          - routing_key: 'PAGERDUTY_INTEGRATION_KEY'
+            description: 'Critical RTO breach for {{ .GroupLabels.service_name }}'
+            severity: 'critical'
+            
+      - name: 'critical-rpo-breach'
+        email_configs:
+          - to: 'platform-team@isectech.com,data-team@isectech.com'
+            subject: '🚨 CRITICAL: RPO Breach - {{ .GroupLabels.service_name }}'
+            
+        slack_configs:
+          - channel: '#alerts-critical'
+            title: '🚨 CRITICAL RPO BREACH'
+            color: 'danger'
+            
+      - name: 'critical-service-down'
+        email_configs:
+          - to: 'platform-team@isectech.com,on-call@isectech.com'
+            subject: '🚨 CRITICAL: Service Down - {{ .GroupLabels.service_name }}'
+            
+        slack_configs:
+          - channel: '#alerts-critical'
+            title: '🚨 CRITICAL SERVICE DOWN'
+            color: 'danger'
+            
+        pagerduty_configs:
+          - routing_key: 'PAGERDUTY_INTEGRATION_KEY'
+            description: 'Critical service {{ .GroupLabels.service_name }} is down'
+            severity: 'critical'
+            
+      - name: 'business-impact'
+        email_configs:
+          - to: 'executives@isectech.com,platform-team@isectech.com'
+            subject: '💰 Business Impact Alert - Revenue Loss Detected'
+            
+        slack_configs:
+          - channel: '#alerts-business'
+            title: '💰 BUSINESS IMPACT ALERT'
+            color: 'warning'
+            
+      - name: 'dr-test-alerts'
+        email_configs:
+          - to: 'platform-team@isectech.com'
+            subject: '🧪 DR Test Alert - {{ .GroupLabels.service_name }}'
+            
+        slack_configs:
+          - channel: '#alerts-infrastructure'
+            title: '🧪 DR TEST ALERT'
+            
+      - name: 'warning-alerts'
+        slack_configs:
+          - channel: '#alerts-infrastructure'
+            title: '⚠️ Warning Alert'
+            color: 'warning'
+
+    inhibit_rules:
+      # Inhibit RPO breach alerts when service is down
+      - source_match:
+          alert_type: service_down
+        target_match:
+          alert_type: rpo_breach
+        equal: ['service_name']
+        
+      # Inhibit RTO approach alerts when already breached
+      - source_match:
+          alert_type: rto_breach
+        target_match:
+          alert_type: rto_warning
+        equal: ['service_name']

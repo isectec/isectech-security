@@ -1,0 +1,223 @@
+# OpenAPI 3.1 Validation Configuration
+# Configuration file for validating all OpenAPI specifications
+
+validation:
+  openapi_version: "3.1.0"
+  strict_mode: true
+  
+specifications:
+  - name: "Complete Frontend API"
+    file: "app/api/openapi-complete.json"
+    description: "Main frontend API endpoints"
+    validate_examples: true
+    validate_schemas: true
+    check_security: true
+    
+  - name: "Backend Services API" 
+    file: "backend/openapi-backend-services.json"
+    description: "Backend microservices API"
+    validate_examples: true
+    validate_schemas: true
+    check_security: true
+    
+  - name: "Extended APIs"
+    file: "app/api/openapi-extended-apis.json"
+    description: "Additional frontend API endpoints"
+    validate_examples: true
+    validate_schemas: true
+    check_security: true
+
+validation_rules:
+  # Schema validation rules
+  schemas:
+    require_descriptions: true
+    require_examples: true
+    validate_formats: true
+    check_required_fields: true
+    
+  # Endpoint validation rules  
+  endpoints:
+    require_operation_ids: true
+    require_summaries: true
+    require_descriptions: true
+    validate_parameters: true
+    validate_responses: true
+    require_error_responses: true
+    
+  # Security validation rules
+  security:
+    require_authentication: true
+    validate_security_schemes: true
+    check_authorization_patterns: true
+    
+  # Documentation validation rules
+  documentation:
+    require_contact_info: true
+    require_version: true
+    validate_server_urls: true
+    check_tags: true
+
+coverage_requirements:
+  # Required HTTP methods coverage
+  methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+    
+  # Required response codes coverage
+  response_codes:
+    - 200
+    - 201 
+    - 400
+    - 401
+    - 403
+    - 404
+    - 429
+    - 500
+    
+  # Required authentication schemes
+  auth_schemes:
+    - bearerAuth
+    - apiKeyAuth
+
+quality_metrics:
+  # Minimum quality thresholds
+  min_description_length: 10
+  max_path_parameters: 5
+  min_examples_per_endpoint: 1
+  max_response_time_sla: 2000  # milliseconds
+  
+validation_tools:
+  # Tools to use for validation
+  - name: "swagger-validator"
+    version: "latest"
+    config: "strict"
+    
+  - name: "redocly"
+    version: "latest" 
+    rules: "recommended"
+    
+  - name: "spectral"
+    version: "latest"
+    ruleset: "openapi"
+
+integration_tests:
+  # Automated integration test configuration
+  enabled: true
+  base_url: "http://localhost:3000"
+  auth_token: "${API_TEST_TOKEN}"
+  timeout: 10000
+  
+  test_endpoints:
+    - path: "/health"
+      method: "GET"
+      expected_status: 200
+      
+    - path: "/metrics"
+      method: "GET" 
+      expected_status: 200
+      auth_required: true
+      
+    - path: "/auth/login"
+      method: "POST"
+      test_data: "test-credentials.json"
+      expected_status: 200
+      
+documentation_generation:
+  # Auto-generate documentation
+  enabled: true
+  output_format: "html"
+  output_directory: "docs/api"
+  include_examples: true
+  include_schemas: true
+  theme: "redoc"
+  
+  custom_content:
+    introduction: "docs/api-introduction.md"
+    authentication_guide: "docs/authentication.md"
+    rate_limiting: "docs/rate-limits.md"
+    error_handling: "docs/error-handling.md"
+
+monitoring:
+  # API specification monitoring
+  enabled: true
+  check_breaking_changes: true
+  version_compatibility: true
+  
+  alerts:
+    - type: "breaking_change"
+      severity: "critical"
+      notify: ["api-team@isectech.com"]
+      
+    - type: "deprecated_endpoint"
+      severity: "warning"
+      notify: ["developers@isectech.com"]
+      
+    - type: "schema_drift"
+      severity: "medium"
+      notify: ["qa-team@isectech.com"]
+
+# Endpoint-specific validation overrides
+endpoint_overrides:
+  "/trust-score/websocket":
+    # WebSocket endpoint has different validation rules
+    validate_request_body: false
+    require_response_examples: false
+    
+  "/policy/evaluate":
+    # High-frequency endpoint with relaxed example requirements
+    min_examples_per_endpoint: 2
+    validate_complex_schemas: true
+    
+  "/notifications/templates/render":
+    # Template rendering endpoint with dynamic schemas
+    validate_dynamic_schemas: false
+    allow_additional_properties: true
+
+# Custom validation scripts
+custom_validations:
+  - script: "scripts/validate-security-schemes.js"
+    description: "Validate security scheme consistency"
+    
+  - script: "scripts/validate-error-responses.js" 
+    description: "Ensure all endpoints have proper error responses"
+    
+  - script: "scripts/validate-pagination.js"
+    description: "Check pagination parameter consistency"
+    
+# Compliance requirements
+compliance:
+  # Industry standards compliance
+  standards:
+    - name: "OpenAPI 3.1"
+      required: true
+      
+    - name: "REST API Design Guidelines"
+      required: true
+      
+    - name: "Security Best Practices"
+      required: true
+      
+  # Accessibility requirements
+  accessibility:
+    require_alt_text: true
+    validate_color_contrast: true
+    check_keyboard_navigation: true
+
+# Performance validation
+performance:
+  # API performance requirements
+  response_time_thresholds:
+    p50: 200   # 50th percentile under 200ms
+    p95: 1000  # 95th percentile under 1s  
+    p99: 2000  # 99th percentile under 2s
+    
+  rate_limiting:
+    validate_headers: true
+    check_429_responses: true
+    
+  caching:
+    validate_cache_headers: true
+    check_etag_support: true

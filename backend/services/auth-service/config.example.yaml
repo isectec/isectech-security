@@ -1,0 +1,273 @@
+# iSECTECH Authentication Service Configuration
+
+# Application settings
+log_level: "info"
+environment: "production"
+
+# Service configuration
+service:
+  service_name: "iSECTECH-Auth"
+  environment: "production"
+  log_level: "info"
+  enable_metrics: true
+  enable_tracing: true
+  jwt_secret: "${JWT_SECRET}"
+  encryption_key: "${ENCRYPTION_KEY}"
+  audit_retention: "2190h" # 3 months
+  cache_enabled: true
+  cache_ttl: "5m"
+  worker_pool_size: 10
+
+  # Authentication configuration
+  auth:
+    min_password_length: 12
+    max_password_length: 128
+    require_uppercase: true
+    require_lowercase: true
+    require_numbers: true
+    require_special_chars: true
+    forbid_common_passwords: true
+    password_history_count: 12
+    password_max_age: "90d"
+    argon2_time: 3
+    argon2_memory: 65536
+    argon2_threads: 4
+    argon2_keylen: 32
+    session_timeout: "30m"
+    max_concurrent_sessions: 5
+    session_secure_flag: true
+    session_samesite: "strict"
+    max_failed_attempts: 5
+    lockout_duration: "15m"
+    enable_2fa: true
+    require_mfa_admin: true
+    access_token_ttl: "15m"
+    refresh_token_ttl: "7d"
+    token_issuer: "iSECTECH"
+    enable_risk_evaluation: true
+    high_risk_threshold: 7.0
+    critical_risk_threshold: 9.0
+    notify_on_login: true
+    notify_on_mfa_enrollment: true
+    notify_on_risk_event: true
+
+  # Password service configuration
+  password:
+    min_length: 12
+    max_length: 128
+    require_uppercase: true
+    require_lowercase: true
+    require_numbers: true
+    require_special_chars: true
+    forbid_common_passwords: true
+    forbid_user_info: true
+    forbid_repeating: true
+    max_repeating_chars: 3
+    password_history_count: 12
+    password_max_age: "90d"
+    password_min_age: "24h"
+    reset_token_ttl: "1h"
+    max_reset_attempts: 3
+    notify_password_change: true
+    notify_password_reset: true
+    warn_before_expiry: true
+    warning_days: 7
+
+  # Session service configuration
+  session:
+    default_timeout: "30m"
+    max_timeout: "24h"
+    inactivity_timeout: "15m"
+    extendable_timeout: "2h"
+    max_concurrent_sessions: 5
+    max_sessions_per_ip: 10
+    enable_session_sharing: false
+    require_ip_validation: true
+    require_ua_validation: false
+    secure_cookie_flag: true
+    samesite_cookie_mode: "strict"
+    httponly_cookie_flag: true
+    access_token_ttl: "15m"
+    refresh_token_ttl: "7d"
+    token_issuer: "iSECTECH"
+    token_audience: "iSECTECH-API"
+    require_stepup_admin: true
+    stepup_timeout: "10m"
+    enable_session_logging: true
+    log_session_activity: true
+    monitor_concurrent_sessions: true
+
+  # MFA configuration
+  mfa:
+    service_name: "iSECTECH"
+    issuer_name: "iSECTECH Security Platform"
+    default_device_limit: 5
+    totp_period: 30
+    totp_digits: 6
+    totp_algorithm: "SHA1"
+    backup_codes_count: 10
+    challenge_timeout: "5m"
+    max_verification_attempts: 3
+    enable_recovery_codes: true
+    require_device_verification: true
+    enable_device_naming: true
+    enable_usage_tracking: true
+    enable_geolocation: true
+    enable_rate_limiting: true
+    security:
+      encrypt_secrets: true
+      audit_all_events: true
+      require_secure_transport: true
+      enable_fraud_detection: true
+      max_failed_attempts: 5
+      lockout_duration: "15m"
+
+# Database configuration
+database:
+  host: "${DB_HOST:-localhost}"
+  port: 5432
+  database: "${DB_NAME:-isectech_auth}"
+  username: "${DB_USER:-isectech}"
+  password: "${DB_PASSWORD}"
+  ssl_mode: "require"
+  max_open_connections: 25
+  max_idle_connections: 5
+  connection_max_lifetime: "1h"
+  connection_max_idle_time: "30m"
+  auto_migrate: true
+  enable_logging: false
+  slow_query_threshold: "1s"
+
+# HTTP server configuration
+http:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+  enable_tls: false
+  tls_cert_file: ""
+  tls_key_file: ""
+  enable_pprof: false
+  enable_swagger: false
+  trusted_proxies: []
+  api_prefix: "/api/v1"
+  enable_api_metrics: true
+
+# Middleware configuration
+middleware:
+  # CORS settings
+  allow_origins: ["*"]
+  allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allow_headers: ["Content-Type", "Authorization", "X-Request-ID"]
+  expose_headers: ["X-Request-ID"]
+  allow_credentials: true
+  max_age: 86400
+
+  # Security headers
+  enable_security_headers: true
+  content_security_policy: "default-src 'self'"
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+
+  # Rate limiting
+  enable_rate_limit: true
+  requests_per_minute: 100
+  burst_limit: 200
+
+  # Request tracking
+  enable_request_id: true
+  enable_access_log: true
+
+  # Timeout settings
+  request_timeout: "30s"
+
+# Email service configuration
+email:
+  provider: "smtp"
+  smtp_host: "${SMTP_HOST}"
+  smtp_port: 587
+  smtp_username: "${SMTP_USERNAME}"
+  smtp_password: "${SMTP_PASSWORD}"
+  smtp_use_tls: true
+  from_address: "${EMAIL_FROM_ADDRESS}"
+  from_name: "iSECTECH Security"
+  template_dir: "./templates/email"
+  max_retries: 3
+  retry_interval: "5s"
+
+# SMS service configuration
+sms:
+  provider: "twilio"
+  account_sid: "${TWILIO_ACCOUNT_SID}"
+  auth_token: "${TWILIO_AUTH_TOKEN}"
+  from_number: "${TWILIO_FROM_NUMBER}"
+  max_retries: 3
+  retry_interval: "5s"
+
+# Rate limiting configuration
+rate_limit:
+  provider: "redis"
+  redis_host: "${REDIS_HOST:-localhost}"
+  redis_port: 6379
+  redis_password: "${REDIS_PASSWORD}"
+  redis_db: 0
+  default_limit: 100
+  default_window: "1m"
+  login_limit: 5
+  login_window: "15m"
+  mfa_limit: 10
+  mfa_window: "5m"
+  password_reset_limit: 3
+  password_reset_window: "1h"
+  enable_distributed: true
+  burst_multiplier: 2
+
+# Security configuration
+security:
+  # IP blocking
+  enable_ip_blocking: true
+  max_failed_attempts: 10
+  block_duration: "1h"
+  whitelist_ips: []
+
+  # Geo-blocking
+  enable_geo_blocking: false
+  blocked_countries: []
+  allowed_countries: []
+
+  # Device tracking
+  enable_device_tracking: true
+  max_devices_per_user: 10
+
+  # Advanced threat protection
+  enable_threat_intel: false
+  threat_intel_provider: ""
+  threat_intel_api_key: "${THREAT_INTEL_API_KEY}"
+
+  # Security headers and policies
+  enable_csp: true
+  csp_policy: "default-src 'self'"
+  enable_hsts: true
+  hsts_max_age: 31536000
+
+# Risk evaluation configuration
+risk_evaluation:
+  provider: "internal"
+  low_risk_threshold: 3.0
+  medium_risk_threshold: 6.0
+  high_risk_threshold: 8.0
+  critical_risk_threshold: 9.5
+  enable_location_analysis: true
+  enable_device_analysis: true
+  enable_behavior_analysis: true
+  enable_threat_intel: false
+  risk_provider_api_key: "${RISK_PROVIDER_API_KEY}"
+  risk_provider_endpoint: ""
+  model_path: "./models/risk_model.pkl"
+  model_update_interval: "24h"
+  enable_model_training: false
+  auto_block_high_risk: false
+  require_mfa_medium_risk: true
+  require_mfa_high_risk: true

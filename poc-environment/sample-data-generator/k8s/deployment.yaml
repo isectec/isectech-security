@@ -1,0 +1,411 @@
+# iSECTECH Sample Data Generator - Kubernetes Deployment
+# Production-Grade Sample Data Generation Service
+# Version: 1.0
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: data-generator
+    app.kubernetes.io/part-of: isectech-poc-platform
+    app.kubernetes.io/managed-by: kubernetes
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: poc-data-generator-config
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+  PORT: "8082"
+  DATA_OUTPUT_PATH: "/app/generated-data"
+  MAX_DATASET_SIZE: "1073741824"  # 1GB
+  GENERATION_TIMEOUT: "60m"
+  ENABLE_REALISTIC_IPS: "true"
+  ENABLE_GDPR_MODE: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: poc-data-generator-secrets
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+type: Opaque
+data:
+  # Base64 encoded secrets - replace with actual values
+  DATABASE_URL: cG9zdGdyZXM6Ly91c2VybmFtZTpwYXNzd29yZEBsb2NhbGhvc3Q6NTQzMi9pc2VjdGVjaF9wb2M/c3NsbW9kZT1kaXNhYmxl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: generated-data-pvc
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: ssd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poc-data-generator
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: data-generator
+    app.kubernetes.io/part-of: isectech-poc-platform
+    app.kubernetes.io/managed-by: kubernetes
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: poc-data-generator
+      app.kubernetes.io/instance: production
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: poc-data-generator
+        app.kubernetes.io/instance: production
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/component: data-generator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: poc-data-generator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: poc-data-generator
+        image: gcr.io/isectech-poc-platform/poc-data-generator:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8082
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: poc-data-generator-secrets
+              key: DATABASE_URL
+        envFrom:
+        - configMapRef:
+            name: poc-data-generator-config
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: generated-data
+          mountPath: /app/generated-data
+        - name: tmp
+          mountPath: /tmp
+        - name: schemas
+          mountPath: /app/schemas
+          readOnly: true
+      volumes:
+      - name: generated-data
+        persistentVolumeClaim:
+          claimName: generated-data-pvc
+      - name: tmp
+        emptyDir: {}
+      - name: schemas
+        configMap:
+          name: industry-schemas-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - poc-data-generator
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: poc-data-generator-service
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "poc-data-generator-backendconfig"}'
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/instance: production
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: poc-data-generator
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: poc-data-generator-netpol
+  namespace: poc-data-generator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: poc-data-generator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: poc-provisioning
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8082
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS
+    - protocol: TCP
+      port: 5432 # PostgreSQL
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: poc-data-generator-backendconfig
+  namespace: poc-data-generator
+spec:
+  healthCheck:
+    checkIntervalSec: 30
+    timeoutSec: 10
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+    type: HTTP
+    requestPath: /api/v1/health
+  timeoutSec: 300  # 5 minutes for data generation operations
+  connectionDraining:
+    drainingTimeoutSec: 180
+  logging:
+    enable: true
+    sampleRate: 1.0
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: poc-data-generator-hpa
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: data-generator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: poc-data-generator
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: industry-schemas-config
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-generator
+    app.kubernetes.io/component: schemas
+data:
+  financial_services.json: |
+    {
+      "industry": "financial_services",
+      "description": "Cybersecurity sample data for financial services",
+      "security_scenarios": ["payment_fraud_detection", "regulatory_compliance", "trading_security"],
+      "compliance_frameworks": ["sox", "pci_dss", "ffiec", "gdpr"]
+    }
+  healthcare.json: |
+    {
+      "industry": "healthcare", 
+      "description": "Cybersecurity sample data for healthcare organizations",
+      "security_scenarios": ["patient_data_protection", "medical_device_security", "ransomware_defense"],
+      "compliance_frameworks": ["hipaa", "hitech", "gdpr", "fda_21_cfr_part_11"]
+    }
+  government.json: |
+    {
+      "industry": "government",
+      "description": "Cybersecurity sample data for government agencies",
+      "security_scenarios": ["classified_data_protection", "insider_threat_detection", "supply_chain_security"],
+      "compliance_frameworks": ["fisma", "fedramp", "nist_800_53", "cjis"]
+    }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: poc-data-cleanup-job
+  namespace: poc-data-generator
+  labels:
+    app.kubernetes.io/name: poc-data-cleanup-job
+    app.kubernetes.io/component: cleanup
+spec:
+  schedule: "0 3 * * *"  # Run daily at 3 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: poc-data-generator
+          containers:
+          - name: cleanup
+            image: gcr.io/isectech-poc-platform/poc-data-generator:1.0.0
+            command: ["/bin/sh"]
+            args:
+            - -c
+            - |
+              # Clean up generated data older than 30 days
+              find /app/generated-data -type f -mtime +30 -delete
+              # Clean up expired database records
+              echo "Cleanup completed at $(date)"
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: poc-data-generator-secrets
+                  key: DATABASE_URL
+            envFrom:
+            - configMapRef:
+                name: poc-data-generator-config
+            volumeMounts:
+            - name: generated-data
+              mountPath: /app/generated-data
+          volumes:
+          - name: generated-data
+            persistentVolumeClaim:
+              claimName: generated-data-pvc
+          restartPolicy: OnFailure
+      backoffLimit: 3

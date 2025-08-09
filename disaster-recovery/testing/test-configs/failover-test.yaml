@@ -1,0 +1,236 @@
+# iSECTECH Disaster Recovery Test Configuration
+# Automated failover testing for critical services
+
+testId: "dr-failover-001"
+testName: "Primary Region Failover Test"
+description: "Automated test to validate failover from us-east-1 to us-west-2 for all critical services"
+testType: "failover"
+rtoTarget: 15  # minutes
+rpoTarget: 5   # minutes
+environment: "production-test"
+
+# Test schedule (cron format: minute hour day month dayofweek)
+schedule: "0 2 * * 1"  # Every Monday at 2 AM UTC
+
+regions:
+  primary: "us-east-1"
+  secondary: "us-west-2"
+
+# Services to test
+services:
+  - name: "isectech-frontend"
+    type: "web"
+    healthEndpoint: "https://app.isectech.com/health"
+    dependencies: ["isectech-backend"]
+    criticality: "critical"
+    expectedRTO: 5    # minutes
+    expectedRPO: 0    # stateless service
+    
+  - name: "isectech-backend"
+    type: "api"
+    healthEndpoint: "https://api.isectech.com/health"
+    dependencies: ["isectech-database", "isectech-redis"]
+    criticality: "critical"
+    expectedRTO: 8    # minutes
+    expectedRPO: 2    # minutes
+    
+  - name: "isectech-security-service"
+    type: "api"
+    healthEndpoint: "https://security.isectech.com/health"
+    dependencies: ["isectech-database"]
+    criticality: "critical"
+    expectedRTO: 10   # minutes
+    expectedRPO: 5    # minutes
+    
+  - name: "isectech-database"
+    type: "database"
+    healthEndpoint: "https://api.isectech.com/health/database"
+    dependencies: []
+    criticality: "critical"
+    expectedRTO: 10   # minutes
+    expectedRPO: 5    # minutes
+    
+  - name: "isectech-redis"
+    type: "cache"
+    healthEndpoint: "https://api.isectech.com/health/cache"
+    dependencies: []
+    criticality: "important"
+    expectedRTO: 3    # minutes
+    expectedRPO: 0    # acceptable data loss for cache
+    
+  - name: "isectech-analytics"
+    type: "api"
+    healthEndpoint: "https://analytics.isectech.com/health"
+    dependencies: ["isectech-database"]
+    criticality: "standard"
+    expectedRTO: 20   # minutes
+    expectedRPO: 10   # minutes
+
+# Notification configuration
+notifications:
+  slack:
+    webhookUrl: "${SLACK_WEBHOOK_URL}"
+    channel: "#alerts-dr-testing"
+    
+  email:
+    recipients:
+      - "platform-team@isectech.com"
+      - "sre-team@isectech.com"
+      - "executives@isectech.com"
+    smtpConfig:
+      host: "smtp.isectech.com"
+      port: 587
+      secure: false
+      auth:
+        user: "dr-alerts@isectech.com"
+        pass: "${SMTP_PASSWORD}"
+        
+  pagerduty:
+    integrationKey: "${PAGERDUTY_DR_INTEGRATION_KEY}"
+
+# Test-specific configuration
+testConfig:
+  # How long to wait for each service to recover (in addition to expectedRTO)
+  recoveryTimeoutBuffer: 5  # minutes
+  
+  # How often to check service health during test
+  healthCheckInterval: 10   # seconds
+  
+  # Whether to actually trigger failures or just simulate
+  simulateOnly: false
+  
+  # Whether to run in parallel or sequential
+  parallelExecution: true
+  
+  # Pre-test validation timeout
+  preTestTimeout: 300       # seconds
+  
+  # Post-test cleanup timeout
+  postTestTimeout: 600      # seconds
+
+# Test phases configuration
+phases:
+  preTest:
+    enabled: true
+    validations:
+      - regionHealth
+      - serviceHealth
+      - replicationLag
+      - backupStatus
+    
+  failureSimulation:
+    enabled: true
+    method: "graceful"  # graceful, forced, network, resource
+    scope: "service"    # service, region, zone
+    
+  monitoring:
+    enabled: true
+    metrics:
+      - responseTime
+      - errorRate
+      - throughput
+      - resourceUtilization
+    
+  recovery:
+    enabled: true
+    autoRestore: true
+    validateIntegrity: true
+    
+  postTest:
+    enabled: true
+    cleanup: true
+    reporting: true
+    archiveResults: true
+
+# Success criteria
+successCriteria:
+  rtoCompliance: 90    # percentage of services meeting RTO target
+  rpoCompliance: 95    # percentage of services meeting RPO target
+  overallHealthy: 80   # percentage of services healthy after test
+  
+  # Critical services must all pass
+  criticalServiceCompliance: 100
+  
+  # Maximum acceptable business impact
+  maxBusinessImpact:
+    revenueLoss: 10000      # dollars
+    affectedUsers: 1000     # number of users
+    
+# Rollback configuration
+rollback:
+  enabled: true
+  triggers:
+    - "rtoExceeded"
+    - "criticalServiceDown"
+    - "manualTrigger"
+  
+  # Time to wait before auto-rollback
+  autoRollbackDelay: 900    # seconds (15 minutes)
+  
+  # Notification for rollback events
+  notifyOnRollback: true
+
+# Compliance and reporting
+compliance:
+  framework: ["SOC2", "ISO27001"]
+  auditTrail: true
+  evidenceCollection: true
+  complianceReporting: true
+  
+reporting:
+  generateExecutiveSummary: true
+  includeMetrics: true
+  includeRecommendations: true
+  
+  # Report distribution
+  distribution:
+    - "platform-team@isectech.com"
+    - "executives@isectech.com"
+    - "audit-team@isectech.com"
+
+---
+# Test execution metadata
+metadata:
+  version: "1.0"
+  author: "Platform Engineering Team"
+  createdDate: "2024-01-15"
+  lastModified: "2024-01-15"
+  tags:
+    - "disaster-recovery"
+    - "automated-testing"
+    - "critical-services"
+    - "compliance"
+  
+  # Test environment requirements
+  requirements:
+    - "Access to both us-east-1 and us-west-2 regions"
+    - "Kubernetes cluster access in both regions"
+    - "AWS RDS cross-region replica configured"
+    - "Route53 health checks configured"
+    - "Monitoring systems operational"
+    - "Notification channels configured"
+  
+  # Dependencies
+  dependencies:
+    - "Multi-region infrastructure deployed"
+    - "Cross-region replication configured"
+    - "Health check endpoints implemented"
+    - "Monitoring dashboards configured"
+    - "Incident response procedures documented"
+
+  # Risk assessment
+  risks:
+    - risk: "Service downtime during test"
+      mitigation: "Use staging environment and gradual rollout"
+      probability: "low"
+      impact: "medium"
+      
+    - risk: "Data loss during failover"
+      mitigation: "Verify replication lag before test"
+      probability: "very-low"
+      impact: "high"
+      
+    - risk: "Test environment differs from production"
+      mitigation: "Regular environment synchronization"
+      probability: "medium"
+      impact: "medium"

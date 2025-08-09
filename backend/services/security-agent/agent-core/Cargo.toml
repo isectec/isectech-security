@@ -1,0 +1,198 @@
+[package]
+name = "isectech-security-agent-core"
+version = "1.0.0"
+edition = "2021"
+authors = ["iSECTECH Engineering <engineering@isectech.com>"]
+description = "iSECTECH Production Security Agent Core - Cross-platform endpoint security with zero-trust architecture"
+license = "Proprietary"
+repository = "https://github.com/isectech/security-platform"
+readme = "README.md"
+keywords = ["security", "endpoint", "agent", "threat-detection", "zero-trust"]
+categories = ["security", "cryptography", "system-monitoring"]
+
+[dependencies]
+# Async runtime and futures
+tokio = { version = "1.35", features = ["full", "tracing"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Cryptography and security
+ring = "0.17"
+rustls = { version = "0.22", features = ["dangerous_configuration"] }
+rustls-pemfile = "2.0"
+webpki-roots = "0.26"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+sha2 = "0.10"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+constant_time_eq = "0.3"
+zeroize = { version = "1.7", features = ["derive"] }
+
+# Serialization and data handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+protobuf = "3.4"
+bincode = "1.3"
+uuid = { version = "1.6", features = ["v4", "fast-rng", "macro-diagnostics"] }
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.21"
+prost = "0.12"
+
+# Database and storage
+rusqlite = { version = "0.30", features = ["bundled", "backup", "blob", "chrono", "serde_json", "uuid"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# Network and HTTP
+reqwest = { version = "0.11", features = ["rustls-tls", "json", "stream"] }
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = "0.1"
+tonic = { version = "0.10", features = ["tls"] }
+prost = "0.12"
+
+# Logging and observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# System integration and CLI
+sysinfo = "0.30"
+nix = "0.27"
+libc = "0.2"
+winapi = { version = "0.3", features = ["full"] }
+mio = { version = "0.8", features = ["os-poll", "net"] }
+clap = { version = "4.4", features = ["derive"] }
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_System_Registry",
+    "Win32_System_SystemServices",
+    "Win32_Security",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Wmi",
+] }
+wmi = "0.13"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+system-configuration = "0.5"
+security-framework = "2.9"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-sys = "0.8"
+netlink-packet-route = "0.17"
+procfs = "0.16"
+
+# Mobile platform dependencies
+[target.'cfg(target_os = "ios")'.dependencies]
+objc = "0.2"
+block = "0.1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+android_logger = "0.13"
+
+# Build dependencies
+[build-dependencies]
+tonic-build = "0.10"
+prost-build = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Development dependencies
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+tempfile = "3.8"
+serial_test = "3.0"
+
+# Profile configurations
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+panic = "unwind"
+
+# Security-focused profile for production
+[profile.security]
+inherits = "release"
+opt-level = "z"  # Optimize for size
+lto = "fat"      # Full LTO
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = "symbols"
+overflow-checks = true
+
+# Features for conditional compilation
+[features]
+default = ["network-monitoring", "file-monitoring", "process-monitoring"]
+network-monitoring = []
+file-monitoring = []
+process-monitoring = []
+registry-monitoring = []
+user-monitoring = []
+vulnerability-scanning = []
+tamper-resistance = []
+anti-debugging = []
+kernel-integration = []
+mobile-support = []
+
+# Benchmarks
+[[bench]]
+name = "agent_performance"
+harness = false
+
+[[bench]]
+name = "crypto_operations"
+harness = false
+
+# Binary targets
+[[bin]]
+name = "isectech-agent"
+path = "src/main.rs"
+
+[[bin]]
+name = "agent-installer"
+path = "src/installer/main.rs"
+
+[[bin]]
+name = "agent-updater"
+path = "src/updater/main.rs"
+
+# Library configuration
+[lib]
+name = "isectech_agent_core"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+# Metadata for packaging
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.cross.target.aarch64-unknown-linux-gnu]
+dockerfile = "./docker/Dockerfile.aarch64"
+
+[package.metadata.cross.target.x86_64-pc-windows-gnu]
+dockerfile = "./docker/Dockerfile.windows"
+
+[package.metadata.cross.target.x86_64-apple-darwin]
+dockerfile = "./docker/Dockerfile.macos"

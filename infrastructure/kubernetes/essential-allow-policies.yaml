@@ -1,0 +1,564 @@
+# Essential Allow Network Policies for iSECTECH
+# Provides minimum required connectivity for cluster operations
+# Applied after default deny policies to maintain system functionality
+# Part of Task 77: Identity-Based Network Policies
+
+---
+# Allow DNS resolution from all namespaces to kube-system
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-access
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: dns
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  policyTypes:
+  - Ingress
+  ingress:
+  - from: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# Allow all namespaces to access DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: dns-egress
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# Allow API server access from all namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-access
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: apiserver
+spec:
+  podSelector:
+    matchLabels:
+      component: kube-apiserver
+  policyTypes:
+  - Ingress
+  ingress:
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 6443
+    - protocol: TCP
+      port: 443
+
+---
+# Allow Istio control plane communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-control-plane
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from all namespaces for control plane communication
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 15010  # Pilot discovery
+    - protocol: TCP
+      port: 15011  # Pilot discovery TLS
+    - protocol: TCP
+      port: 15012  # Pilot discovery gRPC
+    - protocol: TCP
+      port: 443    # Admission webhooks
+    - protocol: TCP
+      port: 8080   # Pilot debug
+    - protocol: TCP
+      port: 9901   # Envoy admin
+    - protocol: TCP
+      port: 15000  # Envoy admin
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15021  # Health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+  egress:
+  # Allow egress to all for service discovery and configuration
+  - {}
+
+---
+# Allow ingress from Istio to all application namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio-system
+  namespace: isectech-api-gateway
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+
+---
+# Allow ingress from Istio to services namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio-system
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+
+---
+# Allow ingress from Istio to data namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio-system
+  namespace: isectech-data
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+
+---
+# Allow ingress from Istio to AI namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio-system
+  namespace: isectech-ai
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+
+---
+# Allow ingress from Istio to frontend namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-istio-system
+  namespace: isectech-frontend
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: service-mesh
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+
+---
+# Allow kubelet and kube-proxy communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kubelet-kube-proxy
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: node-communication
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-proxy
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 10249  # kube-proxy metrics
+    - protocol: TCP
+      port: 10256  # kube-proxy health check
+  egress:
+  - {}
+
+---
+# Allow monitoring namespace to scrape metrics from all namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-scraping
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  # Allow access to all namespaces for metrics scraping
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 9090   # Prometheus
+    - protocol: TCP
+      port: 9091   # Various metrics endpoints
+    - protocol: TCP
+      port: 9093   # Alertmanager
+    - protocol: TCP
+      port: 9100   # Node exporter
+    - protocol: TCP
+      port: 9113   # NGINX exporter
+    - protocol: TCP
+      port: 15014  # Istio control plane
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+    - protocol: TCP
+      port: 8080   # Common metrics port
+    - protocol: TCP
+      port: 8081   # Alternative metrics port
+    - protocol: TCP
+      port: 3000   # Grafana
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# Allow all namespaces to be scraped by monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress-apigateway
+  namespace: isectech-api-gateway
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+
+---
+# Allow monitoring ingress to services namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress-services
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+
+---
+# Allow monitoring ingress to data namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress-data
+  namespace: isectech-data
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+    - protocol: TCP
+      port: 5432   # PostgreSQL metrics (if exposed)
+    - protocol: TCP
+      port: 6379   # Redis metrics (if exposed)
+
+---
+# Allow monitoring ingress to AI namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress-ai
+  namespace: isectech-ai
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+
+---
+# Allow monitoring ingress to frontend namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress-frontend
+  namespace: isectech-frontend
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 3000   # Frontend metrics
+    - protocol: TCP
+      port: 15020  # Envoy health check
+    - protocol: TCP
+      port: 15090  # Envoy prometheus
+
+---
+# Allow egress to external DNS and NTP for all namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-dns-ntp
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: external-services
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  # Allow external DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow NTP
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 123
+
+---
+# Allow egress for container image pulls (adjust IP ranges for your registry)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-image-pulls
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: essential-allow
+    security.isectech.com/function: image-registry
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  # Allow HTTPS for image pulls from registries
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  # Allow DNS for registry resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

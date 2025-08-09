@@ -1,0 +1,35 @@
+policyEnforcementMode: always
+
+enableL7Proxy: true
+
+bpf:
+  masquerade: true
+
+encryption:
+  enabled: true
+  type: wireguard
+
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+operator:
+  replicas: 2
+
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+    ingress:
+      enabled: false
+
+kubeProxyReplacement: strict
+
+endpointRoutes:
+  enabled: true
+
+
+

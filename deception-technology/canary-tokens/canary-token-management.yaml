@@ -1,0 +1,603 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-token-management
+  namespace: deception
+  labels:
+    app: canary-token-management
+    component: token-generator
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: canary-token-management
+  template:
+    metadata:
+      labels:
+        app: canary-token-management
+        component: token-generator
+      annotations:
+        security.isectech.com/purpose: "canary-token-orchestration"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: canary-token-service-account
+      containers:
+      - name: token-manager
+        image: isectech/canary-token-manager:v1.3.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http-api
+          protocol: TCP
+        - containerPort: 8443
+          name: https-api
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: deception-secrets
+              key: postgres.url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: deception-secrets
+              key: redis.url
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: deception-secrets
+              key: token.encryption.key
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: TOKEN_GENERATION_CONFIG
+          value: |
+            {
+              "api_keys": {
+                "patterns": [
+                  "sk_live_{random_32}",
+                  "sk_test_{random_32}", 
+                  "api_key_{random_24}",
+                  "bearer_{random_40}"
+                ],
+                "placement_locations": [
+                  "/etc/isectech/api-keys.conf",
+                  "/opt/isectech/config/production.yaml",
+                  "/home/isectech/.env",
+                  "kubernetes_secrets"
+                ],
+                "rotation_interval": "30d"
+              },
+              "database_credentials": {
+                "patterns": [
+                  {"username": "isectech_admin", "password": "{random_password}"},
+                  {"username": "backup_service", "password": "{random_password}"},
+                  {"username": "analytics_reader", "password": "{random_password}"}
+                ],
+                "placement_locations": [
+                  "/etc/postgresql/pg_hba.conf",
+                  "/opt/backup/db-credentials.txt",
+                  "application_config_files"
+                ],
+                "rotation_interval": "90d"
+              },
+              "aws_credentials": {
+                "patterns": [
+                  {"access_key": "AKIA{random_16}", "secret_key": "{random_40}"},
+                  {"access_key": "ASIA{random_16}", "secret_key": "{random_40}"}
+                ],
+                "placement_locations": [
+                  "/home/isectech/.aws/credentials",
+                  "/etc/aws/credentials", 
+                  "environment_variables"
+                ],
+                "rotation_interval": "60d"
+              },
+              "ssh_keys": {
+                "key_types": ["rsa_2048", "rsa_4096", "ed25519"],
+                "placement_locations": [
+                  "/home/isectech/.ssh/id_rsa",
+                  "/etc/ssh/ssh_host_rsa_key",
+                  "/opt/backup/.ssh/backup_key"
+                ],
+                "rotation_interval": "180d"
+              },
+              "document_tokens": {
+                "file_types": [".pdf", ".docx", ".xlsx", ".txt"],
+                "tracking_methods": ["web_beacon", "dns_callback", "http_callback"],
+                "placement_locations": [
+                  "/home/isectech/documents/",
+                  "/opt/isectech/docs/",
+                  "/var/backups/documents/"
+                ],
+                "rotation_interval": "365d"
+              }
+            }
+        - name: DEPLOYMENT_STRATEGIES
+          value: |
+            {
+              "kubernetes_secrets": {
+                "enabled": true,
+                "target_namespaces": ["isectech-prod", "isectech-staging", "monitoring"],
+                "secret_name_patterns": ["api-keys", "database-creds", "backup-config"]
+              },
+              "configmap_injection": {
+                "enabled": true,
+                "target_configmaps": ["application-config", "environment-config"],
+                "injection_keys": ["api_key", "database_url", "redis_url"]
+              },
+              "file_system_placement": {
+                "enabled": true,
+                "target_pods": ["web-application", "api-service", "background-workers"],
+                "mount_paths": ["/etc/app", "/opt/config", "/home/app"]
+              },
+              "git_repository_seeding": {
+                "enabled": true,
+                "repositories": ["isectech/api-server", "isectech/deployment-configs"],
+                "file_patterns": [".env.example", "config.yaml.template", "deploy.sh"]
+              }
+            }
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: token-templates
+          mountPath: /etc/token-templates
+          readOnly: true
+        - name: deployment-scripts
+          mountPath: /etc/deployment-scripts
+          readOnly: true
+        - name: logs-volume
+          mountPath: /var/log/canary-tokens
+        - name: tmp-volume
+          mountPath: /tmp
+      - name: token-tracker
+        image: isectech/canary-token-tracker:v1.1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+          name: tracker-api
+        env:
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: kafka.brokers
+        - name: ELASTICSEARCH_URL
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: elasticsearch.url
+        - name: DNS_SERVER
+          value: "canary-dns-service.deception.svc.cluster.local"
+        - name: HTTP_CALLBACK_ENDPOINT
+          value: "https://canary-callbacks.isectech.com"
+        - name: TRACKING_METHODS
+          value: |
+            {
+              "dns_callbacks": {
+                "enabled": true,
+                "domain_pattern": "{token_id}.canary.isectech.com",
+                "record_types": ["A", "AAAA", "MX", "TXT"],
+                "dns_server": "canary-dns-service.deception.svc.cluster.local:53"
+              },
+              "http_callbacks": {
+                "enabled": true,
+                "endpoint_pattern": "https://canary-callbacks.isectech.com/cb/{token_id}",
+                "methods": ["GET", "POST", "PUT"],
+                "response_types": ["image", "document", "api_response"]
+              },
+              "email_tracking": {
+                "enabled": true,
+                "tracking_pixel": "https://canary-callbacks.isectech.com/pixel/{token_id}.png",
+                "smtp_server": "canary-smtp.deception.svc.cluster.local"
+              },
+              "network_beacons": {
+                "enabled": true,
+                "beacon_ports": [80, 443, 8080, 9200],
+                "beacon_protocols": ["HTTP", "HTTPS", "TCP"]
+              }
+            }
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        volumeMounts:
+        - name: tracking-logs
+          mountPath: /var/log/tracking
+      volumes:
+      - name: token-templates
+        configMap:
+          name: canary-token-templates
+      - name: deployment-scripts
+        configMap:
+          name: canary-deployment-scripts
+          defaultMode: 0755
+      - name: tracking-logs
+        emptyDir: {}
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - canary-token-management
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-token-service
+  namespace: deception
+  labels:
+    app: canary-token-management
+    service-type: token-management
+spec:
+  selector:
+    app: canary-token-management
+  ports:
+  - name: http-api
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: https-api
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: tracker-api
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: canary-token-service-account
+  namespace: deception
+  labels:
+    app: canary-token-management
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: canary-token-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: canary-token-binding
+subjects:
+- kind: ServiceAccount
+  name: canary-token-service-account
+  namespace: deception
+roleRef:
+  kind: ClusterRole
+  name: canary-token-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canary-token-templates
+  namespace: deception
+  labels:
+    app: canary-token-management
+data:
+  api_keys_config_template.yaml: |
+    # iSECTECH API Configuration Template
+    # This file contains API keys and configuration for the iSECTECH platform
+    
+    production:
+      api:
+        primary_key: "sk_live_{{.PrimaryAPIKey}}"
+        backup_key: "sk_live_{{.BackupAPIKey}}" 
+        webhook_secret: "{{.WebhookSecret}}"
+        
+      database:
+        primary_url: "postgresql://isectech_admin:{{.DatabasePassword}}@prod-postgres:5432/isectech_prod"
+        analytics_url: "mongodb://analytics:{{.MongoPassword}}@prod-mongo:27017/isectech_analytics"
+        cache_url: "redis://:{{.RedisPassword}}@prod-redis:6379/0"
+        
+      external_services:
+        crowdstrike:
+          api_key: "{{.CrowdstrikeAPIKey}}"
+          base_url: "https://api.crowdstrike.com"
+        slack:
+          webhook_url: "https://hooks.slack.com/services/{{.SlackWebhook}}"
+          bot_token: "xoxb-{{.SlackBotToken}}"
+          
+      aws:
+        access_key_id: "{{.AWSAccessKey}}"
+        secret_access_key: "{{.AWSSecretKey}}"
+        region: "us-west-2"
+        s3_bucket: "isectech-prod-backups"
+        
+  database_credentials_template.conf: |
+    # Database Authentication Configuration
+    # Production Environment - Confidential
+    
+    [postgresql]
+    host=prod-postgres-cluster.internal
+    port=5432
+    username=isectech_admin
+    password={{.PostgresPassword}}
+    database=isectech_production
+    ssl_mode=require
+    max_connections=50
+    
+    [mongodb]
+    host=prod-mongo-cluster.internal
+    port=27017
+    username=analytics_user
+    password={{.MongoPassword}}
+    database=isectech_analytics
+    auth_source=admin
+    
+    [redis]
+    host=prod-redis-cluster.internal
+    port=6379
+    password={{.RedisPassword}}
+    database=0
+    
+    [backup_service]
+    username=backup_svc
+    password={{.BackupPassword}}
+    schedule=daily
+    retention=90days
+    
+  aws_credentials_template: |
+    [default]
+    aws_access_key_id={{.AWSAccessKey}}
+    aws_secret_access_key={{.AWSSecretKey}}
+    region=us-west-2
+    
+    [isectech-prod]
+    aws_access_key_id={{.ProdAWSAccessKey}}
+    aws_secret_access_key={{.ProdAWSSecretKey}}
+    region=us-west-2
+    
+    [backup-service]
+    aws_access_key_id={{.BackupAWSAccessKey}}
+    aws_secret_access_key={{.BackupAWSSecretKey}}
+    region=us-west-2
+    
+  ssh_key_template: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    {{.SSHPrivateKey}}
+    -----END OPENSSH PRIVATE KEY-----
+    
+  document_template.txt: |
+    iSECTECH Security Platform - Internal Documentation
+    ==================================================
+    
+    CONFIDENTIAL - Internal Use Only
+    Document ID: {{.DocumentID}}
+    Created: {{.CreatedDate}}
+    Classification: Internal/Confidential
+    
+    API Access Information:
+    -----------------------
+    Production API Key: sk_live_{{.ProductionAPIKey}}
+    Staging API Key: sk_test_{{.StagingAPIKey}}
+    Admin Dashboard: https://admin.isectech.com
+    
+    Database Connection Strings:
+    ----------------------------
+    Primary DB: postgresql://admin:{{.DatabasePassword}}@prod-db:5432/isectech
+    Analytics: mongodb://analytics:{{.MongoPassword}}@prod-mongo:27017/analytics
+    Cache: redis://:{{.RedisPassword}}@prod-cache:6379/0
+    
+    Third-party Integrations:
+    -------------------------
+    CrowdStrike API Key: {{.CrowdstrikeKey}}
+    Slack Bot Token: xoxb-{{.SlackToken}}
+    
+    Emergency Contacts:
+    -------------------
+    Security Team: security@isectech.com
+    On-call Engineer: +1-555-ISEC-911
+    
+    NOTE: This document contains sensitive information. 
+    Do not share outside authorized personnel.
+    Report any unauthorized access immediately.
+    
+    Tracking ID: {{.TrackingID}}
+    
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canary-deployment-scripts
+  namespace: deception
+  labels:
+    app: canary-token-management
+data:
+  deploy_kubernetes_tokens.sh: |
+    #!/bin/bash
+    # Deploy canary tokens to Kubernetes secrets and configmaps
+    
+    set -euo pipefail
+    
+    NAMESPACE="${TARGET_NAMESPACE:-isectech-prod}"
+    TOKEN_ID="$1"
+    TOKEN_TYPE="$2"
+    TOKEN_VALUE="$3"
+    
+    echo "Deploying canary token ${TOKEN_ID} of type ${TOKEN_TYPE} to namespace ${NAMESPACE}"
+    
+    case "$TOKEN_TYPE" in
+      "api_key")
+        kubectl create secret generic "canary-api-key-${TOKEN_ID}" \
+          --from-literal=api_key="$TOKEN_VALUE" \
+          --namespace="$NAMESPACE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Label as canary token for tracking
+        kubectl label secret "canary-api-key-${TOKEN_ID}" \
+          security.isectech.com/canary-token="true" \
+          security.isectech.com/token-id="$TOKEN_ID" \
+          --namespace="$NAMESPACE"
+        ;;
+        
+      "database_creds")
+        kubectl create secret generic "canary-db-creds-${TOKEN_ID}" \
+          --from-literal=database_url="$TOKEN_VALUE" \
+          --namespace="$NAMESPACE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        kubectl label secret "canary-db-creds-${TOKEN_ID}" \
+          security.isectech.com/canary-token="true" \
+          security.isectech.com/token-id="$TOKEN_ID" \
+          --namespace="$NAMESPACE"
+        ;;
+        
+      "config_file")
+        kubectl create configmap "canary-config-${TOKEN_ID}" \
+          --from-literal=config.yaml="$TOKEN_VALUE" \
+          --namespace="$NAMESPACE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        kubectl label configmap "canary-config-${TOKEN_ID}" \
+          security.isectech.com/canary-token="true" \
+          security.isectech.com/token-id="$TOKEN_ID" \
+          --namespace="$NAMESPACE"
+        ;;
+    esac
+    
+    echo "Successfully deployed canary token ${TOKEN_ID}"
+    
+  inject_filesystem_tokens.sh: |
+    #!/bin/bash
+    # Inject canary tokens into pod filesystems
+    
+    set -euo pipefail
+    
+    POD_NAME="$1"
+    NAMESPACE="$2"
+    TOKEN_ID="$3"
+    FILE_PATH="$4"
+    TOKEN_CONTENT="$5"
+    
+    echo "Injecting canary token ${TOKEN_ID} into ${POD_NAME}:${FILE_PATH}"
+    
+    # Create temporary file with token content
+    TEMP_FILE=$(mktemp)
+    echo "$TOKEN_CONTENT" > "$TEMP_FILE"
+    
+    # Copy file to pod
+    kubectl cp "$TEMP_FILE" "${NAMESPACE}/${POD_NAME}:${FILE_PATH}"
+    
+    # Set appropriate permissions
+    kubectl exec -n "$NAMESPACE" "$POD_NAME" -- chmod 600 "$FILE_PATH"
+    
+    # Clean up
+    rm "$TEMP_FILE"
+    
+    echo "Successfully injected canary token into ${POD_NAME}:${FILE_PATH}"
+    
+  rotate_canary_tokens.sh: |
+    #!/bin/bash
+    # Rotate expired canary tokens
+    
+    set -euo pipefail
+    
+    TOKEN_MANAGER_ENDPOINT="${TOKEN_MANAGER_ENDPOINT:-http://canary-token-service.deception.svc.cluster.local:8080}"
+    
+    echo "Starting canary token rotation process..."
+    
+    # Get list of tokens due for rotation
+    EXPIRED_TOKENS=$(curl -s "${TOKEN_MANAGER_ENDPOINT}/api/v1/tokens/expired" | jq -r '.tokens[].id')
+    
+    for TOKEN_ID in $EXPIRED_TOKENS; do
+        echo "Rotating token: $TOKEN_ID"
+        
+        # Generate new token
+        curl -X POST "${TOKEN_MANAGER_ENDPOINT}/api/v1/tokens/${TOKEN_ID}/rotate" \
+          -H "Content-Type: application/json"
+        
+        # Wait for deployment to complete
+        sleep 5
+        
+        echo "Token $TOKEN_ID rotated successfully"
+    done
+    
+    echo "Token rotation completed"

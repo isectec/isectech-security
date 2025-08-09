@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error Handling Guide - iSECTECH API</title>
+    <link rel="stylesheet" href="../assets/branding.css">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; line-height: 1.6; margin: 0; background: #f8f9fa; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; background: white; }
+        code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 0.2rem; }
+        pre { background: #f8f9fa; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        .error-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .error-table th, .error-table td { border: 1px solid #dee2e6; padding: 0.75rem; text-align: left; }
+        .error-table th { background: var(--isectech-primary); color: white; }
+        .error-table tr:nth-child(even) { background: #f8f9fa; }
+        .status-4xx { color: #ffc107; font-weight: bold; }
+        .status-5xx { color: #dc3545; font-weight: bold; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; margin: 1rem 0; }
+        .info { background: #d1ecf1; border-left: 4px solid #17a2b8; padding: 1rem; margin: 1rem 0; }
+        .tip { background: #d4edda; border-left: 4px solid #28a745; padding: 1rem; margin: 1rem 0; }
+    </style>
+</head>
+<body>
+    <div class="isectech-header">
+        <h1>Error Handling Guide</h1>
+        <p>Comprehensive guide to handling errors in iSECTECH API integrations</p>
+    </div>
+
+    <div class="container">
+        <h2>Overview</h2>
+        <p>The iSECTECH API uses standard HTTP status codes and provides detailed error information to help you handle errors gracefully and build resilient integrations.</p>
+
+        <div class="info">
+            <strong>ℹ️ Consistent Format:</strong> All error responses follow a consistent JSON structure with detailed error information, request tracing, and actionable guidance.
+        </div>
+
+        <h2>Error Response Format</h2>
+        <p>All error responses follow this standardized format:</p>
+        
+        <pre><code>{
+  "error": "Brief error message",
+  "message": "Detailed human-readable description", 
+  "code": "ERROR_CODE",
+  "details": [
+    {
+      "path": ["field", "subfield"],
+      "message": "Specific validation error",
+      "code": "VALIDATION_ERROR",
+      "value": "invalid-value"
+    }
+  ],
+  "requestId": "req_123456789",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "documentation": "https://docs.isectech.com/errors/VALIDATION_FAILED",
+  "support": {
+    "contact": "api@isectech.com",
+    "includeRequestId": true
+  }
+}</code></pre>
+
+        <h2>HTTP Status Codes</h2>
+        
+        <table class="error-table">
+            <thead>
+                <tr>
+                    <th>Status Code</th>
+                    <th>Error Type</th>
+                    <th>Description</th>
+                    <th>Action Required</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="status-4xx">400</span></td>
+                    <td>Bad Request</td>
+                    <td>Invalid request parameters or malformed JSON</td>
+                    <td>Fix request and retry</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">401</span></td>
+                    <td>Unauthorized</td>
+                    <td>Authentication required or invalid token</td>
+                    <td>Provide valid authentication</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">403</span></td>
+                    <td>Forbidden</td>
+                    <td>Valid authentication but insufficient permissions</td>
+                    <td>Request access or use different credentials</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">404</span></td>
+                    <td>Not Found</td>
+                    <td>Resource does not exist</td>
+                    <td>Verify resource ID or path</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">409</span></td>
+                    <td>Conflict</td>
+                    <td>Request conflicts with current resource state</td>
+                    <td>Resolve conflict and retry</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">422</span></td>
+                    <td>Unprocessable Entity</td>
+                    <td>Valid JSON but semantic errors</td>
+                    <td>Fix business logic errors</td>
+                </tr>
+                <tr>
+                    <td><span class="status-4xx">429</span></td>
+                    <td>Too Many Requests</td>
+                    <td>Rate limit exceeded</td>
+                    <td>Implement backoff and retry</td>
+                </tr>
+                <tr>
+                    <td><span class="status-5xx">500</span></td>
+                    <td>Internal Server Error</td>
+                    <td>Unexpected server error</td>
+                    <td>Retry with exponential backoff</td>
+                </tr>
+                <tr>
+                    <td><span class="status-5xx">502</span></td>
+                    <td>Bad Gateway</td>
+                    <td>Upstream service error</td>
+                    <td>Retry after brief delay</td>
+                </tr>
+                <tr>
+                    <td><span class="status-5xx">503</span></td>
+                    <td>Service Unavailable</td>
+                    <td>Temporary service overload or maintenance</td>
+                    <td>Check status page and retry later</td>
+                </tr>
+                <tr>
+                    <td><span class="status-5xx">504</span></td>
+                    <td>Gateway Timeout</td>
+                    <td>Request timeout</td>
+                    <td>Retry with longer timeout</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Common Error Scenarios</h2>
+        
+        <h3>1. Validation Errors (400 Bad Request)</h3>
+        <p>When request data fails validation:</p>
+        
+        <pre><code>{
+  "error": "Validation failed",
+  "message": "The request contains invalid data",
+  "code": "VALIDATION_FAILED",
+  "details": [
+    {
+      "path": ["userId"],
+      "message": "User ID is required",
+      "code": "REQUIRED_FIELD_MISSING"
+    },
+    {
+      "path": ["priority"],
+      "message": "Priority must be one of: low, medium, high, critical",
+      "code": "INVALID_ENUM_VALUE",
+      "value": "urgent",
+      "allowedValues": ["low", "medium", "high", "critical"]
+    }
+  ],
+  "requestId": "req_123456789"
+}</code></pre>
+
+        <h3>2. Authentication Errors (401 Unauthorized)</h3>
+        <p>When authentication is missing or invalid:</p>
+        
+        <pre><code>{
+  "error": "Authentication required",
+  "message": "Valid JWT token must be provided in Authorization header",
+  "code": "MISSING_AUTHENTICATION",
+  "details": [
+    {
+      "message": "Authorization header not found",
+      "code": "MISSING_AUTH_HEADER"
+    }
+  ],
+  "requestId": "req_123456789",
+  "documentation": "https://docs.isectech.com/authentication"
+}</code></pre>
+
+        <h3>3. Authorization Errors (403 Forbidden)</h3>
+        <p>When user lacks required permissions:</p>
+        
+        <pre><code>{
+  "error": "Insufficient permissions",
+  "message": "Your account does not have permission to access this resource",
+  "code": "PERMISSION_DENIED",
+  "details": [
+    {
+      "message": "Requires role: admin or security_analyst",
+      "code": "INSUFFICIENT_ROLE",
+      "requiredRoles": ["admin", "security_analyst"],
+      "userRole": "viewer"
+    }
+  ],
+  "requestId": "req_123456789"
+}</code></pre>
+
+        <h3>4. Rate Limiting (429 Too Many Requests)</h3>
+        <p>When API rate limits are exceeded:</p>
+        
+        <pre><code>{
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Please retry after 60 seconds",
+  "code": "RATE_LIMIT_EXCEEDED",
+  "retryAfter": 60,
+  "limit": {
+    "requests": 1000,
+    "window": "1 minute",
+    "remaining": 0,
+    "resetTime": "2024-01-15T10:31:00Z"
+  },
+  "requestId": "req_123456789"
+}</code></pre>
+
+        <h2>Error Handling Implementation</h2>
+        
+        <h3>JavaScript/TypeScript</h3>
+        <pre><code>class APIError extends Error {
+  constructor(response, data) {
+    super(data.message || data.error);
+    this.name = 'APIError';
+    this.status = response.status;
+    this.code = data.code;
+    this.details = data.details || [];
+    this.requestId = data.requestId;
+    this.retryAfter = data.retryAfter;
+  }
+}
+
+async function handleAPIRequest(url, options = {}) {
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new APIError(response, data);
+    }
+    
+    return data;
+    
+  } catch (error) {
+    if (error instanceof APIError) {
+      // Handle specific API errors
+      switch (error.status) {
+        case 401:
+          // Refresh token or redirect to login
+          await refreshTokenOrLogin();
+          return handleAPIRequest(url, options); // Retry
+          
+        case 403:
+          // Handle permission denied
+          showPermissionError(error);
+          break;
+          
+        case 429:
+          // Implement backoff
+          await delay(error.retryAfter * 1000);
+          return handleAPIRequest(url, options); // Retry
+          
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          // Retry with exponential backoff
+          return retryWithBackoff(() => handleAPIRequest(url, options));
+          
+        default:
+          // Log and display error
+          console.error('API Error:', error);
+          showUserError(error.message, error.requestId);
+      }
+    } else {
+      // Network or other errors
+      console.error('Network Error:', error);
+      showNetworkError();
+    }
+    
+    throw error;
+  }
+}</code></pre>
+
+        <h3>Python</h3>
+        <pre><code>import requests
+import time
+import random
+from typing import Optional, Dict, Any
+
+class APIError(Exception):
+    def __init__(self, response: requests.Response, data: Dict[str, Any]):
+        self.status = response.status_code
+        self.code = data.get('code')
+        self.message = data.get('message', data.get('error', 'Unknown error'))
+        self.details = data.get('details', [])
+        self.request_id = data.get('requestId')
+        self.retry_after = data.get('retryAfter')
+        super().__init__(self.message)
+
+class APIClient:
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        })
+    
+    def make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+        url = f"{self.base_url}{endpoint}"
+        max_retries = 3
+        
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.session.request(method, url, **kwargs)
+                data = response.json()
+                
+                if response.ok:
+                    return data
+                
+                error = APIError(response, data)
+                
+                # Handle retryable errors
+                if response.status_code in [429, 500, 502, 503, 504]:
+                    if attempt < max_retries:
+                        delay = self._calculate_delay(attempt, error.retry_after)
+                        print(f"Retrying in {delay}s (attempt {attempt + 1})")
+                        time.sleep(delay)
+                        continue
+                
+                # Handle authentication errors
+                if response.status_code == 401:
+                    self._refresh_token()
+                    if attempt < max_retries:
+                        continue
+                
+                raise error
+                
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries:
+                    delay = self._calculate_delay(attempt)
+                    time.sleep(delay)
+                    continue
+                raise
+        
+        raise Exception("Max retries exceeded")
+    
+    def _calculate_delay(self, attempt: int, retry_after: Optional[int] = None) -> float:
+        if retry_after:
+            return retry_after + random.uniform(0.1, 0.5)  # Add jitter
+        
+        # Exponential backoff with jitter
+        base_delay = 2 ** attempt
+        jitter = random.uniform(0.1, 0.3)
+        return min(base_delay + jitter, 60)  # Max 60 seconds
+    
+    def _refresh_token(self):
+        # Implement token refresh logic
+        pass</code></pre>
+
+        <h3>Go</h3>
+        <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "time"
+    "math/rand"
+    "math"
+)
+
+type APIError struct {
+    Status    int    `json:"-"`
+    Code      string `json:"code"`
+    Message   string `json:"message"`
+    Error     string `json:"error"`
+    Details   []struct {
+        Path    []string `json:"path"`
+        Message string   `json:"message"`
+        Code    string   `json:"code"`
+    } `json:"details"`
+    RequestID  string `json:"requestId"`
+    RetryAfter int    `json:"retryAfter"`
+}
+
+func (e *APIError) Error() string {
+    if e.Message != "" {
+        return e.Message
+    }
+    return e.Error
+}
+
+func makeRequest(client *http.Client, req *http.Request, maxRetries int) (*http.Response, error) {
+    for attempt := 0; attempt <= maxRetries; attempt++ {
+        resp, err := client.Do(req)
+        if err != nil {
+            if attempt < maxRetries {
+                delay := calculateDelay(attempt, 0)
+                time.Sleep(delay)
+                continue
+            }
+            return nil, err
+        }
+        
+        // Handle success
+        if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+            return resp, nil
+        }
+        
+        // Parse error response
+        var apiErr APIError
+        if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+            resp.Body.Close()
+            return nil, fmt.Errorf("failed to parse error response: %w", err)
+        }
+        resp.Body.Close()
+        
+        apiErr.Status = resp.StatusCode
+        
+        // Handle retryable errors
+        if isRetryable(resp.StatusCode) && attempt < maxRetries {
+            delay := calculateDelay(attempt, apiErr.RetryAfter)
+            fmt.Printf("Retrying in %v (attempt %d)\n", delay, attempt+1)
+            time.Sleep(delay)
+            continue
+        }
+        
+        return nil, &apiErr
+    }
+    
+    return nil, fmt.Errorf("max retries exceeded")
+}
+
+func isRetryable(statusCode int) bool {
+    return statusCode == 429 || statusCode >= 500
+}
+
+func calculateDelay(attempt int, retryAfter int) time.Duration {
+    if retryAfter > 0 {
+        jitter := rand.Float64() * 0.5 // 0-500ms jitter
+        return time.Duration(retryAfter)*time.Second + time.Duration(jitter*1000)*time.Millisecond
+    }
+    
+    // Exponential backoff with jitter
+    baseDelay := math.Pow(2, float64(attempt))
+    jitter := rand.Float64() * 0.3 // 0-300ms jitter
+    totalDelay := math.Min(baseDelay+jitter, 60) // Max 60 seconds
+    
+    return time.Duration(totalDelay * float64(time.Second))
+}</code></pre>
+
+        <h2>Error Handling Best Practices</h2>
+        
+        <div class="tip">
+            <strong>💡 Best Practices:</strong>
+            <ul>
+                <li><strong>Always check status codes</strong> before processing responses</li>
+                <li><strong>Log request IDs</strong> for support and debugging</li>
+                <li><strong>Implement retry logic</strong> for transient errors (5xx, 429)</li>
+                <li><strong>Use exponential backoff</strong> to avoid overwhelming the API</li>
+                <li><strong>Handle authentication errors</strong> by refreshing tokens</li>
+                <li><strong>Display user-friendly messages</strong> while logging technical details</li>
+                <li><strong>Monitor error rates</strong> and set up alerting</li>
+            </ul>
+        </div>
+
+        <h3>Retry Strategy</h3>
+        <p>Implement intelligent retry logic:</p>
+        
+        <ul>
+            <li><strong>Retry on:</strong> 429, 500, 502, 503, 504, network timeouts</li>
+            <li><strong>Don't retry on:</strong> 400, 401, 403, 404, 422</li>
+            <li><strong>Max retries:</strong> 3-5 attempts</li>
+            <li><strong>Backoff:</strong> Exponential with jitter</li>
+            <li><strong>Respect Retry-After:</strong> Always honor rate limit headers</li>
+        </ul>
+
+        <h3>Logging and Monitoring</h3>
+        <p>Proper error logging is crucial:</p>
+        
+        <pre><code>{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "level": "ERROR",
+  "message": "API request failed",
+  "error": {
+    "status": 429,
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests",
+    "requestId": "req_123456789",
+    "retryAfter": 60
+  },
+  "request": {
+    "method": "POST",
+    "url": "/notifications",
+    "userId": "user_123"
+  },
+  "context": {
+    "userAgent": "MyApp/1.0.0",
+    "clientIP": "203.0.113.1",
+    "sessionId": "sess_456"
+  }
+}</code></pre>
+
+        <h2>Error Prevention</h2>
+        
+        <h3>Input Validation</h3>
+        <p>Validate data before sending to the API:</p>
+        
+        <pre><code>// Client-side validation example
+function validateNotificationRequest(data) {
+  const errors = [];
+  
+  if (!data.title || data.title.length > 200) {
+    errors.push({
+      field: 'title',
+      message: 'Title is required and must be under 200 characters'
+    });
+  }
+  
+  if (!['low', 'medium', 'high', 'critical'].includes(data.priority)) {
+    errors.push({
+      field: 'priority',
+      message: 'Priority must be low, medium, high, or critical'
+    });
+  }
+  
+  return errors;
+}</code></pre>
+
+        <h3>Schema Validation</h3>
+        <p>Use JSON Schema or similar tools to validate requests:</p>
+        
+        <pre><code>const schema = {
+  type: "object",
+  required: ["title", "message", "type", "priority"],
+  properties: {
+    title: { type: "string", maxLength: 200 },
+    message: { type: "string", maxLength: 2000 },
+    type: { enum: ["security", "alert", "info", "warning", "error"] },
+    priority: { enum: ["low", "medium", "high", "critical"] }
+  }
+};</code></pre>
+
+        <div class="warning">
+            <strong>⚠️ Security Note:</strong> Never expose sensitive information in error messages. Detailed error information should only be logged server-side and included in support requests via request IDs.
+        </div>
+
+        <h2>Testing Error Scenarios</h2>
+        
+        <p>Test your error handling with these scenarios:</p>
+        
+        <ul>
+            <li>Invalid authentication tokens</li>
+            <li>Malformed JSON requests</li>
+            <li>Missing required fields</li>
+            <li>Rate limit exceeded</li>
+            <li>Network timeouts</li>
+            <li>Server errors (use test endpoints)</li>
+        </ul>
+
+        <h2>Support and Debugging</h2>
+        
+        <p>When contacting support, provide:</p>
+        
+        <ul>
+            <li><strong>Request ID:</strong> Found in error responses</li>
+            <li><strong>Timestamp:</strong> When the error occurred</li>
+            <li><strong>HTTP status code:</strong> And error response body</li>
+            <li><strong>Request details:</strong> Method, endpoint, headers (sanitized)</li>
+            <li><strong>Client information:</strong> SDK version, platform</li>
+        </ul>
+
+        <h2>Resources</h2>
+        <ul>
+            <li>📧 <strong>Support:</strong> <a href="mailto:api@isectech.com">api@isectech.com</a></li>
+            <li>📚 <strong>Documentation:</strong> <a href="https://docs.isectech.com">docs.isectech.com</a></li>
+            <li>📊 <strong>Status Page:</strong> <a href="https://status.isectech.com">status.isectech.com</a></li>
+            <li>💬 <strong>Community:</strong> <a href="https://community.isectech.com">Developer Community</a></li>
+            <li>🎫 <strong>Support Portal:</strong> <a href="https://support.isectech.com">Support Portal</a></li>
+        </ul>
+    </div>
+</body>
+</html>

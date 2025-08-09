@@ -1,0 +1,184 @@
+# iSECTECH Frontend - Production-Grade Next.js Application
+# Multi-stage Docker build optimized for security and performance
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Base Stage - Common Node.js setup
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM node:18-alpine AS base
+
+# Install security updates and essential packages
+RUN apk update && apk upgrade && \
+    apk add --no-cache libc6-compat dumb-init && \
+    rm -rf /var/cache/apk/*
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+WORKDIR /app
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dependencies Stage - Install and cache dependencies
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS deps
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies with security and performance optimizations
+RUN npm ci --only=production --no-audit --no-fund && \
+    npm cache clean --force
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Development Dependencies Stage - For building
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS deps-dev
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install all dependencies including dev dependencies
+RUN npm ci --no-audit --no-fund
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Builder Stage - Build the application
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS builder
+
+WORKDIR /app
+
+# Copy dev dependencies
+COPY --from=deps-dev /app/node_modules ./node_modules
+
+# Copy source code
+COPY . .
+
+# Set build-time environment variables
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV GENERATE_SOURCEMAP=false
+
+# Build arguments for security configuration
+ARG SECURITY_HEADERS=true
+ARG CSP_ENABLED=true
+ARG HSTS_ENABLED=true
+
+# Build the application
+RUN npm run build
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Production Stage - Final runtime image
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM base AS runner
+
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+
+# Security headers environment variables
+ENV SECURITY_HEADERS_ENABLED=true
+ENV CSP_ENABLED=true
+ENV HSTS_ENABLED=true
+
+# Copy production dependencies
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy built application
+COPY --from=builder /app/public ./public
+
+# Copy standalone output if available (Next.js 12+ standalone mode)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# If standalone is not available, copy the full .next directory
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+
+# Copy package.json for potential runtime needs
+COPY --chown=nextjs:nodejs package.json ./
+
+# Create custom entrypoint script for security
+RUN cat > entrypoint.sh << 'EOF' && \
+    chmod +x entrypoint.sh
+#!/bin/sh
+
+# Security hardening
+echo "Starting iSECTECH Frontend with security hardening..."
+
+# Check for required environment variables
+if [ -z "$NEXTAUTH_SECRET" ]; then
+    echo "WARNING: NEXTAUTH_SECRET not set"
+fi
+
+if [ -z "$NEXTAUTH_URL" ]; then
+    echo "WARNING: NEXTAUTH_URL not set"
+fi
+
+# Set secure headers if standalone mode is available
+if [ -f "server.js" ]; then
+    echo "Running in standalone mode"
+    exec "$@"
+else
+    echo "Running in standard mode"
+    exec npm start
+fi
+EOF
+
+# Health check script
+RUN cat > healthcheck.js << 'EOF' && \
+    chmod +x healthcheck.js
+const http = require('http');
+
+const options = {
+  hostname: 'localhost',
+  port: process.env.PORT || 3000,
+  path: '/api/health',
+  method: 'GET',
+  timeout: 5000
+};
+
+const req = http.request(options, (res) => {
+  if (res.statusCode === 200) {
+    process.exit(0);
+  } else {
+    process.exit(1);
+  }
+});
+
+req.on('timeout', () => {
+  req.destroy();
+  process.exit(1);
+});
+
+req.on('error', () => {
+  process.exit(1);
+});
+
+req.end();
+EOF
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node healthcheck.js
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+CMD ["./entrypoint.sh", "node", "server.js"]
+
+# Security labels
+LABEL org.opencontainers.image.title="iSECTECH Frontend"
+LABEL org.opencontainers.image.description="Production-grade Next.js frontend for iSECTECH cybersecurity platform"
+LABEL org.opencontainers.image.vendor="iSECTECH"
+LABEL org.opencontainers.image.version="1.0.0"
+LABEL security.contact="security@isectech.com"
+LABEL maintainer="iSECTECH DevOps Team"

@@ -1,0 +1,533 @@
+# iSECTECH Disaster Recovery Drill Schedules
+# Configuration for automated DR drills and testing
+
+schedules:
+  # Monthly Primary Datacenter Failover Drill
+  - drillId: "monthly-failover-001"
+    name: "Monthly Primary Datacenter Failover Drill"
+    description: "Regular monthly drill to test complete failover from us-east-1 to us-west-2"
+    type: "full-failover"
+    frequency: "monthly"
+    cronExpression: "0 2 1 * *"  # First day of month at 2 AM UTC
+    testConfigPath: "./testing/test-configs/failover-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "Sarah Chen"
+        email: "sarah.chen@isectech.com"
+        role: "Incident Commander"
+        team: "Platform Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0101"
+          slack: "@sarah.chen"
+          alternateEmail: "s.chen.personal@gmail.com"
+          
+      - name: "Mike Rodriguez"
+        email: "mike.rodriguez@isectech.com"
+        role: "Database Administrator"
+        team: "Data Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0102"
+          slack: "@mike.rodriguez"
+          
+      - name: "Emma Thompson"
+        email: "emma.thompson@isectech.com"
+        role: "SRE Lead"
+        team: "Site Reliability"
+        required: true
+        contactInfo:
+          phone: "+1-555-0103"
+          slack: "@emma.thompson"
+          
+      - name: "David Kim"
+        email: "david.kim@isectech.com"
+        role: "Security Engineer"
+        team: "Security"
+        required: true
+        contactInfo:
+          phone: "+1-555-0104"
+          slack: "@david.kim"
+          
+      - name: "Lisa Wang"
+        email: "lisa.wang@isectech.com"
+        role: "Communications Lead"
+        team: "Product"
+        required: true
+        contactInfo:
+          phone: "+1-555-0105"
+          slack: "@lisa.wang"
+          
+    approvers:
+      - "cto@isectech.com"
+      - "vp-engineering@isectech.com"
+      
+    observers:
+      - "executives@isectech.com"
+      - "board@isectech.com"
+      - "audit-team@isectech.com"
+    
+    executionSettings:
+      autoExecute: false
+      requireApproval: true
+      maxDuration: 60  # minutes
+      allowWeekends: false
+      businessHoursOnly: false
+      environmentRestrictions: ["production-test"]
+      
+    notifications:
+      preNotification: 24  # hours
+      duringDrill: true
+      postDrillReport: true
+      escalationPath:
+        - "platform-team@isectech.com"
+        - "engineering-leads@isectech.com"
+        - "executives@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2", "ISO27001"]
+      auditRequired: true
+      evidenceRetention: 2555  # 7 years in days
+      reportingRequired: true
+
+  # Weekly Database Backup Recovery Drill
+  - drillId: "weekly-backup-001"
+    name: "Weekly Database Backup Recovery Drill"
+    description: "Weekly test of database backup and recovery procedures"
+    type: "backup-restore"
+    frequency: "weekly"
+    cronExpression: "0 3 * * 1"  # Every Monday at 3 AM UTC
+    testConfigPath: "./testing/test-configs/backup-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "Mike Rodriguez"
+        email: "mike.rodriguez@isectech.com"
+        role: "Database Administrator"
+        team: "Data Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0102"
+          slack: "@mike.rodriguez"
+          
+      - name: "Alex Johnson"
+        email: "alex.johnson@isectech.com"
+        role: "Backup Engineer"
+        team: "Data Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0106"
+          slack: "@alex.johnson"
+          
+      - name: "Emma Thompson"
+        email: "emma.thompson@isectech.com"
+        role: "SRE Lead"
+        team: "Site Reliability"
+        required: false
+        contactInfo:
+          phone: "+1-555-0103"
+          slack: "@emma.thompson"
+    
+    approvers:
+      - "data-team-lead@isectech.com"
+      
+    observers:
+      - "platform-team@isectech.com"
+      
+    executionSettings:
+      autoExecute: true
+      requireApproval: false
+      maxDuration: 30  # minutes
+      allowWeekends: true
+      businessHoursOnly: false
+      environmentRestrictions: ["staging", "production-test"]
+      
+    notifications:
+      preNotification: 2   # hours
+      duringDrill: false
+      postDrillReport: true
+      escalationPath:
+        - "data-team@isectech.com"
+        - "platform-team@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2"]
+      auditRequired: false
+      evidenceRetention: 365  # 1 year
+      reportingRequired: true
+
+  # Quarterly Security Incident Response Drill
+  - drillId: "quarterly-security-001"
+    name: "Quarterly Security Incident Response Drill"
+    description: "Comprehensive security incident response drill including forensics and recovery"
+    type: "security-incident"
+    frequency: "quarterly"
+    cronExpression: "0 14 15 */3 *"  # 15th of every 3rd month at 2 PM UTC
+    testConfigPath: "./testing/test-configs/security-incident-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "David Kim"
+        email: "david.kim@isectech.com"
+        role: "Security Incident Commander"
+        team: "Security"
+        required: true
+        contactInfo:
+          phone: "+1-555-0104"
+          slack: "@david.kim"
+          
+      - name: "Jennifer Liu"
+        email: "jennifer.liu@isectech.com"
+        role: "Security Analyst"
+        team: "Security"
+        required: true
+        contactInfo:
+          phone: "+1-555-0107"
+          slack: "@jennifer.liu"
+          
+      - name: "Robert Garcia"
+        email: "robert.garcia@isectech.com"
+        role: "Forensics Specialist"
+        team: "Security"
+        required: true
+        contactInfo:
+          phone: "+1-555-0108"
+          slack: "@robert.garcia"
+          
+      - name: "Sarah Chen"
+        email: "sarah.chen@isectech.com"
+        role: "Platform Lead"
+        team: "Platform Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0101"
+          slack: "@sarah.chen"
+          
+      - name: "Lisa Wang"
+        email: "lisa.wang@isectech.com"
+        role: "Communications Lead"
+        team: "Product"
+        required: true
+        contactInfo:
+          phone: "+1-555-0105"
+          slack: "@lisa.wang"
+          
+      - name: "Karen Mitchell"
+        email: "karen.mitchell@isectech.com"
+        role: "Legal Counsel"
+        team: "Legal"
+        required: true
+        contactInfo:
+          phone: "+1-555-0109"
+          slack: "@karen.mitchell"
+    
+    approvers:
+      - "ciso@isectech.com"
+      - "cto@isectech.com"
+      
+    observers:
+      - "executives@isectech.com"
+      - "compliance-team@isectech.com"
+      - "board@isectech.com"
+      
+    executionSettings:
+      autoExecute: false
+      requireApproval: true
+      maxDuration: 120 # minutes
+      allowWeekends: false
+      businessHoursOnly: true
+      environmentRestrictions: ["production-test", "staging"]
+      
+    notifications:
+      preNotification: 48  # hours
+      duringDrill: true
+      postDrillReport: true
+      escalationPath:
+        - "security-team@isectech.com"
+        - "incident-response@isectech.com"
+        - "executives@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2", "ISO27001", "GDPR"]
+      auditRequired: true
+      evidenceRetention: 2555  # 7 years
+      reportingRequired: true
+
+  # Monthly Tabletop Exercise
+  - drillId: "monthly-tabletop-001"
+    name: "Monthly Disaster Recovery Tabletop Exercise"
+    description: "Discussion-based exercise to review procedures and coordination"
+    type: "tabletop"
+    frequency: "monthly"
+    cronExpression: "0 15 15 * *"  # 15th of month at 3 PM UTC
+    testConfigPath: "./testing/test-configs/tabletop-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "Sarah Chen"
+        email: "sarah.chen@isectech.com"
+        role: "Drill Facilitator"
+        team: "Platform Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0101"
+          slack: "@sarah.chen"
+          
+      - name: "All Engineering Leads"
+        email: "engineering-leads@isectech.com"
+        role: "Participants"
+        team: "Engineering"
+        required: true
+        contactInfo:
+          slack: "#engineering-leads"
+          
+      - name: "Mike Rodriguez"
+        email: "mike.rodriguez@isectech.com"
+        role: "Database Subject Matter Expert"
+        team: "Data Engineering"
+        required: true
+        contactInfo:
+          phone: "+1-555-0102"
+          slack: "@mike.rodriguez"
+          
+      - name: "Emma Thompson"
+        email: "emma.thompson@isectech.com"
+        role: "SRE Subject Matter Expert"
+        team: "Site Reliability"
+        required: true
+        contactInfo:
+          phone: "+1-555-0103"
+          slack: "@emma.thompson"
+          
+      - name: "David Kim"
+        email: "david.kim@isectech.com"
+        role: "Security Subject Matter Expert"
+        team: "Security"
+        required: true
+        contactInfo:
+          phone: "+1-555-0104"
+          slack: "@david.kim"
+    
+    approvers:
+      - "vp-engineering@isectech.com"
+      
+    observers:
+      - "product-team@isectech.com"
+      - "customer-success@isectech.com"
+      
+    executionSettings:
+      autoExecute: true
+      requireApproval: false
+      maxDuration: 90  # minutes
+      allowWeekends: false
+      businessHoursOnly: true
+      environmentRestrictions: ["none"]  # No actual system impact
+      
+    notifications:
+      preNotification: 24  # hours
+      duringDrill: true
+      postDrillReport: true
+      escalationPath:
+        - "platform-team@isectech.com"
+        - "engineering-leads@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2", "ISO27001"]
+      auditRequired: false
+      evidenceRetention: 365  # 1 year
+      reportingRequired: true
+
+  # Annual Full Business Continuity Test
+  - drillId: "annual-bc-001"
+    name: "Annual Business Continuity Test"
+    description: "Comprehensive annual test of all disaster recovery and business continuity procedures"
+    type: "full-failover"
+    frequency: "annually"
+    cronExpression: "0 6 1 1 *"  # January 1st at 6 AM UTC
+    testConfigPath: "./testing/test-configs/full-bc-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "All Platform Engineering"
+        email: "platform-team@isectech.com"
+        role: "Technical Execution"
+        team: "Platform Engineering"
+        required: true
+        contactInfo:
+          slack: "#platform-engineering"
+          
+      - name: "All SRE Team"
+        email: "sre-team@isectech.com"
+        role: "Monitoring and Support"
+        team: "Site Reliability"
+        required: true
+        contactInfo:
+          slack: "#sre-team"
+          
+      - name: "All Security Team"
+        email: "security-team@isectech.com"
+        role: "Security Oversight"
+        team: "Security"
+        required: true
+        contactInfo:
+          slack: "#security-team"
+          
+      - name: "Executive Team"
+        email: "executives@isectech.com"
+        role: "Executive Decision Making"
+        team: "Executive"
+        required: true
+        contactInfo:
+          phone: "+1-555-0200"
+          
+      - name: "Customer Success"
+        email: "customer-success@isectech.com"
+        role: "Customer Communication"
+        team: "Customer Success"
+        required: true
+        contactInfo:
+          slack: "#customer-success"
+    
+    approvers:
+      - "ceo@isectech.com"
+      - "cto@isectech.com"
+      - "board-chair@isectech.com"
+      
+    observers:
+      - "board@isectech.com"
+      - "audit-committee@isectech.com"
+      - "external-auditors@isectech.com"
+      - "insurance-representatives@isectech.com"
+      
+    executionSettings:
+      autoExecute: false
+      requireApproval: true
+      maxDuration: 180 # minutes (3 hours)
+      allowWeekends: true
+      businessHoursOnly: false
+      environmentRestrictions: ["production"]  # Test actual production systems
+      
+    notifications:
+      preNotification: 168 # hours (1 week)
+      duringDrill: true
+      postDrillReport: true
+      escalationPath:
+        - "platform-team@isectech.com"
+        - "engineering-leads@isectech.com"
+        - "executives@isectech.com"
+        - "board@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2", "ISO27001", "GDPR", "Business Continuity"]
+      auditRequired: true
+      evidenceRetention: 2555  # 7 years
+      reportingRequired: true
+
+  # Network Resilience Test
+  - drillId: "monthly-network-001"
+    name: "Monthly Network Resilience Test"
+    description: "Test network failover and cross-region connectivity resilience"
+    type: "network"
+    frequency: "monthly"
+    cronExpression: "0 4 8 * *"  # 8th of month at 4 AM UTC
+    testConfigPath: "./testing/test-configs/network-test.yaml"
+    enabled: true
+    
+    participants:
+      - name: "Network Engineering Team"
+        email: "network-team@isectech.com"
+        role: "Network Specialists"
+        team: "Infrastructure"
+        required: true
+        contactInfo:
+          slack: "#network-engineering"
+          
+      - name: "Emma Thompson"
+        email: "emma.thompson@isectech.com"
+        role: "SRE Lead"
+        team: "Site Reliability"
+        required: true
+        contactInfo:
+          phone: "+1-555-0103"
+          slack: "@emma.thompson"
+    
+    approvers:
+      - "infrastructure-lead@isectech.com"
+      
+    observers:
+      - "platform-team@isectech.com"
+      
+    executionSettings:
+      autoExecute: true
+      requireApproval: false
+      maxDuration: 45  # minutes
+      allowWeekends: true
+      businessHoursOnly: false
+      environmentRestrictions: ["staging", "production-test"]
+      
+    notifications:
+      preNotification: 4   # hours
+      duringDrill: false
+      postDrillReport: true
+      escalationPath:
+        - "network-team@isectech.com"
+        - "infrastructure-team@isectech.com"
+        
+    compliance:
+      frameworks: ["SOC2"]
+      auditRequired: false
+      evidenceRetention: 365  # 1 year
+      reportingRequired: true
+
+---
+# Global drill configuration
+globalConfig:
+  timezone: "UTC"
+  defaultNotificationChannels:
+    slack: "#alerts-dr-drills"
+    email: "dr-drills@isectech.com"
+  
+  complianceDefaults:
+    evidenceStorage: "s3://isectech-compliance-evidence/dr-drills/"
+    auditLogRetention: 2555  # 7 years
+    reportStorage: "s3://isectech-compliance-reports/dr-drills/"
+  
+  emergencyContacts:
+    primary: "+1-555-DR-HELP"
+    secondary: "+1-555-BACKUP"
+    executive: "+1-555-EXEC-HELP"
+  
+  escalationPolicy:
+    level1: "platform-team@isectech.com"
+    level2: "engineering-leads@isectech.com"
+    level3: "executives@isectech.com"
+    level4: "board@isectech.com"
+  
+  # Integration settings
+  integrations:
+    pagerduty:
+      serviceId: "DR_DRILL_SERVICE"
+      escalationPolicy: "DR_ESCALATION_POLICY"
+    
+    slack:
+      botToken: "${SLACK_BOT_TOKEN}"
+      emergencyChannel: "#emergency-response"
+      drillChannel: "#dr-drills"
+    
+    monitoring:
+      grafanaUrl: "https://grafana.isectech.com"
+      prometheusUrl: "https://prometheus.isectech.com"
+      dashboardId: "dr-drill-monitoring"
+  
+  # Risk management
+  riskThresholds:
+    maxConcurrentDrills: 2
+    minTimeBetweenCriticalDrills: 168  # hours (1 week)
+    maxExecutionTime: 240  # minutes (4 hours)
+    
+  # Quality gates
+  qualityGates:
+    minimumParticipantConfirmation: 80  # percentage
+    requiredApprovalTime: 24  # hours before execution
+    postDrillReportDeadline: 48  # hours after completion

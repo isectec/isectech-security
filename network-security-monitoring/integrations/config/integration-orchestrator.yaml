@@ -1,0 +1,626 @@
+# iSECTECH Integration Orchestrator Configuration
+# Unified orchestration of SIEM and SOAR integrations
+
+# General Configuration
+general:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service settings
+  service_name: "integration-orchestrator"
+  version: "1.0.0"
+  bind_address: "0.0.0.0"
+  port: 8450
+
+# Integration Engine Configurations
+integrations:
+  # SIEM Integration
+  siem:
+    enabled: true
+    config_path: "/etc/nsm/siem-integration.yaml"
+    
+  # SOAR Integration
+  soar:
+    enabled: true
+    config_path: "/etc/nsm/soar-integration.yaml"
+
+# Event Correlation Configuration
+correlation:
+  enabled: true
+  window_seconds: 300  # 5 minutes correlation window
+  
+  # Correlation Rules
+  correlation_rules:
+    # Multi-stage attack correlation
+    - name: "multi_stage_attack"
+      description: "Correlate events that form a multi-stage attack pattern"
+      conditions:
+        source: "same"
+        metadata.src_ip: "same"
+      time_window: 3600  # 1 hour
+      confidence_threshold: 0.7
+      
+    # Brute force attack correlation
+    - name: "brute_force_pattern"
+      description: "Correlate multiple authentication failures"
+      conditions:
+        event_type: "same"
+        metadata.dst_ip: "same"
+      time_window: 300  # 5 minutes
+      min_events: 5
+      
+    # Lateral movement correlation
+    - name: "lateral_movement"
+      description: "Correlate events indicating lateral movement"
+      conditions:
+        event_type: "sequence"
+        metadata.user: "same"
+      time_window: 1800  # 30 minutes
+      
+    # Data exfiltration correlation
+    - name: "data_exfiltration"
+      description: "Correlate events indicating data exfiltration"
+      conditions:
+        source: "same"
+        event_type: "related"
+      time_window: 900  # 15 minutes
+
+# Escalation Rules Configuration
+escalation_rules:
+  # Critical asset compromise
+  - name: "critical_asset_compromise"
+    description: "Escalate events affecting critical assets"
+    conditions:
+      metadata.asset_criticality: "critical"
+      severity: "high"
+    actions:
+      new_severity: "critical"
+      create_incident: true
+      auto_execute_playbooks: true
+      new_priority: "critical"
+    
+  # Known malware detection
+  - name: "known_malware_detection"
+    description: "Escalate confirmed malware detections"
+    conditions:
+      event_type: "malware_detected"
+      enrichment.threat_intel.confidence: ">= 0.9"
+    actions:
+      create_incident: true
+      auto_execute_playbooks: true
+      new_priority: "high"
+    
+  # Exploit attempt on vulnerable system
+  - name: "exploit_vulnerable_system"
+    description: "Escalate exploit attempts on vulnerable systems"
+    conditions:
+      event_type: "vulnerability_exploit"
+      metadata.patch_status: "unpatched"
+      enrichment.cvss_score: ">= 7.0"
+    actions:
+      new_severity: "high"
+      create_incident: true
+      auto_execute_playbooks: true
+    
+  # Data exfiltration attempt
+  - name: "data_exfiltration_attempt"
+    description: "Escalate potential data exfiltration"
+    conditions:
+      event_type: "data_exfiltration"
+      metadata.data_classification: "sensitive"
+    actions:
+      new_severity: "critical"
+      create_incident: true
+      auto_execute_playbooks: true
+      new_priority: "critical"
+    
+  # Insider threat indicators
+  - name: "insider_threat_indicators"
+    description: "Escalate potential insider threat activities"
+    conditions:
+      source: "behavioral_analysis"
+      metadata.user_risk_score: ">= 8.0"
+      event_type: "anomalous_behavior"
+    actions:
+      create_incident: true
+      new_priority: "high"
+    
+  # Command and control communication
+  - name: "c2_communication"
+    description: "Escalate confirmed C2 communications"
+    conditions:
+      event_type: "c2_communication"
+      enrichment.threat_intel.category: "c2"
+    actions:
+      new_severity: "critical"
+      create_incident: true
+      auto_execute_playbooks: true
+      new_priority: "critical"
+    
+  # Privilege escalation
+  - name: "privilege_escalation"
+    description: "Escalate privilege escalation attempts"
+    conditions:
+      event_type: "privilege_escalation"
+      metadata.success: true
+    actions:
+      new_severity: "high"
+      create_incident: true
+      auto_execute_playbooks: true
+    
+  # Network reconnaissance
+  - name: "extensive_reconnaissance"
+    description: "Escalate extensive network reconnaissance"
+    conditions:
+      event_type: "reconnaissance"
+      metadata.scan_scope: ">= 100"  # More than 100 targets
+    actions:
+      create_incident: true
+      new_priority: "medium"
+
+# Playbook Mapping Configuration
+playbook_mapping:
+  # Event type based mapping
+  malware_detected: ["malware_investigation", "malware_containment"]
+  vulnerability_exploit: ["vulnerability_response", "emergency_patching"]
+  data_exfiltration: ["data_exfiltration_response", "forensic_analysis"]
+  brute_force_attack: ["brute_force_mitigation", "account_security_review"]
+  lateral_movement: ["lateral_movement_investigation", "network_segmentation_review"]
+  c2_communication: ["c2_disruption", "threat_hunting"]
+  privilege_escalation: ["privilege_escalation_response", "system_hardening"]
+  insider_threat: ["insider_threat_investigation", "user_access_review"]
+  
+  # Severity based mapping
+  by_severity:
+    critical:
+      - "critical_incident_response"
+      - "stakeholder_notification"
+      - "emergency_response_team_activation"
+    high:
+      - "high_priority_investigation"
+      - "containment_assessment"
+    medium:
+      - "standard_investigation"
+    low:
+      - "automated_analysis"
+  
+  # Source based mapping
+  by_source:
+    signature_detection:
+      - "signature_validation"
+      - "ioc_analysis"
+    anomaly_detection:
+      - "anomaly_investigation"
+      - "baseline_validation"
+    behavioral_analysis:
+      - "behavioral_investigation"
+      - "user_context_analysis"
+    vulnerability_correlation:
+      - "vulnerability_assessment"
+      - "patch_prioritization"
+    encrypted_analysis:
+      - "encrypted_traffic_analysis"
+      - "certificate_investigation"
+    asset_discovery:
+      - "asset_validation"
+      - "inventory_update"
+
+# Redis Configuration
+redis:
+  enabled: true
+  
+  # Connection settings
+  host: "redis-nsm.isectech.local"
+  port: 6379
+  db: 10  # Dedicated DB for orchestrator
+  password: "${REDIS_PASSWORD}"
+  
+  # Stream settings
+  event_stream: "nsm:orchestrator_events"
+  consumer_group: "orchestrator"
+  consumer_name: "orchestrator-1"
+  
+  # Performance settings
+  batch_size: 10
+  block_timeout: 30000  # 30 seconds
+
+# Database Configuration
+database:
+  # SQLite for orchestration tracking
+  type: "sqlite"
+  path: "/var/lib/nsm/integration_orchestrator.db"
+  
+  # Connection settings
+  timeout: 30
+  check_same_thread: false
+  
+  # Performance optimization
+  optimization:
+    enable_wal_mode: true
+    enable_foreign_keys: true
+    cache_size_mb: 256
+    temp_store: "memory"
+  
+  # Backup settings
+  backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/orchestrator"
+    compression: true
+
+# Event Processing Configuration
+event_processing:
+  # Queue settings
+  max_queue_size: 10000
+  processing_timeout: 60
+  batch_processing: false
+  
+  # Threading
+  worker_threads: 8
+  max_concurrent_events: 50
+  
+  # Retry settings
+  max_retries: 3
+  retry_delay: 5  # seconds
+  exponential_backoff: true
+
+# Notification Configuration
+notifications:
+  enabled: true
+  
+  # Notification channels
+  channels:
+    # Email notifications
+    email:
+      enabled: true
+      smtp_server: "smtp.isectech.local"
+      smtp_port: 587
+      username: "${EMAIL_USERNAME}"
+      password: "${EMAIL_PASSWORD}"
+      use_tls: true
+      
+    # Slack notifications
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      
+    # Microsoft Teams notifications
+    teams:
+      enabled: false
+      webhook_url: "${TEAMS_WEBHOOK_URL}"
+  
+  # Notification rules
+  rules:
+    # Critical escalations
+    - name: "critical_escalation_notification"
+      conditions:
+        escalation_reason: "critical_asset_compromise"
+      actions:
+        - channel: "email"
+          recipients: ["security@isectech.local", "management@isectech.local"]
+        - channel: "slack"
+          message: "CRITICAL: Asset compromise detected - incident created automatically"
+    
+    # High volume correlation alerts
+    - name: "high_correlation_volume"
+      conditions:
+        correlations_per_minute: ">= 10"
+      actions:
+        - channel: "slack"
+          message: "HIGH CORRELATION VOLUME: Potential coordinated attack detected"
+    
+    # Integration engine failures
+    - name: "integration_engine_failure"
+      conditions:
+        engine_status: "failed"
+      actions:
+        - channel: "email"
+          recipients: ["ops@isectech.local"]
+        - channel: "slack"
+          message: "Integration engine failure detected"
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_gb: 6
+  max_cpu_cores: 8
+  max_concurrent_connections: 100
+  
+  # Processing limits
+  max_events_per_second: 500
+  correlation_cache_size: 10000
+  processing_timeout: 120
+  
+  # Optimization
+  optimization:
+    enable_event_batching: true
+    enable_async_processing: true
+    enable_connection_pooling: true
+    enable_result_caching: true
+
+# Monitoring Configuration
+monitoring:
+  # Health monitoring
+  health_monitoring:
+    enabled: true
+    check_interval: 60
+    
+    # Health checks
+    checks:
+      - name: "database_connectivity"
+        type: "database"
+        timeout: 10
+      
+      - name: "redis_connectivity"
+        type: "redis"
+        timeout: 5
+      
+      - name: "siem_engine_health"
+        type: "integration_engine"
+        engine: "siem"
+        timeout: 15
+      
+      - name: "soar_engine_health"
+        type: "integration_engine"
+        engine: "soar"
+        timeout: 15
+      
+      - name: "event_processing_latency"
+        type: "performance"
+        threshold: 60  # seconds
+      
+      - name: "correlation_cache_health"
+        type: "cache"
+        max_size: 10000
+  
+  # Metrics collection
+  metrics:
+    enabled: true
+    
+    # Performance metrics
+    performance_metrics:
+      - events_processed_per_second
+      - correlations_found_per_minute
+      - escalations_triggered_per_hour
+      - incidents_created_per_hour
+      - processing_latency_avg
+      - queue_size_current
+      - correlation_cache_size
+    
+    # Business metrics
+    business_metrics:
+      - total_events_orchestrated
+      - total_correlations_found
+      - total_escalations_triggered
+      - total_incidents_created
+      - total_playbooks_executed
+      - escalation_accuracy_rate
+      - incident_response_time_avg
+  
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    port: 9096
+    metrics_path: "/metrics"
+    
+    # Custom metrics
+    custom_metrics:
+      - name: "nsm_orchestrator_events_total"
+        type: "counter"
+        description: "Total number of events processed by orchestrator"
+        labels: ["severity", "source", "escalated"]
+      
+      - name: "nsm_orchestrator_correlations_total"
+        type: "counter"
+        description: "Total number of correlations found"
+        labels: ["correlation_type", "confidence"]
+      
+      - name: "nsm_orchestrator_escalations_total"
+        type: "counter"
+        description: "Total number of escalations triggered"
+        labels: ["escalation_rule", "original_severity", "new_severity"]
+      
+      - name: "nsm_orchestrator_processing_duration_seconds"
+        type: "histogram"
+        description: "Event processing duration"
+        buckets: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]
+      
+      - name: "nsm_orchestrator_queue_size"
+        type: "gauge"
+        description: "Current event queue size"
+      
+      - name: "nsm_orchestrator_correlation_cache_size"
+        type: "gauge"
+        description: "Current correlation cache size"
+  
+  # Alerting
+  alerting:
+    enabled: true
+    
+    # Alert conditions
+    conditions:
+      - name: "high_event_volume"
+        metric: "events_per_second"
+        threshold: 100
+        duration: 300  # 5 minutes
+        severity: "warning"
+      
+      - name: "integration_engine_failure"
+        metric: "engine_availability"
+        threshold: 0
+        duration: 60  # 1 minute
+        severity: "critical"
+      
+      - name: "high_escalation_rate"
+        metric: "escalation_rate"
+        threshold: 50  # percent
+        duration: 600  # 10 minutes
+        severity: "warning"
+      
+      - name: "correlation_cache_overflow"
+        metric: "correlation_cache_size"
+        threshold: 9000
+        duration: 60
+        severity: "warning"
+      
+      - name: "high_processing_latency"
+        metric: "processing_latency"
+        threshold: 120  # seconds
+        duration: 300  # 5 minutes
+        severity: "critical"
+    
+    # Alert destinations
+    destinations:
+      - type: "webhook"
+        url: "http://alertmanager.isectech.local:9093/api/v1/alerts"
+      
+      - type: "email"
+        recipients: ["ops@isectech.local", "security@isectech.local"]
+      
+      - type: "slack"
+        webhook_url: "${SLACK_WEBHOOK_URL}"
+        channel: "#security-ops"
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enabled: true
+    authentication_required: true
+    api_key_header: "X-API-Key"
+    valid_api_keys: ["${ORCHESTRATOR_API_KEY}"]
+    
+    # Rate limiting
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 500
+      burst_size: 50
+  
+  # Data protection
+  data_protection:
+    # Encryption
+    encryption:
+      encrypt_in_transit: true
+      encrypt_at_rest: true
+      encryption_key_file: "/etc/nsm/orchestrator_encryption.key"
+    
+    # Privacy
+    privacy:
+      anonymize_pii: false
+      hash_sensitive_fields: false
+      data_retention_days: 365
+    
+    # Access control
+    access_control:
+      rbac_enabled: true
+      rbac_config: "/etc/nsm/rbac_orchestrator.yaml"
+
+# Backup and Recovery
+backup:
+  # Database backup
+  database_backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/orchestrator"
+    compression: true
+  
+  # Configuration backup
+  configuration_backup:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+  
+  # Recovery procedures
+  recovery:
+    auto_recovery:
+      enabled: true
+      max_attempts: 3
+      backoff_factor: 2
+    
+    recovery_scripts:
+      database_corruption: "/opt/nsm/scripts/recover_orchestrator_db.sh"
+      config_corruption: "/opt/nsm/scripts/recover_orchestrator_config.sh"
+      engine_failure: "/opt/nsm/scripts/recover_integration_engines.sh"
+
+# Logging Configuration
+logging:
+  # Log levels
+  level: "INFO"
+  
+  # Log destinations
+  destinations:
+    - type: "file"
+      path: "/var/log/nsm/integration_orchestrator.log"
+      rotation: "daily"
+      retention_days: 30
+      max_size_mb: 100
+    
+    - type: "syslog"
+      facility: "local7"
+      server: "syslog.isectech.local:514"
+      format: "rfc3164"
+    
+    - type: "json_file"
+      path: "/var/log/nsm/orchestrator_structured.log"
+      rotation: "daily"
+      retention_days: 30
+  
+  # Log formatting
+  format: "json"
+  include_timestamps: true
+  include_source_info: true
+  include_correlation_id: true
+  include_event_id: true
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  
+  # Testing
+  test_mode: false
+  synthetic_events: false
+  
+  # Experimental features
+  experimental:
+    enable_ml_correlation: false
+    enable_adaptive_escalation: false
+    enable_predictive_incident_creation: false
+
+# Integration Hooks
+hooks:
+  # Pre-processing hooks
+  pre_processing:
+    enabled: true
+    scripts:
+      - "/opt/nsm/scripts/pre_orchestration_validation.sh"
+  
+  # Post-processing hooks
+  post_processing:
+    enabled: true
+    scripts:
+      - "/opt/nsm/scripts/post_orchestration_metrics.sh"
+  
+  # Escalation hooks
+  escalation_hooks:
+    pre_escalation:
+      enabled: true
+      scripts:
+        - "/opt/nsm/scripts/pre_escalation_validation.sh"
+    
+    post_escalation:
+      enabled: true
+      scripts:
+        - "/opt/nsm/scripts/post_escalation_notification.sh"
+  
+  # Correlation hooks
+  correlation_hooks:
+    post_correlation:
+      enabled: true
+      scripts:
+        - "/opt/nsm/scripts/post_correlation_analysis.sh"

@@ -1,0 +1,419 @@
+# iSECTECH PagerDuty Integration Configuration
+# Production-grade incident management and on-call rotation
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAGERDUTY SERVICES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # Critical Infrastructure Service
+  - name: "iSECTECH Critical Infrastructure"
+    description: "Critical infrastructure alerts requiring immediate response"
+    escalation_policy: "Critical Infrastructure Escalation"
+    alert_creation: "create_alerts_and_incidents"
+    incident_urgency_rule:
+      type: "constant"
+      urgency: "high"
+    auto_resolve_timeout: 14400  # 4 hours
+    acknowledgement_timeout: 1800  # 30 minutes
+    alert_grouping_parameters:
+      type: "intelligent"
+      config:
+        timeout: 300  # 5 minutes
+    integrations:
+      - type: "prometheus"
+        name: "Prometheus Critical Alerts"
+        integration_key: "${PAGERDUTY_CRITICAL_INTEGRATION_KEY}"
+      - type: "events_api_v2_inbound_integration"
+        name: "Alertmanager Critical"
+        integration_key: "${PAGERDUTY_CRITICAL_ROUTING_KEY}"
+
+  # Security Incidents Service
+  - name: "iSECTECH Security Operations"
+    description: "Security incidents and threat detection alerts"
+    escalation_policy: "Security Team Escalation"
+    alert_creation: "create_alerts_and_incidents"
+    incident_urgency_rule:
+      type: "constant"
+      urgency: "high"
+    auto_resolve_timeout: 21600  # 6 hours
+    acknowledgement_timeout: 1200  # 20 minutes
+    alert_grouping_parameters:
+      type: "content_based"
+      config:
+        aggregate: "all"
+        fields: ["source", "component", "class"]
+    integrations:
+      - type: "events_api_v2_inbound_integration"
+        name: "Security Alertmanager"
+        integration_key: "${PAGERDUTY_SECURITY_ROUTING_KEY}"
+
+  # Database Service
+  - name: "iSECTECH Database Operations"
+    description: "Database performance and availability issues"
+    escalation_policy: "Database Team Escalation"
+    alert_creation: "create_alerts_and_incidents"
+    incident_urgency_rule:
+      type: "constant"
+      urgency: "high"
+    auto_resolve_timeout: 7200  # 2 hours
+    acknowledgement_timeout: 900  # 15 minutes
+    integrations:
+      - type: "events_api_v2_inbound_integration"
+        name: "Database Alertmanager"
+        integration_key: "${PAGERDUTY_DATABASE_ROUTING_KEY}"
+
+  # Application Services
+  - name: "iSECTECH Application Services"
+    description: "Frontend, backend, and AI service alerts"
+    escalation_policy: "Application Team Escalation"
+    alert_creation: "create_alerts_and_incidents"
+    incident_urgency_rule:
+      type: "use_support_hours"
+      during_support_hours:
+        type: "constant"
+        urgency: "high"
+      outside_support_hours:
+        type: "constant"
+        urgency: "low"
+    auto_resolve_timeout: 3600  # 1 hour
+    acknowledgement_timeout: 1800  # 30 minutes
+    support_hours:
+      type: "fixed_time_per_day"
+      time_zone: "UTC"
+      start_time: "09:00:00"
+      end_time: "17:00:00"
+      days_of_week: [1, 2, 3, 4, 5]  # Monday to Friday
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ESCALATION POLICIES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+escalation_policies:
+  # Critical Infrastructure Escalation
+  - name: "Critical Infrastructure Escalation"
+    description: "24/7 escalation for critical infrastructure issues"
+    num_loops: 3
+    on_call_handoff_notifications: "if_has_services"
+    escalation_rules:
+      - escalation_delay_in_minutes: 0
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_INFRASTRUCTURE_PRIMARY}"
+          - type: "schedule_reference"
+            id: "${SCHEDULE_INFRASTRUCTURE_SECONDARY}"
+      - escalation_delay_in_minutes: 15
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_INFRASTRUCTURE_MANAGER}"
+          - type: "user_reference"
+            id: "${USER_CTO}"
+      - escalation_delay_in_minutes: 30
+        targets:
+          - type: "user_reference"
+            id: "${USER_CEO}"
+
+  # Security Team Escalation
+  - name: "Security Team Escalation"
+    description: "Security incident escalation policy"
+    num_loops: 2
+    escalation_rules:
+      - escalation_delay_in_minutes: 0
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_SECURITY_PRIMARY}"
+      - escalation_delay_in_minutes: 20
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_SECURITY_MANAGER}"
+          - type: "user_reference"
+            id: "${USER_CISO}"
+
+  # Database Team Escalation
+  - name: "Database Team Escalation"
+    description: "Database team escalation during business hours"
+    num_loops: 2
+    escalation_rules:
+      - escalation_delay_in_minutes: 0
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_DATABASE_PRIMARY}"
+      - escalation_delay_in_minutes: 15
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_DATABASE_SENIOR}"
+
+  # Application Team Escalation
+  - name: "Application Team Escalation"
+    description: "Application development team escalation"
+    num_loops: 2
+    escalation_rules:
+      - escalation_delay_in_minutes: 0
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_APPLICATION_PRIMARY}"
+      - escalation_delay_in_minutes: 30
+        targets:
+          - type: "schedule_reference"
+            id: "${SCHEDULE_APPLICATION_LEAD}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEDULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+schedules:
+  # Infrastructure Primary Schedule
+  - name: "Infrastructure Primary On-Call"
+    description: "Primary on-call rotation for infrastructure team"
+    time_zone: "UTC"
+    schedule_layers:
+      - name: "Infrastructure Primary Layer"
+        start: "2024-01-01T00:00:00Z"
+        rotation_virtual_start: "2024-01-01T00:00:00Z"
+        rotation_turn_length_seconds: 604800  # 1 week
+        users:
+          - user: "${USER_INFRA_ENGINEER_1}"
+          - user: "${USER_INFRA_ENGINEER_2}"
+          - user: "${USER_INFRA_ENGINEER_3}"
+        restrictions:
+          - type: "daily_restriction"
+            start_time_of_day: "00:00:00"
+            duration_seconds: 86400  # 24 hours
+
+  # Security Primary Schedule
+  - name: "Security Primary On-Call"
+    description: "Primary on-call rotation for security team"
+    time_zone: "UTC"
+    schedule_layers:
+      - name: "Security Primary Layer"
+        start: "2024-01-01T00:00:00Z"
+        rotation_virtual_start: "2024-01-01T00:00:00Z"
+        rotation_turn_length_seconds: 604800  # 1 week
+        users:
+          - user: "${USER_SECURITY_ANALYST_1}"
+          - user: "${USER_SECURITY_ANALYST_2}"
+        restrictions:
+          - type: "daily_restriction"
+            start_time_of_day: "00:00:00"
+            duration_seconds: 86400  # 24 hours
+
+  # Database Primary Schedule
+  - name: "Database Primary On-Call"
+    description: "Primary on-call rotation for database team"
+    time_zone: "UTC"
+    schedule_layers:
+      - name: "Database Business Hours"
+        start: "2024-01-01T09:00:00Z"
+        rotation_virtual_start: "2024-01-01T09:00:00Z"
+        rotation_turn_length_seconds: 86400  # 1 day
+        users:
+          - user: "${USER_DB_ADMIN_1}"
+          - user: "${USER_DB_ADMIN_2}"
+        restrictions:
+          - type: "weekly_restriction"
+            start_time_of_week: "P1DT09H"  # Monday 9 AM
+            duration_seconds: 28800  # 8 hours
+          - type: "weekly_restriction"
+            start_time_of_week: "P2DT09H"  # Tuesday 9 AM
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P3DT09H"  # Wednesday 9 AM
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P4DT09H"  # Thursday 9 AM
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P5DT09H"  # Friday 9 AM
+            duration_seconds: 28800
+
+  # Application Primary Schedule
+  - name: "Application Primary On-Call"
+    description: "Primary on-call rotation for application team"
+    time_zone: "UTC"
+    schedule_layers:
+      - name: "Application Business Hours"
+        start: "2024-01-01T09:00:00Z"
+        rotation_virtual_start: "2024-01-01T09:00:00Z"
+        rotation_turn_length_seconds: 86400  # 1 day
+        users:
+          - user: "${USER_APP_ENGINEER_1}"
+          - user: "${USER_APP_ENGINEER_2}"
+          - user: "${USER_APP_ENGINEER_3}"
+        restrictions:
+          - type: "weekly_restriction"
+            start_time_of_week: "P1DT09H"  # Monday 9 AM
+            duration_seconds: 28800  # 8 hours
+          - type: "weekly_restriction"
+            start_time_of_week: "P2DT09H"
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P3DT09H"
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P4DT09H"
+            duration_seconds: 28800
+          - type: "weekly_restriction"
+            start_time_of_week: "P5DT09H"
+            duration_seconds: 28800
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTIFICATION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+notification_rules:
+  # High urgency notifications
+  - urgency: "high"
+    contact_method: "phone_contact_method"
+    start_delay_in_minutes: 0
+  - urgency: "high"
+    contact_method: "sms_contact_method"
+    start_delay_in_minutes: 0
+  - urgency: "high"
+    contact_method: "email_contact_method"
+    start_delay_in_minutes: 0
+  - urgency: "high"
+    contact_method: "push_notification_contact_method"
+    start_delay_in_minutes: 0
+
+  # Low urgency notifications
+  - urgency: "low"
+    contact_method: "email_contact_method"
+    start_delay_in_minutes: 0
+  - urgency: "low"
+    contact_method: "push_notification_contact_method"
+    start_delay_in_minutes: 0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INCIDENT WORKFLOWS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+incident_workflows:
+  # Critical Infrastructure Workflow
+  - name: "Critical Infrastructure Response"
+    description: "Automated response for critical infrastructure incidents"
+    team: "${TEAM_INFRASTRUCTURE}"
+    steps:
+      - name: "Create War Room"
+        action:
+          type: "slack_notification"
+          data:
+            channel: "#incident-response"
+            message: "🚨 Critical infrastructure incident declared. War room created."
+      - name: "Notify Stakeholders"
+        action:
+          type: "email_notification"
+          data:
+            recipients: ["executives@isectech.com", "board@isectech.com"]
+            subject: "Critical Infrastructure Incident - {{ incident.title }}"
+      - name: "Create Status Page Incident"
+        action:
+          type: "webhook"
+          data:
+            url: "https://api.statuspage.io/v1/incidents"
+            headers:
+              Authorization: "OAuth {{ status_page_api_key }}"
+
+  # Security Incident Workflow
+  - name: "Security Incident Response"
+    description: "Security incident response workflow"
+    team: "${TEAM_SECURITY}"
+    steps:
+      - name: "Isolate Affected Systems"
+        action:
+          type: "webhook"
+          data:
+            url: "https://api.isectech.com/security/isolate"
+            method: "POST"
+      - name: "Notify CISO"
+        action:
+          type: "slack_notification"
+          data:
+            channel: "#security-incidents"
+            message: "🛡️ Security incident requires immediate attention: {{ incident.title }}"
+      - name: "Create JIRA Security Ticket"
+        action:
+          type: "webhook"
+          data:
+            url: "https://isectech.atlassian.net/rest/api/2/issue"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RUNBOOK AUTOMATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+runbooks:
+  # High CPU Usage Response
+  - name: "High CPU Usage Response"
+    triggers:
+      - alert_name: "HighCPUUsage"
+    steps:
+      - name: "Gather System Information"
+        command: "top -b -n1 | head -20"
+        timeout: 30
+      - name: "Check Top Processes"
+        command: "ps aux --sort=-%cpu | head -10"
+        timeout: 30
+      - name: "Scale Resources if Kubernetes"
+        condition: "labels.environment == 'kubernetes'"
+        command: "kubectl scale deployment {{ labels.deployment }} --replicas=3"
+        timeout: 60
+
+  # Database Connection Issues
+  - name: "Database Connection Response"
+    triggers:
+      - alert_name: "PostgreSQLDown"
+      - alert_name: "HighDatabaseConnections"
+    steps:
+      - name: "Check Database Status"
+        command: "pg_isready -h {{ labels.instance }} -p 5432"
+        timeout: 30
+      - name: "Check Active Connections"
+        command: "psql -h {{ labels.instance }} -c 'SELECT count(*) FROM pg_stat_activity;'"
+        timeout: 30
+      - name: "Restart Database if Needed"
+        condition: "severity == 'critical'"
+        command: "systemctl restart postgresql"
+        timeout: 120
+
+  # Security Incident Response
+  - name: "Security Incident Containment"
+    triggers:
+      - alert_name: "SuspiciousIPAccess"
+      - alert_name: "VulnerabilityScanDetected"
+    steps:
+      - name: "Block Suspicious IP"
+        command: "iptables -A INPUT -s {{ labels.source_ip }} -j DROP"
+        timeout: 10
+      - name: "Log Security Event"
+        command: "logger 'Security alert: {{ annotations.summary }} from {{ labels.source_ip }}'"
+        timeout: 10
+      - name: "Notify Security Team"
+        webhook: "https://api.isectech.com/security/notify"
+        timeout: 30
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAINTENANCE WINDOWS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+maintenance_windows:
+  # Weekly maintenance window
+  - name: "Weekly Maintenance Window"
+    description: "Regular maintenance window for updates and patches"
+    type: "recurring"
+    start_time: "2024-01-07T02:00:00Z"  # Sunday 2 AM UTC
+    duration: 14400  # 4 hours
+    recurrence:
+      type: "weekly"
+      interval: 1
+    services:
+      - "${SERVICE_APPLICATION}"
+      - "${SERVICE_DATABASE}"
+
+  # Emergency maintenance
+  - name: "Emergency Maintenance Template"
+    description: "Template for emergency maintenance windows"
+    type: "one_time"
+    services:
+      - "${SERVICE_CRITICAL_INFRASTRUCTURE}"
+      - "${SERVICE_SECURITY}"
+      - "${SERVICE_DATABASE}"
+      - "${SERVICE_APPLICATION}"

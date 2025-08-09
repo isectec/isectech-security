@@ -1,0 +1,253 @@
+# Artillery Load Testing Configuration
+# iSECTECH Protect - API Load Testing
+
+config:
+  target: "{{ $env.API_BASE_URL }}"
+  http:
+    timeout: 30
+    pool: 10
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm-up"
+    
+    # Normal load
+    - duration: 300
+      arrivalRate: 20
+      name: "Normal load"
+    
+    # Peak load simulation
+    - duration: 180
+      arrivalRate: 50
+      name: "Peak load"
+    
+    # Stress testing
+    - duration: 120
+      arrivalRate: 100
+      name: "Stress test"
+    
+    # Cool down
+    - duration: 60
+      arrivalRate: 5
+      name: "Cool down"
+
+  # Environment variables
+  variables:
+    analyst_token: "{{ $env.ANALYST_TOKEN }}"
+    admin_token: "{{ $env.ADMIN_TOKEN }}"
+    viewer_token: "{{ $env.VIEWER_TOKEN }}"
+
+  # Performance thresholds
+  ensure:
+    p95: 500  # 95th percentile under 500ms
+    p99: 1000 # 99th percentile under 1000ms
+    maxErrorRate: 1  # Less than 1% error rate
+
+  # Plugins for enhanced metrics
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+    publish-metrics:
+      type: cloudwatch
+      region: us-east-1
+      namespace: iSECTECH/LoadTesting
+
+# Test scenarios
+scenarios:
+  - name: "Security Analyst Workflow"
+    weight: 60
+    flow:
+      # Authentication check
+      - get:
+          url: "/api/auth/profile"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          capture:
+            - json: "$.user.id"
+              as: "userId"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "user.id"
+
+      # Load security dashboard data
+      - get:
+          url: "/api/dashboard/summary"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "alerts_count"
+            - hasProperty: "threats_count"
+
+      # Fetch active alerts
+      - get:
+          url: "/api/alerts?status=ACTIVE&limit=50"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          capture:
+            - json: "$.data[0].id"
+              as: "alertId"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data"
+
+      # Get alert details (if alert exists)
+      - get:
+          url: "/api/alerts/{{ alertId }}"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          ifTrue: "alertId"
+          expect:
+            - statusCode: 200
+
+      # Fetch threat intelligence
+      - get:
+          url: "/api/threats?limit=20&confidence=high"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          expect:
+            - statusCode: 200
+
+      # Search security events
+      - post:
+          url: "/api/events/search"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+            Content-Type: "application/json"
+          json:
+            query: "severity:high"
+            timeRange: "last_24h"
+            limit: 100
+          expect:
+            - statusCode: 200
+
+      # Think time between operations
+      - think: 2
+
+  - name: "Admin Operations"
+    weight: 20
+    flow:
+      # Admin authentication
+      - get:
+          url: "/api/auth/profile"
+          headers:
+            Authorization: "Bearer {{ admin_token }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "user.role"
+
+      # User management operations
+      - get:
+          url: "/api/admin/users?limit=25"
+          headers:
+            Authorization: "Bearer {{ admin_token }}"
+          expect:
+            - statusCode: 200
+
+      # System configuration check
+      - get:
+          url: "/api/admin/config"
+          headers:
+            Authorization: "Bearer {{ admin_token }}"
+          expect:
+            - statusCode: 200
+
+      # Audit log access
+      - get:
+          url: "/api/admin/audit-logs?limit=50"
+          headers:
+            Authorization: "Bearer {{ admin_token }}"
+          expect:
+            - statusCode: 200
+
+      # System health check
+      - get:
+          url: "/api/admin/health/detailed"
+          headers:
+            Authorization: "Bearer {{ admin_token }}"
+          expect:
+            - statusCode: 200
+
+      - think: 3
+
+  - name: "High-Frequency Operations"
+    weight: 15
+    flow:
+      # Real-time event streaming simulation
+      - get:
+          url: "/api/events/stream?since={{ $timestamp }}"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          expect:
+            - statusCode: 200
+
+      # Quick alert status checks
+      - get:
+          url: "/api/alerts/count?status=ACTIVE"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          expect:
+            - statusCode: 200
+
+      # System metrics
+      - get:
+          url: "/api/metrics/performance"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+          expect:
+            - statusCode: 200
+
+      - think: 1
+
+  - name: "Bulk Operations"
+    weight: 5
+    flow:
+      # Bulk alert operations
+      - post:
+          url: "/api/alerts/bulk/acknowledge"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+            Content-Type: "application/json"
+          json:
+            alertIds: ["alert-1", "alert-2", "alert-3", "alert-4", "alert-5"]
+            assignee: "{{ userId }}"
+            notes: "Bulk acknowledgment via load test"
+          expect:
+            - statusCode: 200
+
+      # Bulk export operations
+      - post:
+          url: "/api/reports/export"
+          headers:
+            Authorization: "Bearer {{ analyst_token }}"
+            Content-Type: "application/json"
+          json:
+            type: "alerts"
+            format: "csv"
+            filters:
+              severity: ["HIGH", "CRITICAL"]
+              timeRange: "last_7d"
+          expect:
+            - statusCode: 202
+
+      - think: 5
+
+# Custom functions for dynamic data
+before:
+  flow:
+    # Setup test data if needed
+    - log: "Starting iSECTECH load testing with Artillery"
+
+after:
+  flow:
+    # Cleanup operations
+    - log: "Load testing completed"
+
+# Error handling
+defaults:
+  headers:
+    User-Agent: "iSECTECH-Artillery-LoadTest/1.0"
+    Accept: "application/json"
+    X-Test-Run: "{{ $uuid }}"

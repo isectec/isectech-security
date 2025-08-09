@@ -1,0 +1,55 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-api-gateway-to-services
+  namespace: isectech-services
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: isectech-api-gateway
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - methods: ["GET", "POST"]
+                path: "/api/.*"
+              - methods: ["POST"]
+                path: "/v1/data/authz/.*"
+
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: restrict-inter-namespace
+  namespace: isectech-services
+spec:
+  endpointSelector: {}
+  ingressDeny:
+    - fromEntities:
+        - cluster
+        - all
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: isectech-api-gateway
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - methods: ["GET", "POST"]
+                path: "/api/.*"
+

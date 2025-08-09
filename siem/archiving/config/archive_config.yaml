@@ -1,0 +1,662 @@
+# iSECTECH SIEM Archive Manager Configuration
+# Production-grade long-term storage and archiving configuration
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Archive Manager Configuration"
+last_updated: "2024-01-15T10:30:00Z"
+
+# Database configuration for archive metadata
+database:
+  host: "localhost"
+  port: 5432
+  database: "siem_archive"
+  user: "archive_user"
+  password: "${ARCHIVE_DB_PASSWORD}"
+  pool_size: 5
+  connection_timeout: 30
+  
+# Redis configuration for job queue and caching
+redis:
+  host: "localhost"
+  port: 6379
+  db: 5
+  password: "${REDIS_PASSWORD}"
+  max_connections: 20
+  socket_timeout: 5
+  
+# Elasticsearch configuration for source data
+elasticsearch:
+  hosts: 
+    - "${ELASTICSEARCH_HOSTS:localhost:9200}"
+  use_ssl: true
+  verify_certs: true
+  ca_certs: "/opt/siem/certs/ca.crt"
+  client_cert: "/opt/siem/certs/client.crt"
+  client_key: "/opt/siem/certs/client.key"
+  timeout: 60
+  max_retries: 3
+  
+# Worker configuration
+workers:
+  count: 4
+  batch_size: 1000
+  max_concurrent_jobs: 10
+  job_timeout_hours: 24
+  
+# Storage configuration
+storage:
+  local_path: "/opt/siem/archive"
+  temp_path: "/tmp/siem_archive"
+  max_temp_size_gb: 100
+  cleanup_temp_after_hours: 24
+  
+# Encryption configuration
+encryption:
+  enabled: true
+  algorithm: "AES-256"
+  key_path: "/opt/siem/keys/archive.key"
+  password: "${ARCHIVE_ENCRYPTION_PASSWORD}"
+  salt: "${ARCHIVE_ENCRYPTION_SALT}"
+  key_rotation_days: 365
+  
+# Compression configuration
+compression:
+  default_algorithm: "gzip"
+  algorithms:
+    gzip:
+      level: 6
+      extension: "gz"
+    lzma:
+      level: 6
+      extension: "xz"
+    bz2:
+      level: 9
+      extension: "bz2"
+  performance_test_enabled: true
+  
+# Retention Policies
+retention_policies:
+  # Security logs retention policy
+  security_logs_policy:
+    policy_name: "security_logs_policy"
+    description: "Retention policy for security event logs"
+    data_types:
+      - "security_logs"
+      - "authentication_logs"
+      - "authorization_logs"
+      - "network_security_logs"
+    storage_tiers:
+      hot:
+        duration_days: 30
+        access_frequency: "immediate"
+        cost_factor: 1.0
+      warm:
+        duration_days: 90
+        access_frequency: "minutes"
+        cost_factor: 0.5
+      cold:
+        duration_days: 365
+        access_frequency: "hours"
+        cost_factor: 0.1
+      archive:
+        duration_days: 2555  # 7 years
+        access_frequency: "days"
+        cost_factor: 0.01
+    total_retention_days: 2555
+    compliance_requirements:
+      - "SOX"
+      - "GDPR"
+      - "HIPAA"
+      - "ISO27001"
+    encryption_required: true
+    compression_level: "high"
+    geographic_restrictions:
+      - "US"
+      - "EU"
+    legal_hold_support: true
+    automatic_deletion: true
+    
+  # Audit logs retention policy
+  audit_logs_policy:
+    policy_name: "audit_logs_policy"
+    description: "Retention policy for audit logs"
+    data_types:
+      - "audit_logs"
+      - "compliance_logs"
+      - "privilege_access_logs"
+    storage_tiers:
+      hot:
+        duration_days: 90
+        access_frequency: "immediate"
+        cost_factor: 1.0
+      warm:
+        duration_days: 365
+        access_frequency: "minutes"
+        cost_factor: 0.5
+      cold:
+        duration_days: 1825  # 5 years
+        access_frequency: "hours"
+        cost_factor: 0.1
+      archive:
+        duration_days: 3650  # 10 years
+        access_frequency: "days"
+        cost_factor: 0.01
+    total_retention_days: 3650
+    compliance_requirements:
+      - "SOX"
+      - "GDPR"
+      - "PCI-DSS"
+      - "FISMA"
+    encryption_required: true
+    compression_level: "maximum"
+    geographic_restrictions:
+      - "US"
+    legal_hold_support: true
+    automatic_deletion: false  # Manual review required
+    
+  # System logs retention policy
+  system_logs_policy:
+    policy_name: "system_logs_policy"
+    description: "Retention policy for system logs"
+    data_types:
+      - "system_logs"
+      - "application_logs"
+      - "performance_logs"
+    storage_tiers:
+      hot:
+        duration_days: 7
+        access_frequency: "immediate"
+        cost_factor: 1.0
+      warm:
+        duration_days: 30
+        access_frequency: "minutes"
+        cost_factor: 0.5
+      cold:
+        duration_days: 365
+        access_frequency: "hours"
+        cost_factor: 0.1
+      archive:
+        duration_days: 1095  # 3 years
+        access_frequency: "days"
+        cost_factor: 0.01
+    total_retention_days: 1095
+    compliance_requirements:
+      - "ISO27001"
+    encryption_required: false
+    compression_level: "standard"
+    geographic_restrictions: []
+    legal_hold_support: false
+    automatic_deletion: true
+    
+  # Threat intelligence retention policy
+  threat_intel_policy:
+    policy_name: "threat_intel_policy"
+    description: "Retention policy for threat intelligence data"
+    data_types:
+      - "threat_indicators"
+      - "malware_samples"
+      - "attack_patterns"
+    storage_tiers:
+      hot:
+        duration_days: 365
+        access_frequency: "immediate"
+        cost_factor: 1.0
+      warm:
+        duration_days: 1095  # 3 years
+        access_frequency: "minutes"
+        cost_factor: 0.5
+      cold:
+        duration_days: 1825  # 5 years
+        access_frequency: "hours"
+        cost_factor: 0.1
+      archive:
+        duration_days: 3650  # 10 years
+        access_frequency: "days"
+        cost_factor: 0.01
+    total_retention_days: 3650
+    compliance_requirements:
+      - "NIST"
+      - "ISO27001"
+    encryption_required: true
+    compression_level: "high"
+    geographic_restrictions:
+      - "US"
+      - "EU"
+      - "CA"
+    legal_hold_support: true
+    automatic_deletion: true
+
+# Archive Storage Locations
+archive_locations:
+  # Local storage for immediate access
+  local_hot_storage:
+    location_id: "local_hot_storage"
+    location_type: "local"
+    description: "Local high-performance storage for hot data"
+    config:
+      base_path: "/opt/siem/archive/hot"
+      max_size_gb: 1000
+      filesystem_type: "ext4"
+      mount_options: "noatime,data=ordered"
+    encryption_enabled: true
+    compression_enabled: false  # Performance priority
+    access_tier: "hot"
+    cost_per_gb_per_month: 0.10
+    retrieval_time_sla: "immediate"
+    geographic_location: "on-premises"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+    backup_enabled: true
+    replication_enabled: false
+    
+  # Local storage for warm data
+  local_warm_storage:
+    location_id: "local_warm_storage"
+    location_type: "local"
+    description: "Local storage for warm data"
+    config:
+      base_path: "/opt/siem/archive/warm"
+      max_size_gb: 5000
+      filesystem_type: "xfs"
+      compression_filesystem: true
+    encryption_enabled: true
+    compression_enabled: true
+    access_tier: "warm"
+    cost_per_gb_per_month: 0.05
+    retrieval_time_sla: "< 5 minutes"
+    geographic_location: "on-premises"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+    backup_enabled: true
+    replication_enabled: true
+    
+  # Amazon S3 for cold storage
+  aws_s3_cold:
+    location_id: "aws_s3_cold"
+    location_type: "s3"
+    description: "Amazon S3 for cold storage"
+    config:
+      bucket: "${S3_ARCHIVE_BUCKET}"
+      region: "us-east-1"
+      prefix: "siem-archive/cold"
+      storage_class: "STANDARD_IA"
+      access_key_id: "${AWS_ACCESS_KEY_ID}"
+      secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+      sse_algorithm: "AES256"
+      lifecycle_policy: "transition_to_glacier_after_30_days"
+    encryption_enabled: true
+    compression_enabled: true
+    access_tier: "cold"
+    cost_per_gb_per_month: 0.0125
+    retrieval_time_sla: "< 1 hour"
+    geographic_location: "us-east-1"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+      - "HIPAA"
+      - "FedRAMP"
+    backup_enabled: false  # S3 provides durability
+    replication_enabled: true
+    
+  # Amazon Glacier for long-term archive
+  aws_glacier_archive:
+    location_id: "aws_glacier_archive"
+    location_type: "s3"
+    description: "Amazon Glacier for long-term archive storage"
+    config:
+      bucket: "${S3_ARCHIVE_BUCKET}"
+      region: "us-east-1"
+      prefix: "siem-archive/glacier"
+      storage_class: "GLACIER"
+      access_key_id: "${AWS_ACCESS_KEY_ID}"
+      secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+      sse_algorithm: "AES256"
+      vault_lock_policy: "compliance_lock_7_years"
+    encryption_enabled: true
+    compression_enabled: true
+    access_tier: "archive"
+    cost_per_gb_per_month: 0.004
+    retrieval_time_sla: "3-5 hours"
+    geographic_location: "us-east-1"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+      - "HIPAA"
+      - "FedRAMP"
+    backup_enabled: false
+    replication_enabled: false
+    
+  # Azure Blob Storage
+  azure_blob_storage:
+    location_id: "azure_blob_storage"
+    location_type: "azure"
+    description: "Azure Blob Storage for cloud archive"
+    config:
+      account_name: "${AZURE_STORAGE_ACCOUNT}"
+      account_key: "${AZURE_STORAGE_KEY}"
+      container: "siem-archive"
+      access_tier: "Cool"
+      encryption_enabled: true
+    encryption_enabled: true
+    compression_enabled: true
+    access_tier: "cold"
+    cost_per_gb_per_month: 0.01
+    retrieval_time_sla: "< 1 hour"
+    geographic_location: "eastus2"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+      - "HIPAA"
+    backup_enabled: false
+    replication_enabled: true
+    
+  # Google Cloud Storage
+  gcs_nearline:
+    location_id: "gcs_nearline"
+    location_type: "gcs"
+    description: "Google Cloud Storage Nearline"
+    config:
+      bucket: "${GCS_ARCHIVE_BUCKET}"
+      project_id: "${GCP_PROJECT_ID}"
+      storage_class: "NEARLINE"
+      location: "us-central1"
+      service_account_key: "${GCS_SERVICE_ACCOUNT_KEY}"
+    encryption_enabled: true
+    compression_enabled: true
+    access_tier: "cold"
+    cost_per_gb_per_month: 0.01
+    retrieval_time_sla: "< 1 hour"
+    geographic_location: "us-central1"
+    compliance_certifications:
+      - "SOC2"
+      - "ISO27001"
+    backup_enabled: false
+    replication_enabled: true
+
+# Archive Job Configuration
+job_configuration:
+  # Default job settings
+  defaults:
+    compression: "gzip"
+    encryption: true
+    batch_size: 1000
+    timeout_hours: 24
+    retry_attempts: 3
+    retry_delay_minutes: 30
+    
+  # Job types configuration
+  job_types:
+    archive:
+      priority: 2
+      max_concurrent: 4
+      resource_limits:
+        memory_gb: 8
+        cpu_cores: 2
+        disk_space_gb: 100
+        
+    restore:
+      priority: 1
+      max_concurrent: 2
+      resource_limits:
+        memory_gb: 16
+        cpu_cores: 4
+        disk_space_gb: 200
+        
+    delete:
+      priority: 3
+      max_concurrent: 1
+      resource_limits:
+        memory_gb: 4
+        cpu_cores: 1
+        disk_space_gb: 50
+        
+    verify:
+      priority: 2
+      max_concurrent: 2
+      resource_limits:
+        memory_gb: 4
+        cpu_cores: 1
+        disk_space_gb: 20
+        
+  # Scheduling configuration
+  scheduling:
+    archive_window:
+      start_time: "22:00"  # 10 PM
+      end_time: "06:00"    # 6 AM
+      timezone: "America/New_York"
+      
+    maintenance_window:
+      start_time: "02:00"  # 2 AM
+      end_time: "04:00"    # 4 AM
+      timezone: "America/New_York"
+      day_of_week: "sunday"
+      
+  # Resource management
+  resource_management:
+    max_total_memory_gb: 32
+    max_total_cpu_cores: 8
+    disk_space_threshold_percent: 85
+    auto_cleanup_temp_files: true
+
+# Data Lifecycle Management
+lifecycle_management:
+  # Automatic tier transitions
+  tier_transitions:
+    enabled: true
+    
+    hot_to_warm:
+      after_days: 30
+      conditions:
+        - "access_frequency < 0.1"  # Less than 10% access rate
+        
+    warm_to_cold:
+      after_days: 90
+      conditions:
+        - "access_frequency < 0.01"  # Less than 1% access rate
+        
+    cold_to_archive:
+      after_days: 365
+      conditions:
+        - "access_frequency < 0.001"  # Less than 0.1% access rate
+        
+  # Automatic deletion
+  auto_deletion:
+    enabled: true
+    safety_checks:
+      - "retention_period_expired"
+      - "no_legal_hold"
+      - "compliance_approved"
+    approval_required: true
+    notification_before_days: 30
+    
+  # Data integrity checks
+  integrity_checks:
+    enabled: true
+    frequency_days: 30
+    checksum_algorithms:
+      - "sha256"
+      - "md5"
+    repair_corrupted_data: true
+    notification_on_failure: true
+
+# Compliance and Legal Hold
+compliance:
+  # Legal hold management
+  legal_hold:
+    enabled: true
+    automatic_preservation: true
+    notification_recipients:
+      - "legal@isectech.com"
+      - "compliance@isectech.com"
+    retention_indefinite: true
+    
+  # Audit trail
+  audit_trail:
+    enabled: true
+    log_all_operations: true
+    immutable_logs: true
+    retention_years: 10
+    
+  # Compliance reporting
+  reporting:
+    enabled: true
+    frequency: "monthly"
+    formats:
+      - "pdf"
+      - "csv"
+      - "json"
+    recipients:
+      - "compliance@isectech.com"
+      - "audit@isectech.com"
+    
+  # Data subject rights (GDPR)
+  data_subject_rights:
+    enabled: true
+    right_to_erasure: true
+    right_to_portability: true
+    response_time_days: 30
+    verification_required: true
+
+# Monitoring and Alerting
+monitoring:
+  enabled: true
+  
+  # Metrics collection
+  metrics:
+    storage_utilization: true
+    job_performance: true
+    cost_tracking: true
+    compliance_status: true
+    
+  # Health checks
+  health_checks:
+    storage_accessibility: true
+    encryption_status: true
+    job_queue_health: true
+    retention_compliance: true
+    
+  # Alerting thresholds
+  alerts:
+    storage_utilization_percent: 85
+    job_failure_rate_percent: 10
+    compliance_violation: true
+    encryption_failure: true
+    retention_policy_violation: true
+    
+  # Performance monitoring
+  performance:
+    track_throughput: true
+    track_latency: true
+    track_cost_efficiency: true
+    optimize_automatically: true
+
+# Integration Settings
+integrations:
+  # SIEM platform integration
+  siem_platform:
+    enabled: true
+    api_endpoint: "${SIEM_API_ENDPOINT}"
+    api_key: "${SIEM_API_KEY}"
+    webhook_url: "${SIEM_WEBHOOK_URL}"
+    
+  # Backup systems
+  backup_integration:
+    enabled: true
+    backup_system: "veeam"  # veeam, commvault, etc.
+    api_endpoint: "${BACKUP_API_ENDPOINT}"
+    credentials: "${BACKUP_CREDENTIALS}"
+    
+  # Cloud cost management
+  cost_management:
+    enabled: true
+    aws_cost_explorer: true
+    azure_cost_management: true
+    gcp_billing_api: true
+    budget_alerts: true
+    
+  # Compliance platforms
+  compliance_platforms:
+    enabled: true
+    grc_platform: "rsam"  # rsam, servicenow, etc.
+    api_endpoint: "${GRC_API_ENDPOINT}"
+    api_key: "${GRC_API_KEY}"
+
+# Security Configuration
+security:
+  # Access control
+  access_control:
+    rbac_enabled: true
+    multi_factor_auth: true
+    api_key_rotation_days: 90
+    session_timeout_minutes: 30
+    
+  # Encryption at rest
+  encryption_at_rest:
+    algorithm: "AES-256-GCM"
+    key_management: "kms"  # kms, hsm, local
+    key_rotation_automatic: true
+    key_escrow_enabled: true
+    
+  # Encryption in transit
+  encryption_in_transit:
+    tls_version: "1.3"
+    certificate_validation: true
+    mutual_tls: true
+    
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: "detailed"
+    include_data_access: true
+    include_admin_actions: true
+    retention_years: 7
+
+# Disaster Recovery
+disaster_recovery:
+  # Backup strategy
+  backup:
+    enabled: true
+    frequency_hours: 6
+    retention_days: 30
+    geographic_distribution: true
+    encryption_enabled: true
+    
+  # Replication
+  replication:
+    enabled: true
+    synchronous: false
+    cross_region: true
+    multi_cloud: true
+    
+  # Recovery procedures
+  recovery:
+    rpo_minutes: 60  # Recovery Point Objective
+    rto_minutes: 240  # Recovery Time Objective
+    automated_failover: true
+    testing_frequency_months: 6
+
+# Performance Optimization
+performance:
+  # Caching
+  caching:
+    enabled: true
+    cache_size_gb: 10
+    cache_ttl_hours: 24
+    cache_compression: true
+    
+  # Parallel processing
+  parallel_processing:
+    enabled: true
+    max_workers: 8
+    batch_optimization: true
+    resource_balancing: true
+    
+  # Storage optimization
+  storage_optimization:
+    deduplication: true
+    compression_tuning: true
+    tier_optimization: true
+    cost_optimization: true

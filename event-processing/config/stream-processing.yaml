@@ -1,0 +1,197 @@
+# iSECTECH Stream Processing Configuration
+# Production-grade configuration for real-time event processing
+
+stream_processing:
+  # Kafka Configuration
+  kafka_brokers:
+    - "kafka-01.isectech.local:9092"
+    - "kafka-02.isectech.local:9092"
+    - "kafka-03.isectech.local:9092"
+  
+  input_topics:
+    - "security-events"
+    - "network-events" 
+    - "endpoint-events"
+    - "cloud-events"
+  
+  output_topics:
+    enriched: "enriched-events"
+    correlated: "correlated-events"
+    alerts: "security-alerts"
+    anomalies: "anomaly-events"
+    errors: "processing-errors"
+  
+  consumer_group_id: "isectech-stream-processor"
+  
+  # Processing Configuration
+  enable_enrichment: true
+  enable_correlation: true
+  enable_pattern_matching: true
+  enable_anomaly_detection: true
+  
+  # Performance Settings
+  worker_pool_size: 20
+  processing_timeout: "30s"
+  max_processing_retries: 3
+  buffer_size: 2000
+  
+  # Context Data Sources
+  threat_intel_sources:
+    - name: "recorded_future"
+      url: "https://api.recordedfuture.com/v2"
+      api_key: "${RECORDED_FUTURE_API_KEY}"
+      enabled: true
+      priority: 1
+    - name: "virustotal"
+      url: "https://www.virustotal.com/vtapi/v2"
+      api_key: "${VIRUSTOTAL_API_KEY}"
+      enabled: true
+      priority: 2
+  
+  asset_inventory_url: "http://asset-inventory.isectech.local:8080"
+  user_behavior_service_url: "http://user-behavior.isectech.local:8080"
+  geolocation_service_url: "http://geolocation.isectech.local:8080"
+  
+  # Pattern Matching
+  pattern_rules_path: "/etc/isectech/rules/threat-patterns"
+  custom_rules_path: "/etc/isectech/rules/custom-patterns"
+  rule_update_interval: "5m"
+  
+  # Correlation Settings
+  correlation_window_size: "10m"
+  max_correlation_depth: 200
+  session_timeout_window: "1h"
+  
+  # Monitoring and Health
+  metrics_enabled: true
+  health_check_interval: "30s"
+  alerting_enabled: true
+
+enrichment:
+  # Cache Settings
+  cache_size: 50000
+  cache_ttl: "1h"
+  
+  # HTTP Client Settings
+  request_timeout: "15s"
+  max_retries: 5
+  retry_delay: "2s"
+  
+  # Enrichment Options
+  enable_threat_intel: true
+  enable_geolocation: true
+  enable_asset_info: true
+  enable_user_behavior: true
+  enable_dns_resolution: true
+
+correlation:
+  # Time Windows
+  window_size: "10m"
+  session_timeout_window: "2h"
+  
+  # Resource Limits
+  max_depth: 200
+  max_sessions: 50000
+  max_events_per_session: 2000
+  
+  # Cleanup
+  cleanup_interval: "5m"
+
+pattern_matching:
+  # Rule Management
+  rules_path: "/etc/isectech/rules/threat-patterns"
+  custom_rules_path: "/etc/isectech/rules/custom-patterns"
+  update_interval: "10m"
+  
+  # Processing Options
+  case_sensitive: false
+  max_rule_complexity: 200
+  enable_custom_rules: true
+
+anomaly_detection:
+  # Service URLs
+  user_behavior_service_url: "http://user-behavior.isectech.local:8080"
+  network_behavior_service_url: "http://network-behavior.isectech.local:8080"
+  
+  # HTTP Client Settings
+  request_timeout: "20s"
+  max_retries: 3
+  retry_delay: "3s"
+  
+  # Cache Settings
+  cache_size: 10000
+  cache_ttl: "30m"
+  cleanup_interval: "10m"
+  
+  # Detection Thresholds
+  anomaly_threshold: 0.75
+  high_risk_threshold: 0.85
+  
+  # Analysis Types
+  enable_user_analysis: true
+  enable_network_analysis: true
+  enable_process_analysis: true
+
+# Metrics Configuration
+metrics:
+  enabled: true
+  prometheus_port: 9090
+  update_interval: "30s"
+  enable_detailed_metrics: true
+  histogram_buckets: [0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+  
+  # Alert thresholds
+  max_processing_latency: "5s"
+  min_throughput: 1000.0
+  max_error_rate: 0.05
+  max_kafka_lag: 10000
+
+# Health Monitoring Configuration
+health:
+  enabled: true
+  check_interval: "30s"
+  http_port: 8080
+  healthy_threshold: 3
+  unhealthy_threshold: 5
+  component_timeout: "10s"
+  
+  # Alert thresholds
+  max_response_time: "5s"
+  min_success_rate: 0.95
+  
+  # Dependencies
+  check_kafka_health: true
+  check_enrichment_health: true
+  check_ml_service_health: true
+
+# Alerting Configuration
+alerting:
+  enabled: true
+  processing_interval: "10s"
+  alert_history_limit: 1000
+  suppression_duration: "5m"
+  
+  # Notification channels
+  webhook_url: "${ALERT_WEBHOOK_URL}"
+  email_smtp_server: "${EMAIL_SMTP_SERVER}"
+  email_smtp_port: 587
+  email_username: "${EMAIL_USERNAME}"
+  email_password: "${EMAIL_PASSWORD}"
+  email_recipients:
+    - "ops-team@isectech.local"
+    - "security-team@isectech.local"
+  slack_webhook_url: "${SLACK_WEBHOOK_URL}"
+  slack_channel: "#security-alerts"
+  
+  # Alert thresholds
+  high_latency_threshold: "5s"
+  low_throughput_threshold: 100.0
+  high_error_rate_threshold: 0.05
+  kafka_lag_threshold: 10000
+  
+  # Escalation
+  escalation_enabled: true
+  escalation_timeout: "30m"
+  escalation_recipients:
+    - "incident-response@isectech.local"
+    - "engineering-lead@isectech.local"

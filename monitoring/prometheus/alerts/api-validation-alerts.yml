@@ -1,0 +1,333 @@
+# API Validation Alerting Rules
+# 
+# Comprehensive Prometheus alerting rules for API validation monitoring
+# Task 83.4: Set Up Monitoring and Logging for Validation Failures
+
+groups:
+  - name: api_validation_alerts
+    interval: 30s
+    rules:
+      # High Error Rate Alerts
+      - alert: APIValidationErrorRateHigh
+        expr: rate(api_validation_failures_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "High API validation error rate detected"
+          description: "API validation error rate is {{ $value }} errors/minute for tenant {{ $labels.tenant_id }} in {{ $labels.validation_type }} validation (threshold: 5/min)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-high-error-rate"
+          dashboard_url: "https://grafana.isectech.internal/d/api-validation/api-validation-dashboard?orgId=1&var-tenant={{ $labels.tenant_id }}"
+
+      - alert: APIValidationErrorRateCritical
+        expr: rate(api_validation_failures_total[5m]) > 15
+        for: 1m
+        labels:
+          severity: critical
+          component: api_validation
+          team: platform_engineering
+          page: "true"
+        annotations:
+          summary: "Critical API validation error rate detected"
+          description: "API validation error rate is {{ $value }} errors/minute for tenant {{ $labels.tenant_id }} in {{ $labels.validation_type }} validation (threshold: 15/min). Immediate action required."
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-critical-error-rate"
+          dashboard_url: "https://grafana.isectech.internal/d/api-validation/api-validation-dashboard?orgId=1&var-tenant={{ $labels.tenant_id }}"
+
+      # Error Spike Detection
+      - alert: APIValidationErrorSpike
+        expr: (rate(api_validation_failures_total[5m]) / rate(api_validation_failures_total[30m] offset 30m)) > 3
+        for: 2m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "API validation error spike detected"
+          description: "Current error rate ({{ $value }}x) is significantly higher than historical average for tenant {{ $labels.tenant_id }} in {{ $labels.validation_type }} validation"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-error-spike"
+
+      # Validation Success Rate
+      - alert: APIValidationSuccessRateLow
+        expr: (rate(api_validation_success_total[10m]) / (rate(api_validation_success_total[10m]) + rate(api_validation_failures_total[10m]))) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "Low API validation success rate"
+          description: "API validation success rate is {{ $value | humanizePercentage }} for tenant {{ $labels.tenant_id }} (threshold: 95%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-low-success-rate"
+
+      # Schema Validation Specific Alerts
+      - alert: SchemaValidationFailuresHigh
+        expr: rate(api_schema_validation_errors_total[5m]) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: api_validation
+          validation_type: schema
+          team: platform_engineering
+        annotations:
+          summary: "High schema validation failure rate"
+          description: "Schema validation failures are {{ $value }}/minute for tenant {{ $labels.tenant_id }} on field {{ $labels.field }} (error: {{ $labels.error_code }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/schema-validation-failures"
+
+      # Business Rule Violation Alerts
+      - alert: BusinessRuleViolationsHigh
+        expr: rate(api_business_rule_violations_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: api_validation
+          validation_type: business_rules
+          team: platform_engineering
+        annotations:
+          summary: "High business rule violation rate"
+          description: "Business rule violations are {{ $value }}/minute for rule {{ $labels.rule_name }} in tenant {{ $labels.tenant_id }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/business-rule-violations"
+
+      # Compliance Violation Alerts
+      - alert: ComplianceViolationCritical
+        expr: rate(api_compliance_violations_total{severity="error"}[1m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: api_validation
+          validation_type: compliance
+          team: compliance_security
+          page: "true"
+        annotations:
+          summary: "Critical compliance violation detected"
+          description: "Critical compliance violation in {{ $labels.framework }} (rule {{ $labels.rule_id }}) for tenant {{ $labels.tenant_id }}. Immediate attention required."
+          runbook_url: "https://docs.isectech.internal/runbooks/compliance-violations-critical"
+          compliance_framework: "{{ $labels.framework }}"
+          rule_id: "{{ $labels.rule_id }}"
+
+      - alert: ComplianceViolationWarning
+        expr: rate(api_compliance_violations_total{severity="warning"}[10m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api_validation
+          validation_type: compliance
+          team: compliance_security
+        annotations:
+          summary: "Elevated compliance violation rate"
+          description: "Compliance violations in {{ $labels.framework }} are {{ $value }}/minute for tenant {{ $labels.tenant_id }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/compliance-violations-warning"
+
+      # Data Integrity Alerts
+      - alert: DataIntegrityErrorsHigh
+        expr: rate(api_data_integrity_errors_total[5m]) > 3
+        for: 3m
+        labels:
+          severity: warning
+          component: api_validation
+          validation_type: data_integrity
+          team: platform_engineering
+        annotations:
+          summary: "High data integrity error rate"
+          description: "Data integrity errors are {{ $value }}/minute for tenant {{ $labels.tenant_id }} on field {{ $labels.field }} (type: {{ $labels.error_type }})"
+          runbook_url: "https://docs.isectech.internal/runbooks/data-integrity-errors"
+
+      # Performance Alerts
+      - alert: APIValidationLatencyHigh
+        expr: histogram_quantile(0.95, rate(api_validation_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "High API validation latency"
+          description: "95th percentile validation latency is {{ $value }}s for tenant {{ $labels.tenant_id }} in {{ $labels.validation_type }} validation (threshold: 1s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-latency"
+
+      - alert: APIValidationLatencyCritical
+        expr: histogram_quantile(0.95, rate(api_validation_duration_seconds_bucket[5m])) > 5.0
+        for: 2m
+        labels:
+          severity: critical
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "Critical API validation latency"
+          description: "95th percentile validation latency is {{ $value }}s for tenant {{ $labels.tenant_id }} in {{ $labels.validation_type }} validation (threshold: 5s)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-latency-critical"
+
+      # Queue Depth Alerts
+      - alert: APIValidationQueueDepthHigh
+        expr: api_validation_queue_depth > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "High API validation queue depth"
+          description: "Validation queue depth is {{ $value }} for tenant {{ $labels.tenant_id }} (threshold: 1000)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-queue-depth"
+
+      - alert: APIValidationQueueDepthCritical
+        expr: api_validation_queue_depth > 5000
+        for: 2m
+        labels:
+          severity: critical
+          component: api_validation
+          team: platform_engineering
+          page: "true"
+        annotations:
+          summary: "Critical API validation queue depth"
+          description: "Validation queue depth is {{ $value }} for tenant {{ $labels.tenant_id }} (threshold: 5000). System may be overwhelmed."
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-queue-depth-critical"
+
+      # Throughput Alerts
+      - alert: APIValidationThroughputLow
+        expr: rate(api_validation_throughput_total[10m]) < 100
+        for: 10m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "Low API validation throughput"
+          description: "Validation throughput is {{ $value }}/minute for tenant {{ $labels.tenant_id }} (threshold: 100/min)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-throughput"
+
+      # System Health Alerts
+      - alert: APIValidationMonitorDown
+        expr: up{job="api-validation-monitor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api_validation
+          team: platform_engineering
+          page: "true"
+        annotations:
+          summary: "API validation monitor is down"
+          description: "API validation monitoring service is not responding"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-monitor-down"
+
+      # Multi-Tenant Comparative Alerts
+      - alert: APIValidationTenantOutlier
+        expr: |
+          (
+            rate(api_validation_failures_total[5m]) / 
+            on() group_left() 
+            (
+              avg(rate(api_validation_failures_total[5m]))
+            )
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "Tenant has unusually high validation error rate"
+          description: "Tenant {{ $labels.tenant_id }} has {{ $value }}x higher error rate than average across all tenants"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-tenant-outlier"
+
+      # Specific Field Error Concentration
+      - alert: APIValidationFieldErrorConcentration
+        expr: |
+          (
+            rate(api_schema_validation_errors_total[5m]) 
+            by (tenant_id, field)
+          ) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+        annotations:
+          summary: "High error concentration on specific field"
+          description: "Field {{ $labels.field }} has {{ $value }} validation errors/minute for tenant {{ $labels.tenant_id }}"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-field-errors"
+
+  - name: api_validation_slo_alerts
+    interval: 1m
+    rules:
+      # SLO-based alerts (Service Level Objectives)
+      - alert: APIValidationSLOErrorBudgetLow
+        expr: |
+          (
+            1 - (
+              sum(rate(api_validation_success_total[30d])) by (tenant_id) /
+              sum(rate(api_validation_success_total[30d]) + rate(api_validation_failures_total[30d])) by (tenant_id)
+            )
+          ) > 0.001  # 99.9% SLO = 0.1% error budget
+        for: 0m
+        labels:
+          severity: warning
+          component: api_validation
+          team: platform_engineering
+          slo: "true"
+        annotations:
+          summary: "API validation SLO error budget consumed"
+          description: "Tenant {{ $labels.tenant_id }} has consumed {{ $value | humanizePercentage }} of monthly error budget (SLO: 99.9%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-slo-budget"
+
+      - alert: APIValidationSLOErrorBudgetExhausted
+        expr: |
+          (
+            1 - (
+              sum(rate(api_validation_success_total[30d])) by (tenant_id) /
+              sum(rate(api_validation_success_total[30d]) + rate(api_validation_failures_total[30d])) by (tenant_id)
+            )
+          ) > 0.001 * 1.5  # 150% of error budget
+        for: 0m
+        labels:
+          severity: critical
+          component: api_validation
+          team: platform_engineering
+          slo: "true"
+          page: "true"
+        annotations:
+          summary: "API validation SLO error budget exhausted"
+          description: "Tenant {{ $labels.tenant_id }} has exhausted monthly error budget by {{ $value | humanizePercentage }} (SLO: 99.9%)"
+          runbook_url: "https://docs.isectech.internal/runbooks/api-validation-slo-budget-exhausted"
+
+  - name: api_validation_recording_rules
+    interval: 30s
+    rules:
+      # Recording rules for efficient dashboard queries
+      - record: api_validation:error_rate_5m
+        expr: rate(api_validation_failures_total[5m])
+
+      - record: api_validation:success_rate_5m
+        expr: rate(api_validation_success_total[5m])
+
+      - record: api_validation:total_rate_5m
+        expr: rate(api_validation_success_total[5m]) + rate(api_validation_failures_total[5m])
+
+      - record: api_validation:success_ratio_5m
+        expr: |
+          rate(api_validation_success_total[5m]) / 
+          (rate(api_validation_success_total[5m]) + rate(api_validation_failures_total[5m]))
+
+      - record: api_validation:error_ratio_5m
+        expr: |
+          rate(api_validation_failures_total[5m]) / 
+          (rate(api_validation_success_total[5m]) + rate(api_validation_failures_total[5m]))
+
+      - record: api_validation:p95_latency_5m
+        expr: histogram_quantile(0.95, rate(api_validation_duration_seconds_bucket[5m]))
+
+      - record: api_validation:p99_latency_5m
+        expr: histogram_quantile(0.99, rate(api_validation_duration_seconds_bucket[5m]))
+
+      # SLO recording rules
+      - record: api_validation:slo_success_rate_30d
+        expr: |
+          sum(rate(api_validation_success_total[30d])) by (tenant_id) /
+          sum(rate(api_validation_success_total[30d]) + rate(api_validation_failures_total[30d])) by (tenant_id)
+
+      - record: api_validation:slo_error_budget_remaining_30d
+        expr: |
+          1 - (
+            (1 - api_validation:slo_success_rate_30d) / 0.001
+          )

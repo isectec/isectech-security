@@ -1,0 +1,672 @@
+# iSECTECH Velero Kubernetes Backup Configuration
+# Production-grade Kubernetes cluster backup and restore with cross-region replication
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    security.isectech.com/zone: backup
+---
+# Velero Server Deployment
+apiVersion: install.velero.io/v1
+kind: ServerConfiguration
+metadata:
+  name: isectech-velero-server
+  namespace: velero
+spec:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BACKUP STORAGE CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  backupStorageLocation:
+    - name: primary-s3
+      provider: aws
+      bucket: isectech-kubernetes-backups
+      prefix: production
+      config:
+        region: us-east-1
+        s3ForcePathStyle: "false"
+        serverSideEncryption: aws:kms
+        kmsKeyId: arn:aws:kms:us-east-1:ACCOUNT:key/KEY-ID
+      default: true
+    
+    - name: replica-us-west-2
+      provider: aws
+      bucket: isectech-kubernetes-backups-west
+      prefix: production
+      config:
+        region: us-west-2
+        s3ForcePathStyle: "false"
+        serverSideEncryption: aws:kms
+        kmsKeyId: arn:aws:kms:us-west-2:ACCOUNT:key/KEY-ID
+    
+    - name: replica-eu-west-1
+      provider: aws
+      bucket: isectech-kubernetes-backups-eu
+      prefix: production
+      config:
+        region: eu-west-1
+        s3ForcePathStyle: "false"
+        serverSideEncryption: aws:kms
+        kmsKeyId: arn:aws:kms:eu-west-1:ACCOUNT:key/KEY-ID
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # VOLUME SNAPSHOT CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  volumeSnapshotLocation:
+    - name: primary-ebs
+      provider: aws
+      config:
+        region: us-east-1
+    
+    - name: replica-ebs-west
+      provider: aws
+      config:
+        region: us-west-2
+    
+    - name: replica-ebs-eu
+      provider: aws
+      config:
+        region: eu-west-1
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # VELERO SERVER CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  configuration:
+    # Resource allocation for backup operations
+    backupSyncPeriod: 60m
+    clientQPS: 100
+    clientBurst: 100
+    defaultBackupStorageLocation: primary-s3
+    defaultVolumeSnapshotLocations:
+      aws: primary-ebs
+    
+    # Backup retention and cleanup
+    defaultBackupTTL: 720h  # 30 days
+    defaultVolumeSnapshotTTL: 720h  # 30 days
+    
+    # Performance and reliability
+    restoreResourcePriorities: >
+      customresourcedefinitions,
+      namespaces,
+      storageclasses,
+      volumesnapshotclass.snapshot.storage.k8s.io,
+      volumesnapshotcontents.snapshot.storage.k8s.io,
+      volumesnapshots.snapshot.storage.k8s.io,
+      persistentvolumes,
+      persistentvolumeclaims,
+      secrets,
+      configmaps,
+      serviceaccounts,
+      limitranges,
+      pods,
+      replicasets.apps,
+      deployments.apps,
+      statefulsets.apps,
+      daemonsets.apps,
+      services,
+      ingresses.networking.k8s.io
+
+    # Feature flags for enhanced security
+    features: EnableCSI
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DEPLOYMENT CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  podAnnotations:
+    backup.velero.io/backup-volumes: scratch,plugins
+    security.isectech.com/scan: "true"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8085"
+    prometheus.io/path: "/metrics"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  nodeSelector:
+    kubernetes.io/arch: amd64
+    node-type: system
+
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+
+  securityContext:
+    fsGroup: 65534
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      monitoring: isectech
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKUP SCHEDULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Daily full cluster backup
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: isectech-daily-backup
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    backup.isectech.com/type: daily
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM UTC
+  template:
+    metadata:
+      labels:
+        backup.isectech.com/type: daily
+        backup.isectech.com/environment: production
+    spec:
+      includeClusterResources: true
+      snapshotVolumes: true
+      storageLocation: primary-s3
+      volumeSnapshotLocations:
+        - primary-ebs
+      ttl: 720h0m0s  # 30 days retention
+      
+      # Include critical namespaces
+      includedNamespaces:
+        - default
+        - kube-system
+        - isectech-production
+        - isectech-security
+        - monitoring
+        - ingress-nginx
+        - cert-manager
+        - velero
+      
+      # Exclude temporary and cache data
+      excludedResources:
+        - events
+        - events.events.k8s.io
+      
+      # Label selector for critical resources
+      labelSelector:
+        matchExpressions:
+          - key: backup.isectech.com/exclude
+            operator: NotIn
+            values: ["true"]
+      
+      # Hooks for application-consistent backups
+      hooks:
+        resources:
+          - name: postgres-backup-hook
+            includedNamespaces:
+              - isectech-production
+            includedResources:
+              - pods
+            labelSelector:
+              matchLabels:
+                app: postgresql
+            pre:
+              - exec:
+                  container: postgresql
+                  command:
+                    - /bin/bash
+                    - -c
+                    - "pg_start_backup('velero-backup', true)"
+                  onError: Continue
+                  timeout: 30s
+            post:
+              - exec:
+                  container: postgresql
+                  command:
+                    - /bin/bash
+                    - -c
+                    - "pg_stop_backup()"
+                  onError: Continue
+                  timeout: 30s
+
+---
+# Weekly full backup with extended retention
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: isectech-weekly-backup
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    backup.isectech.com/type: weekly
+spec:
+  schedule: "0 3 * * 0"  # Weekly on Sunday at 3 AM UTC
+  template:
+    metadata:
+      labels:
+        backup.isectech.com/type: weekly
+        backup.isectech.com/environment: production
+        backup.isectech.com/retention: extended
+    spec:
+      includeClusterResources: true
+      snapshotVolumes: true
+      storageLocation: primary-s3
+      volumeSnapshotLocations:
+        - primary-ebs
+      ttl: 2160h0m0s  # 90 days retention
+      
+      # Complete cluster backup
+      includedNamespaces:
+        - "*"
+      
+      excludedResources:
+        - events
+        - events.events.k8s.io
+        - replicationcontrollers
+        - endpoints
+
+---
+# Monthly archival backup
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: isectech-monthly-backup
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    backup.isectech.com/type: monthly
+spec:
+  schedule: "0 4 1 * *"  # Monthly on 1st at 4 AM UTC
+  template:
+    metadata:
+      labels:
+        backup.isectech.com/type: monthly
+        backup.isectech.com/environment: production
+        backup.isectech.com/retention: archival
+    spec:
+      includeClusterResources: true
+      snapshotVolumes: true
+      storageLocation: primary-s3
+      volumeSnapshotLocations:
+        - primary-ebs
+      ttl: 8760h0m0s  # 365 days retention
+      
+      # Complete cluster backup with all namespaces
+      includedNamespaces:
+        - "*"
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKUP REPLICATION TO SECONDARY REGIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Cross-region backup replication to US West
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: isectech-replication-west
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    backup.isectech.com/type: replication
+spec:
+  schedule: "0 6 * * *"  # Daily at 6 AM UTC (4 hours after primary)
+  template:
+    metadata:
+      labels:
+        backup.isectech.com/type: replication
+        backup.isectech.com/region: us-west-2
+    spec:
+      includeClusterResources: true
+      snapshotVolumes: true
+      storageLocation: replica-us-west-2
+      volumeSnapshotLocations:
+        - replica-ebs-west
+      ttl: 720h0m0s  # 30 days retention
+      
+      includedNamespaces:
+        - isectech-production
+        - isectech-security
+        - monitoring
+
+---
+# Cross-region backup replication to EU West
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: isectech-replication-eu
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    backup.isectech.com/type: replication
+spec:
+  schedule: "0 7 * * *"  # Daily at 7 AM UTC (5 hours after primary)
+  template:
+    metadata:
+      labels:
+        backup.isectech.com/type: replication
+        backup.isectech.com/region: eu-west-1
+    spec:
+      includeClusterResources: true
+      snapshotVolumes: true
+      storageLocation: replica-eu-west-1
+      volumeSnapshotLocations:
+        - replica-ebs-eu
+      ttl: 720h0m0s  # 30 days retention
+      
+      includedNamespaces:
+        - isectech-production
+        - isectech-security
+        - monitoring
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKUP VERIFICATION AND TESTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Automated backup verification job
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-verification
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/instance: isectech
+spec:
+  schedule: "0 10 * * *"  # Daily at 10 AM UTC
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600  # 1 hour timeout
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: backup-verification
+            app.kubernetes.io/instance: isectech
+        spec:
+          restartPolicy: Never
+          serviceAccountName: backup-verification
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+          containers:
+            - name: backup-verifier
+              image: velero/velero:v1.12.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  
+                  echo "Starting backup verification..."
+                  
+                  # Get latest daily backup
+                  LATEST_BACKUP=$(velero backup get --output json | jq -r '.items[] | select(.metadata.labels."backup.isectech.com/type" == "daily") | select(.status.phase == "Completed") | .metadata.name' | head -1)
+                  
+                  if [ -z "$LATEST_BACKUP" ]; then
+                    echo "ERROR: No completed daily backup found"
+                    exit 1
+                  fi
+                  
+                  echo "Verifying backup: $LATEST_BACKUP"
+                  
+                  # Check backup status and details
+                  velero backup describe $LATEST_BACKUP --details
+                  
+                  # Verify backup in S3
+                  echo "Verifying backup files in S3..."
+                  aws s3 ls s3://isectech-kubernetes-backups/production/backups/$LATEST_BACKUP/ --recursive
+                  
+                  # Test restore to temporary namespace (dry-run)
+                  TEST_NS="backup-test-$(date +%s)"
+                  echo "Testing restore to namespace: $TEST_NS"
+                  
+                  velero restore create test-restore-$TEST_NS \
+                    --from-backup $LATEST_BACKUP \
+                    --namespace-mappings isectech-production:$TEST_NS \
+                    --include-namespaces isectech-production \
+                    --wait
+                  
+                  # Verify restore success
+                  RESTORE_STATUS=$(velero restore get test-restore-$TEST_NS -o json | jq -r '.status.phase')
+                  
+                  if [ "$RESTORE_STATUS" != "Completed" ]; then
+                    echo "ERROR: Restore test failed with status: $RESTORE_STATUS"
+                    exit 1
+                  fi
+                  
+                  echo "Backup verification completed successfully"
+                  
+                  # Clean up test namespace
+                  kubectl delete namespace $TEST_NS --ignore-not-found=true
+                  
+                  # Send success notification
+                  curl -X POST "${SLACK_WEBHOOK_URL}" \
+                    -H 'Content-type: application/json' \
+                    --data "{\"text\":\"✅ Daily backup verification passed for backup: $LATEST_BACKUP\"}"
+              
+              env:
+                - name: SLACK_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-notifications
+                      key: slack-webhook-url
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: velero-aws-credentials
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: velero-aws-credentials
+                      key: secret-access-key
+              
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              
+              volumeMounts:
+                - name: aws-credentials
+                  mountPath: /root/.aws/credentials
+                  subPath: credentials
+                  readOnly: true
+          
+          volumes:
+            - name: aws-credentials
+              secret:
+                secretName: velero-aws-credentials
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# RBAC AND SERVICE ACCOUNTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-verification
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/instance: isectech
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-verification
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/instance: isectech
+rules:
+  - apiGroups: ["velero.io"]
+    resources: ["backups", "restores"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "secrets", "services"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-verification
+  labels:
+    app.kubernetes.io/name: backup-verification
+    app.kubernetes.io/instance: isectech
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backup-verification
+subjects:
+  - kind: ServiceAccount
+    name: backup-verification
+    namespace: velero
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# MONITORING AND ALERTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: velero-backup-monitoring
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+    prometheus: isectech
+spec:
+  groups:
+    - name: velero.backup.rules
+      interval: 30s
+      rules:
+        - alert: VeleroBackupFailed
+          expr: increase(velero_backup_failure_total[1h]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero backup has failed"
+            description: "Velero backup {{ $labels.schedule }} has failed in the last hour"
+            runbook_url: "https://docs.isectech.com/runbooks/backup-failure"
+        
+        - alert: VeleroBackupPartialFailure
+          expr: increase(velero_backup_partial_failure_total[1h]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero backup has partial failures"
+            description: "Velero backup {{ $labels.schedule }} has partial failures"
+        
+        - alert: VeleroBackupMissing
+          expr: time() - velero_backup_last_successful_timestamp > 86400
+          for: 5m
+          labels:
+            severity: critical
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero backup is missing"
+            description: "No successful Velero backup in the last 24 hours for schedule {{ $labels.schedule }}"
+        
+        - alert: VeleroBackupTooLong
+          expr: velero_backup_duration_seconds > 3600
+          for: 0m
+          labels:
+            severity: warning
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero backup taking too long"
+            description: "Velero backup {{ $labels.schedule }} is taking longer than 1 hour"
+        
+        - alert: VeleroRestoreFailed
+          expr: increase(velero_restore_failed_total[1h]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero restore has failed"
+            description: "Velero restore has failed: {{ $labels.restore }}"
+        
+        - alert: VeleroVolumeSnapshotFailed
+          expr: increase(velero_volume_snapshot_failure_total[1h]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: infrastructure
+            service: backup
+          annotations:
+            summary: "Velero volume snapshot has failed"
+            description: "Velero volume snapshot has failed for backup {{ $labels.backup }}"
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECRETS CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-notifications
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+type: Opaque
+stringData:
+  slack-webhook-url: "${SLACK_WEBHOOK_URL}"
+  pagerduty-integration-key: "${PAGERDUTY_INTEGRATION_KEY}"
+
+---
+# AWS credentials for Velero (to be populated with actual values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: velero-aws-credentials
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: isectech
+type: Opaque
+stringData:
+  access-key-id: "${AWS_ACCESS_KEY_ID}"
+  secret-access-key: "${AWS_SECRET_ACCESS_KEY}"
+  credentials: |
+    [default]
+    aws_access_key_id=${AWS_ACCESS_KEY_ID}
+    aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}

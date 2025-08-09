@@ -1,0 +1,173 @@
+# Spectral configuration for OpenAPI linting
+# https://meta.stoplight.io/docs/spectral/
+
+extends: 
+  - spectral:oas
+
+rules:
+  # Custom rules for iSECTECH API standards
+  
+  # Info Object Rules
+  info-contact: true
+  info-description: true
+  info-license: warn
+  
+  # Security Rules
+  oas3-api-servers: error
+  oas3-security-defined: error
+  oas3-no-example-value-and-examples: error
+  
+  # Operation Rules
+  operation-description: warn
+  operation-operationId-unique: error
+  operation-operationId-valid-in-url: error
+  operation-singular-tag: error
+  operation-tag-defined: error
+  operation-tags: error
+  
+  # Parameter Rules
+  path-params: error
+  operation-parameters: error
+  
+  # Response Rules
+  operation-success-response: error
+  oas3-valid-media-example: error
+  oas3-valid-schema-example: error
+  
+  # Schema Rules
+  oas3-unused-component: warn
+  duplicated-entry-in-enum: warn
+  
+  # Custom iSECTECH Rules
+  isectech-security-scheme-defined:
+    description: All operations must have security requirements
+    given: "$.paths.*[get,post,put,patch,delete]"
+    then:
+      - field: security
+        function: truthy
+    severity: error
+    
+  isectech-rate-limit-documented:
+    description: High-frequency endpoints should document rate limits
+    given: "$.paths.*[get,post,put,patch,delete]"
+    then:
+      function: pattern
+      functionOptions:
+        match: "rate.limit|requests.per.minute|429"
+    severity: warn
+    
+  isectech-security-tags:
+    description: Security-related endpoints should be properly tagged
+    given: "$.paths['/auth/**','/trust-score/**','/policy/**'].*[get,post,put,patch,delete]"
+    then:
+      - field: tags
+        function: schema
+        functionOptions:
+          schema:
+            type: array
+            contains:
+              enum: ['Authentication', 'Authorization', 'Trust Scoring', 'Policy']
+    severity: error
+    
+  isectech-error-responses:
+    description: Operations should include standard error responses
+    given: "$.paths.*[get,post,put,patch,delete]"
+    then:
+      - field: responses
+        function: schema
+        functionOptions:
+          schema:
+            type: object
+            properties:
+              '401':
+                type: object
+              '403': 
+                type: object
+              '429':
+                type: object
+              '500':
+                type: object
+    severity: warn
+    
+  isectech-consistent-error-schema:
+    description: Error responses should use consistent schema
+    given: "$.paths.*[get,post,put,patch,delete].responses[4xx,5xx]"
+    then:
+      function: pattern
+      functionOptions:
+        match: "BadRequest|Unauthorized|Forbidden|RateLimited|InternalError"
+    severity: warn
+    
+  isectech-request-id-header:
+    description: Responses should include request ID for traceability
+    given: "$.paths.*[get,post,put,patch,delete].responses[2xx,4xx,5xx]"
+    then:
+      - field: headers
+        function: schema
+        functionOptions:
+          schema:
+            type: object
+            properties:
+              'X-Request-ID':
+                type: object
+    severity: info
+    
+  isectech-pagination-params:
+    description: List operations should include pagination parameters
+    given: "$.paths.*[get][?(@.tags[*] != 'Health')]"
+    then:
+      - field: parameters
+        function: schema
+        functionOptions:
+          schema:
+            type: array
+            contains:
+              anyOf:
+                - properties:
+                    name:
+                      const: "limit"
+                - properties:
+                    name:
+                      const: "offset"
+    severity: info
+    
+  isectech-security-examples:
+    description: Security endpoints should include comprehensive examples
+    given: "$.paths['/auth/**','/trust-score/**'].*.requestBody"
+    then:
+      function: truthy
+      field: "content.application/json.examples"
+    severity: warn
+    
+  isectech-version-in-servers:
+    description: Server URLs should include API version
+    given: "$.servers[*].url"
+    then:
+      function: pattern
+      functionOptions:
+        match: "v[0-9]+|version"
+    severity: warn
+
+# Additional custom functions
+functions:
+  - isectech-security-check
+  - isectech-rate-limit-check
+
+# Formats to validate
+formats:
+  - oas3
+  - oas3.0
+  - oas3.1
+
+# Aliases for reusable JSONPath expressions
+aliases:
+  SecurityPaths:
+    - "$.paths['/auth/**']"
+    - "$.paths['/trust-score/**']" 
+    - "$.paths['/policy/**']"
+  ListOperations:
+    - "$.paths.*.get[?(@.operationId =~ /list|get.*s$/)]"
+  HighFrequencyPaths:
+    - "$.paths['/trust-score/**']"
+    - "$.paths['/notifications/**']"
+    - "$.paths['/policy/evaluate']"

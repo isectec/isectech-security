@@ -1,0 +1,619 @@
+# iSECTECH Encrypted Traffic Analysis Configuration
+# Production-grade encrypted traffic analysis without payload decryption
+
+# General Configuration
+general:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service settings
+  service_name: "encrypted-traffic-analyzer"
+  version: "1.0.0"
+  bind_address: "0.0.0.0"
+  port: 8445
+  
+  # Analysis modes
+  analysis_modes:
+    ja3_fingerprinting: true
+    ja3s_fingerprinting: true
+    certificate_analysis: true
+    flow_analysis: true
+    timing_analysis: true
+    entropy_analysis: true
+
+# JA3/JA3S Fingerprinting Configuration
+ja3:
+  # General settings
+  enabled: true
+  
+  # JA3 fingerprint analysis
+  ja3_analysis:
+    enabled: true
+    fingerprint_cache_size: 100000
+    cache_ttl: 86400  # 24 hours
+    
+    # TLS Client Hello analysis
+    client_hello:
+      analyze_extensions: true
+      analyze_cipher_suites: true
+      analyze_elliptic_curves: true
+      analyze_signature_algorithms: true
+      
+    # Known malicious JA3 signatures
+    malicious_ja3_db:
+      enabled: true
+      update_frequency: 3600  # 1 hour
+      sources:
+        - type: "file"
+          path: "/etc/nsm/threat_intel/malicious_ja3.txt"
+        - type: "api"
+          url: "https://ti.isectech.local/api/v1/ja3"
+          api_key: "${TI_API_KEY}"
+  
+  # JA3S fingerprint analysis
+  ja3s_analysis:
+    enabled: true
+    
+    # TLS Server Hello analysis
+    server_hello:
+      analyze_cipher_suite: true
+      analyze_extensions: true
+      analyze_compression: true
+      
+    # Server fingerprint patterns
+    server_patterns:
+      suspicious_servers: true
+      certificate_mismatch: true
+      unusual_configurations: true
+  
+  # Fingerprint correlation
+  correlation:
+    enabled: true
+    time_window: 3600  # 1 hour
+    max_correlations: 1000
+    
+    # Correlation rules
+    rules:
+      - name: "ja3_ja3s_mismatch"
+        description: "JA3 and JA3S fingerprint mismatch"
+        confidence: 0.7
+        
+      - name: "rare_ja3_combination"
+        description: "Rarely seen JA3/JA3S combination"
+        confidence: 0.5
+        
+      - name: "malicious_ja3_pattern"
+        description: "Known malicious JA3 pattern detected"
+        confidence: 0.9
+
+# Certificate Analysis Configuration
+certificates:
+  # General settings
+  enabled: true
+  
+  # X.509 certificate analysis
+  x509_analysis:
+    enabled: true
+    
+    # Certificate validation
+    validation:
+      check_expiration: true
+      check_revocation: false  # Performance intensive
+      check_chain: true
+      check_hostname: true
+      
+    # Suspicious indicators
+    suspicious_indicators:
+      self_signed: true
+      weak_signature: true
+      unusual_extensions: true
+      short_validity: true
+      suspicious_subject: true
+      suspicious_issuer: true
+      
+    # Certificate fingerprinting
+    fingerprinting:
+      enabled: true
+      hash_algorithms: ["sha1", "sha256"]
+      store_certificates: false  # Privacy consideration
+      
+  # Certificate Authority analysis
+  ca_analysis:
+    enabled: true
+    
+    # Known CA patterns
+    trusted_cas:
+      enabled: true
+      whitelist_file: "/etc/nsm/certificate_analysis/trusted_cas.txt"
+      
+    suspicious_cas:
+      enabled: true
+      blacklist_file: "/etc/nsm/certificate_analysis/suspicious_cas.txt"
+      
+    # CA reputation scoring
+    reputation_scoring:
+      enabled: true
+      factors:
+        - prevalence
+        - age
+        - geographic_distribution
+        - certificate_lifetime
+        
+  # Certificate transparency analysis
+  certificate_transparency:
+    enabled: false  # Requires external CT log access
+    ct_logs:
+      - "https://ct.googleapis.com/rocketeer/"
+      - "https://ct.googleapis.com/aviator/"
+    check_frequency: 86400  # 24 hours
+
+# Encrypted Flow Analysis Configuration
+flows:
+  # General settings
+  enabled: true
+  
+  # Flow behavioral analysis
+  behavioral_analysis:
+    enabled: true
+    
+    # Flow patterns
+    flow_patterns:
+      connection_frequency: true
+      data_volume_patterns: true
+      timing_patterns: true
+      session_duration: true
+      
+    # Anomaly detection for encrypted flows
+    anomaly_detection:
+      enabled: true
+      baseline_period: 604800  # 7 days
+      update_frequency: 86400  # 24 hours
+      
+      # Statistical thresholds
+      thresholds:
+        packet_size_variance: 2.0
+        inter_arrival_time: 2.5
+        flow_duration: 3.0
+        byte_distribution: 2.0
+        
+  # Entropy analysis
+  entropy_analysis:
+    enabled: true
+    
+    # Packet-level entropy
+    packet_entropy:
+      enabled: true
+      window_size: 1024  # bytes
+      sliding_window: true
+      entropy_threshold: 7.5  # High entropy indicates encryption
+      
+    # Flow-level entropy
+    flow_entropy:
+      enabled: true
+      sampling_rate: 0.1  # Sample 10% of packets
+      min_packets: 10
+      
+    # Entropy patterns
+    entropy_patterns:
+      detect_compression: true
+      detect_encryption: true
+      detect_encoding: true
+      
+  # Timing analysis
+  timing_analysis:
+    enabled: true
+    
+    # Inter-packet timing
+    inter_packet_timing:
+      enabled: true
+      precision: "microseconds"
+      patterns:
+        - regular_intervals
+        - burst_patterns
+        - gradual_changes
+        
+    # Flow timing characteristics
+    flow_timing:
+      handshake_timing: true
+      data_transfer_timing: true
+      teardown_timing: true
+      
+    # Timing-based fingerprinting
+    timing_fingerprinting:
+      enabled: true
+      create_signatures: true
+      signature_cache_size: 10000
+
+# Machine Learning Configuration
+machine_learning:
+  # General ML settings
+  enabled: true
+  model_update_frequency: 86400  # 24 hours
+  
+  # Encrypted traffic classification
+  traffic_classification:
+    enabled: true
+    
+    # Feature extraction
+    features:
+      statistical_features: true
+      timing_features: true
+      size_features: true
+      entropy_features: true
+      
+    # Classification models
+    models:
+      - name: "random_forest"
+        enabled: true
+        parameters:
+          n_estimators: 200
+          max_depth: 10
+          min_samples_split: 5
+          
+      - name: "gradient_boosting"
+        enabled: true
+        parameters:
+          n_estimators: 100
+          learning_rate: 0.1
+          max_depth: 6
+          
+      - name: "neural_network"
+        enabled: false  # Computationally intensive
+        parameters:
+          hidden_layers: [128, 64, 32]
+          activation: "relu"
+          epochs: 50
+          
+  # Anomaly detection
+  anomaly_detection:
+    enabled: true
+    
+    # Unsupervised learning
+    unsupervised_models:
+      - name: "isolation_forest"
+        enabled: true
+        contamination: 0.1
+        
+      - name: "one_class_svm"
+        enabled: false
+        nu: 0.1
+        
+      - name: "local_outlier_factor"
+        enabled: true
+        n_neighbors: 20
+        
+  # Model training and validation
+  training:
+    training_data_size: 100000
+    validation_split: 0.2
+    cross_validation_folds: 5
+    feature_selection: true
+    hyperparameter_tuning: false  # Disable for production
+
+# Threat Intelligence Integration
+threat_intelligence:
+  # General settings
+  enabled: true
+  update_frequency: 3600  # 1 hour
+  
+  # External threat feeds
+  feeds:
+    # SSL Blacklist
+    ssl_blacklist:
+      enabled: true
+      url: "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
+      format: "csv"
+      fields: ["sha1", "reason"]
+      
+    # Malware SSL certificates
+    malware_ssl:
+      enabled: true
+      url: "https://ti.isectech.local/api/v1/malware-ssl"
+      api_key: "${TI_API_KEY}"
+      format: "json"
+      
+    # JA3 threat feed
+    ja3_threats:
+      enabled: true
+      url: "https://ti.isectech.local/api/v1/ja3-threats"
+      api_key: "${TI_API_KEY}"
+      format: "json"
+      
+  # Local threat intelligence
+  local_intel:
+    enabled: true
+    database_path: "/var/lib/nsm/encrypted_threats.db"
+    
+    # Intelligence types
+    intelligence_types:
+      - suspicious_certificates
+      - malicious_ja3_signatures
+      - encrypted_c2_patterns
+      - exfiltration_indicators
+      
+  # Intelligence enrichment
+  enrichment:
+    enabled: true
+    geoip_enabled: true
+    geoip_database: "/var/lib/nsm/geoip/GeoLite2-Country.mmdb"
+    whois_enabled: false  # Performance consideration
+
+# Detection Rules Configuration
+detection_rules:
+  # Rule categories
+  categories:
+    # Certificate-based rules
+    certificate_rules:
+      - name: "self_signed_certificate"
+        description: "Self-signed certificate detected"
+        severity: "medium"
+        confidence: 0.6
+        
+      - name: "expired_certificate"
+        description: "Expired certificate in use"
+        severity: "high"
+        confidence: 0.9
+        
+      - name: "weak_signature_algorithm"
+        description: "Weak signature algorithm detected"
+        severity: "medium"
+        confidence: 0.7
+        
+      - name: "suspicious_certificate_subject"
+        description: "Suspicious certificate subject detected"
+        severity: "high"
+        confidence: 0.8
+        
+    # JA3-based rules
+    ja3_rules:
+      - name: "malicious_ja3_signature"
+        description: "Known malicious JA3 signature"
+        severity: "critical"
+        confidence: 0.95
+        
+      - name: "rare_ja3_combination"
+        description: "Rarely seen JA3/JA3S combination"
+        severity: "low"
+        confidence: 0.4
+        
+      - name: "ja3_user_agent_mismatch"
+        description: "JA3 signature doesn't match User-Agent"
+        severity: "medium"
+        confidence: 0.6
+        
+    # Flow-based rules
+    flow_rules:
+      - name: "unusual_encrypted_flow_pattern"
+        description: "Unusual pattern in encrypted flow"
+        severity: "medium"
+        confidence: 0.5
+        
+      - name: "high_entropy_outbound"
+        description: "High entropy outbound traffic"
+        severity: "medium"
+        confidence: 0.6
+        
+      - name: "encrypted_c2_pattern"
+        description: "Potential encrypted C2 communication"
+        severity: "high"
+        confidence: 0.8
+        
+  # Rule tuning
+  tuning:
+    enabled: true
+    auto_tuning: false
+    
+    # Threshold adjustments
+    thresholds:
+      certificate_age_days: 30
+      ja3_rarity_threshold: 0.01
+      entropy_threshold: 7.5
+      flow_anomaly_threshold: 2.0
+
+# Output Configuration
+outputs:
+  # Database output
+  database:
+    enabled: true
+    connection_string: "sqlite:///var/lib/nsm/encrypted_analysis.db"
+    table_prefix: "enc_"
+    batch_size: 100
+    
+    # Tables to create
+    tables:
+      - certificates
+      - ja3_signatures
+      - encrypted_flows
+      - threats
+      - alerts
+      
+  # Redis output
+  redis:
+    enabled: true
+    host: "redis-nsm.isectech.local"
+    port: 6379
+    db: 5
+    password: "${REDIS_PASSWORD}"
+    key_prefix: "encrypted:"
+    ttl: 86400  # 24 hours
+    
+  # SIEM integration
+  siem:
+    enabled: true
+    
+    # Splunk
+    splunk:
+      enabled: true
+      host: "splunk.isectech.local"
+      port: 8088
+      token: "${SPLUNK_HEC_TOKEN}"
+      index: "encrypted_analysis"
+      
+    # Elastic
+    elastic:
+      enabled: true
+      hosts: ["elastic01.isectech.local:9200"]
+      username: "${ELASTIC_USERNAME}"
+      password: "${ELASTIC_PASSWORD}"
+      index: "encrypted-analysis"
+      
+  # File output
+  file:
+    enabled: false
+    path: "/var/log/nsm/encrypted_analysis.json"
+    rotation: "daily"
+    max_size_mb: 100
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_gb: 4
+  max_cpu_cores: 4
+  processing_timeout: 60
+  
+  # Parallel processing
+  parallel_processing:
+    enabled: true
+    worker_processes: 4
+    queue_size: 10000
+    
+  # Caching
+  caching:
+    enabled: true
+    cache_size_mb: 512
+    cache_ttl: 3600  # 1 hour
+    
+    # Cache types
+    certificate_cache: true
+    ja3_cache: true
+    flow_cache: true
+    
+  # Optimization
+  optimization:
+    enable_jit: false
+    memory_mapping: true
+    batch_processing: true
+    batch_size: 1000
+
+# Monitoring Configuration
+monitoring:
+  # Health checks
+  health_checks:
+    enabled: true
+    interval: 60  # seconds
+    timeout: 30
+    endpoint: "/health"
+    
+  # Metrics collection
+  metrics:
+    enabled: true
+    
+    # Performance metrics
+    performance_metrics:
+      - processing_rate
+      - memory_usage
+      - cpu_usage
+      - cache_hit_rate
+      - queue_size
+      
+    # Detection metrics
+    detection_metrics:
+      - certificates_analyzed
+      - ja3_signatures_detected
+      - flows_analyzed
+      - threats_detected
+      - false_positive_rate
+      
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    port: 9091
+    metrics_path: "/metrics"
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enabled: true
+    authentication_required: true
+    api_key_header: "X-API-Key"
+    
+    # Rate limiting
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 1000
+      burst_size: 100
+      
+  # Data protection
+  data_protection:
+    # Privacy settings
+    privacy:
+      anonymize_ips: false  # Keep for security analysis
+      hash_certificates: true
+      retention_days: 90
+      
+    # Encryption
+    encryption:
+      encrypt_stored_data: true
+      encryption_key_file: "/etc/nsm/encryption.key"
+      
+  # Audit logging
+  audit:
+    enabled: true
+    log_file: "/var/log/nsm/encrypted_analysis_audit.log"
+    log_level: "INFO"
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  
+  # Testing
+  test_mode: false
+  synthetic_data: false
+  
+  # Experimental features
+  experimental:
+    enable_deep_learning: false
+    enable_quantum_resistant_analysis: false
+    enable_protocol_inference: true
+    
+# Backup and Recovery
+backup:
+  # Database backups
+  database:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/encrypted_analysis"
+    
+  # Configuration backups
+  configuration:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+    
+# Resource Management
+resources:
+  # Memory management
+  memory:
+    max_certificate_cache_mb: 256
+    max_ja3_cache_mb: 128
+    max_flow_cache_mb: 512
+    garbage_collection_frequency: 300
+    
+  # Disk management
+  disk:
+    max_log_size_gb: 5
+    log_rotation_days: 30
+    database_max_size_gb: 10
+    
+  # Network management
+  network:
+    max_concurrent_connections: 1000
+    connection_timeout: 30
+    read_timeout: 60
+    write_timeout: 60

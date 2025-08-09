@@ -1,0 +1,395 @@
+name: API Documentation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'app/api/*.json'
+      - 'backend/*.json'
+      - 'docs/api/**'
+      - 'openapi-validation-config.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/api/*.json'
+      - 'backend/*.json'
+      - 'docs/api/**'
+      - 'openapi-validation-config.yaml'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy documentation'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+  DOCS_OUTPUT_DIR: 'docs/api/generated'
+
+jobs:
+  validate-specs:
+    name: 'Validate OpenAPI Specifications'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Install validation tools
+      run: |
+        npm install -g @redocly/cli@latest
+        npm install -g @stoplight/spectral-cli@latest
+        
+    - name: Create validation reports directory
+      run: mkdir -p validation-reports
+        
+    - name: Validate Frontend API specification
+      run: |
+        echo "Validating Frontend API..."
+        redocly lint app/api/openapi-complete.json --format=json > validation-reports/frontend-redocly.json || true
+        spectral lint app/api/openapi-complete.json --format=json > validation-reports/frontend-spectral.json || true
+        
+    - name: Validate Backend API specification
+      run: |
+        echo "Validating Backend API..."
+        redocly lint backend/openapi-backend-services.json --format=json > validation-reports/backend-redocly.json || true
+        spectral lint backend/openapi-backend-services.json --format=json > validation-reports/backend-spectral.json || true
+        
+    - name: Validate Extended APIs specification
+      run: |
+        echo "Validating Extended APIs..."
+        redocly lint app/api/openapi-extended-apis.json --format=json > validation-reports/extended-redocly.json || true
+        spectral lint app/api/openapi-extended-apis.json --format=json > validation-reports/extended-spectral.json || true
+        
+    - name: Run custom validation
+      run: npm run docs:validate
+      
+    - name: Upload validation reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: validation-reports-${{ github.sha }}
+        path: validation-reports/
+        retention-days: 30
+        
+    - name: Check validation results
+      run: |
+        echo "Validation completed. Check artifacts for detailed reports."
+        if [ -s validation-reports/frontend-redocly.json ] || [ -s validation-reports/backend-redocly.json ]; then
+          echo "⚠️ Some validation warnings/errors found. Please review."
+        else
+          echo "✅ All specifications passed validation."
+        fi
+
+  generate-docs:
+    name: 'Generate Documentation'
+    runs-on: ubuntu-latest
+    needs: validate-specs
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Clean previous documentation
+      run: npm run docs:clean
+      
+    - name: Generate documentation
+      run: npm run docs:generate
+      env:
+        DOCS_BUILD_ID: ${{ github.run_id }}
+        DOCS_COMMIT_HASH: ${{ github.sha }}
+        DOCS_BRANCH: ${{ github.ref_name }}
+        
+    - name: Verify documentation generation
+      run: |
+        if [ ! -d "${{ env.DOCS_OUTPUT_DIR }}" ]; then
+          echo "❌ Documentation generation failed - output directory not found"
+          exit 1
+        fi
+        
+        echo "✅ Documentation generated successfully"
+        echo "Generated files:"
+        find ${{ env.DOCS_OUTPUT_DIR }} -type f -name "*.html" | head -10
+        
+    - name: Generate documentation summary
+      run: |
+        cat > ${{ env.DOCS_OUTPUT_DIR }}/generation-summary.md << EOF
+        # API Documentation Generation Summary
+        
+        - **Build ID**: ${{ github.run_id }}
+        - **Commit**: ${{ github.sha }}
+        - **Branch**: ${{ github.ref_name }}
+        - **Generated**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        - **Workflow**: ${{ github.workflow }}
+        
+        ## Generated Formats
+        
+        - Interactive documentation (Swagger UI)
+        - Static documentation (ReDoc)  
+        - PDF documentation
+        - Postman collections
+        - Code examples (JavaScript, Python, Go, cURL, PHP)
+        
+        ## Specifications Processed
+        
+        - Frontend API (Complete)
+        - Backend Services API
+        - Extended APIs
+        
+        EOF
+        
+    - name: Upload documentation artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: api-documentation-${{ github.sha }}
+        path: ${{ env.DOCS_OUTPUT_DIR }}/
+        retention-days: 30
+        
+    - name: Upload documentation to release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ env.DOCS_OUTPUT_DIR }}/pdf/*.pdf
+          ${{ env.DOCS_OUTPUT_DIR }}/postman/*.json
+
+  security-scan:
+    name: 'Security Scan Documentation'
+    runs-on: ubuntu-latest
+    needs: generate-docs
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download documentation artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: api-documentation-${{ github.sha }}
+        path: ${{ env.DOCS_OUTPUT_DIR }}
+        
+    - name: Scan for sensitive information
+      run: |
+        echo "Scanning documentation for sensitive information..."
+        
+        # Check for common sensitive patterns
+        SENSITIVE_PATTERNS=(
+          "password.*="
+          "secret.*="
+          "api[_-]?key.*="
+          "token.*="
+          "private[_-]?key"
+          "sk-[a-zA-Z0-9]+"
+          "ey[A-Za-z0-9_=-]+\."
+        )
+        
+        FOUND_ISSUES=false
+        
+        for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+          if grep -r -i "$pattern" ${{ env.DOCS_OUTPUT_DIR }}/ --include="*.html" --include="*.js" --include="*.json"; then
+            echo "⚠️ Found potential sensitive information: $pattern"
+            FOUND_ISSUES=true
+          fi
+        done
+        
+        if [ "$FOUND_ISSUES" = true ]; then
+          echo "❌ Security scan found potential issues"
+          exit 1
+        else
+          echo "✅ Security scan passed"
+        fi
+
+  deploy-docs:
+    name: 'Deploy Documentation'
+    runs-on: ubuntu-latest
+    needs: [generate-docs, security-scan]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.deploy == 'true'
+    
+    environment:
+      name: documentation
+      url: ${{ steps.deployment.outputs.page_url }}
+      
+    permissions:
+      pages: write
+      id-token: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download documentation artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: api-documentation-${{ github.sha }}
+        path: ${{ env.DOCS_OUTPUT_DIR }}
+        
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+      
+    - name: Upload to GitHub Pages
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ${{ env.DOCS_OUTPUT_DIR }}
+        
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+      
+    - name: Update deployment status
+      run: |
+        echo "📖 Documentation deployed successfully!"
+        echo "URL: ${{ steps.deployment.outputs.page_url }}"
+        
+  notify:
+    name: 'Send Notifications'
+    runs-on: ubuntu-latest
+    needs: [validate-specs, generate-docs, security-scan, deploy-docs]
+    if: always()
+    
+    steps:
+    - name: Determine status
+      id: status
+      run: |
+        if [[ "${{ needs.validate-specs.result }}" == "success" && 
+              "${{ needs.generate-docs.result }}" == "success" && 
+              "${{ needs.security-scan.result }}" == "success" ]]; then
+          echo "overall=success" >> $GITHUB_OUTPUT
+          echo "message=API Documentation pipeline completed successfully" >> $GITHUB_OUTPUT
+        else
+          echo "overall=failure" >> $GITHUB_OUTPUT
+          echo "message=API Documentation pipeline failed" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Notify Slack
+      if: always() && vars.SLACK_WEBHOOK_URL
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ steps.status.outputs.overall }}
+        custom_payload: |
+          {
+            "channel": "#api-team",
+            "username": "GitHub Actions",
+            "icon_emoji": ":books:",
+            "attachments": [
+              {
+                "color": "${{ steps.status.outputs.overall == 'success' && '#36a64f' || '#ff0000' }}",
+                "title": "${{ steps.status.outputs.overall == 'success' && '✅' || '❌' }} API Documentation Pipeline",
+                "fields": [
+                  {
+                    "title": "Status",
+                    "value": "${{ steps.status.outputs.message }}",
+                    "short": false
+                  },
+                  {
+                    "title": "Repository",
+                    "value": "${{ github.repository }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Branch",
+                    "value": "${{ github.ref_name }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Commit",
+                    "value": "${{ github.sha }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Triggered by",
+                    "value": "${{ github.actor }}",
+                    "short": true
+                  }
+                ],
+                "actions": [
+                  {
+                    "type": "button",
+                    "text": "View Documentation",
+                    "url": "${{ needs.deploy-docs.outputs.page_url || format('https://{0}.github.io/{1}/api-docs/', github.repository_owner, github.event.repository.name) }}"
+                  },
+                  {
+                    "type": "button", 
+                    "text": "View Workflow",
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                ]
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+
+  performance-test:
+    name: 'Performance Test Documentation'
+    runs-on: ubuntu-latest
+    needs: generate-docs
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download documentation artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: api-documentation-${{ github.sha }}
+        path: ${{ env.DOCS_OUTPUT_DIR }}
+        
+    - name: Setup Python for local server
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Start local documentation server
+      run: |
+        cd ${{ env.DOCS_OUTPUT_DIR }}
+        python -m http.server 8080 &
+        echo $! > ../server.pid
+        sleep 5
+        
+    - name: Install Lighthouse
+      run: npm install -g @lhci/cli@latest
+        
+    - name: Run Lighthouse performance tests
+      run: |
+        mkdir -p lighthouse-results
+        
+        # Test main documentation pages
+        lhci collect \
+          --url=http://localhost:8080/index.html \
+          --url=http://localhost:8080/swagger/frontend/index.html \
+          --url=http://localhost:8080/redoc/frontend/index.html \
+          --numberOfRuns=3 \
+          --outputPath=lighthouse-results
+          
+    - name: Stop documentation server
+      run: |
+        if [ -f ${{ env.DOCS_OUTPUT_DIR }}/../server.pid ]; then
+          kill $(cat ${{ env.DOCS_OUTPUT_DIR }}/../server.pid) || true
+        fi
+        
+    - name: Upload Lighthouse results
+      uses: actions/upload-artifact@v4
+      with:
+        name: lighthouse-results-${{ github.sha }}
+        path: lighthouse-results/
+        retention-days: 30

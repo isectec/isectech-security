@@ -1,0 +1,536 @@
+# iSECTECH Chaos Engineering Experiments Configuration
+# Comprehensive chaos experiments for resilience validation
+
+experiments:
+  # Infrastructure Resilience Tests
+  - experimentId: "infra-001"
+    name: "Random EC2 Instance Termination"
+    description: "Randomly terminate EC2 instances to test auto-scaling and recovery"
+    type: "infrastructure"
+    
+    scope:
+      target_type: "ec2"
+      selector:
+        tags:
+          Environment: "staging"
+          ChaosEnabled: "true"
+        instance_types: ["m6i.large", "m6i.xlarge"]
+      percentage: 20  # Affect 20% of matching instances
+      
+    failure:
+      action: "terminate_instances"
+      parameters:
+        grace_period: 30
+        force: false
+      gradual_rollout: false
+      
+    duration: 300  # 5 minutes
+    
+    blast_radius:
+      max_affected_instances: 2
+      max_affected_services: 1
+      max_revenue_impact: 1000
+      max_user_impact: 500
+      
+    steady_state_hypothesis:
+      title: "Application remains available during instance termination"
+      probes:
+        - name: "api_health"
+          type: "http"
+          endpoint: "https://api.isectech.com/health"
+          expected_result: 200
+          timeout: 10
+          interval: 30
+        - name: "frontend_health"
+          type: "http"
+          endpoint: "https://app.isectech.com/health"
+          expected_result: 200
+          timeout: 10
+          interval: 30
+        - name: "response_time"
+          type: "metric"
+          query: "avg(http_request_duration_seconds{job=\"isectech-api\"})"
+          expected_result:
+            operator: "<"
+            threshold: 2.0
+          timeout: 5
+          interval: 30
+      tolerance_threshold: 90
+      
+    monitoring:
+      metrics:
+        - "up{job=\"isectech-api\"}"
+        - "http_requests_total"
+        - "http_request_duration_seconds"
+        - "aws_ec2_instance_state"
+      alerts:
+        - name: "high_response_time"
+          condition: "avg(http_request_duration_seconds) > 3"
+          severity: "warning"
+          notification_channels: ["#chaos-alerts"]
+      dashboards: ["chaos-infrastructure"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["response_time_high", "error_rate_high"]
+      timeout: 600
+      
+    schedule: "0 10 * * 1"  # Every Monday at 10 AM
+    enabled: true
+    environment: ["staging", "production-test"]
+    approval_required: true
+    risk_level: "medium"
+    compliance_frameworks: ["SOC2"]
+    created_by: "platform-engineering"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+  # Application-Level Resilience Tests
+  - experimentId: "app-001"
+    name: "Backend Service Pod Termination"
+    description: "Terminate backend service pods to test Kubernetes resilience"
+    type: "application"
+    
+    scope:
+      target_type: "pod"
+      selector:
+        namespace: "isectech-production"
+        labels:
+          app: "isectech-backend"
+          tier: "backend"
+      count: 1
+      
+    failure:
+      action: "kill_application"
+      parameters:
+        process_name: "node"
+        signal: "SIGTERM"
+      gradual_rollout: false
+      delay_before_injection: 0
+      
+    duration: 180  # 3 minutes
+    
+    blast_radius:
+      max_affected_instances: 1
+      max_affected_services: 1
+      max_revenue_impact: 500
+      max_user_impact: 200
+      
+    steady_state_hypothesis:
+      title: "API remains responsive during backend pod termination"
+      probes:
+        - name: "api_availability"
+          type: "http"
+          endpoint: "https://api.isectech.com/v1/status"
+          expected_result: 200
+          timeout: 5
+          interval: 15
+        - name: "kubernetes_pod_ready"
+          type: "kubernetes"
+          query: "sum(kube_pod_status_ready{namespace=\"isectech-production\",pod=~\"isectech-backend-.*\"})"
+          expected_result:
+            operator: ">="
+            threshold: 2
+          timeout: 5
+          interval: 20
+      tolerance_threshold: 95
+      
+    monitoring:
+      metrics:
+        - "kube_pod_status_ready"
+        - "kube_deployment_status_replicas_available"
+        - "http_requests_total{service=\"isectech-backend\"}"
+        - "http_request_duration_seconds{service=\"isectech-backend\"}"
+      alerts:
+        - name: "pod_not_ready"
+          condition: "kube_pod_status_ready < 2"
+          severity: "critical"
+          notification_channels: ["#chaos-alerts", "#sre-team"]
+      dashboards: ["chaos-application"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["pod_not_recovering", "api_down"]
+      timeout: 300
+      
+    schedule: "0 14 * * 2,4"  # Tuesday and Thursday at 2 PM
+    enabled: true
+    environment: ["staging"]
+    approval_required: false
+    risk_level: "low"
+    compliance_frameworks: ["SOC2"]
+    created_by: "sre-team"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+  # Network Resilience Tests
+  - experimentId: "net-001"
+    name: "Database Connection Latency Injection"
+    description: "Inject network latency to database connections"
+    type: "network"
+    
+    scope:
+      target_type: "service"
+      selector:
+        namespace: "isectech-production"
+        labels:
+          app: "isectech-backend"
+      percentage: 50
+      
+    failure:
+      action: "inject_latency"
+      parameters:
+        latency_ms: 1000
+        jitter_ms: 200
+        target_ports: [5432]  # PostgreSQL
+      gradual_rollout: true
+      delay_before_injection: 30
+      
+    duration: 600  # 10 minutes
+    
+    blast_radius:
+      max_affected_instances: 3
+      max_affected_services: 1
+      max_revenue_impact: 2000
+      max_user_impact: 1000
+      
+    steady_state_hypothesis:
+      title: "Application handles database latency gracefully"
+      probes:
+        - name: "api_response_time"
+          type: "metric"
+          query: "histogram_quantile(0.95, http_request_duration_seconds{service=\"isectech-backend\"})"
+          expected_result:
+            operator: "<"
+            threshold: 5.0
+          timeout: 10
+          interval: 30
+        - name: "database_connections"
+          type: "metric"
+          query: "sum(pg_stat_activity_count{state=\"active\"})"
+          expected_result:
+            operator: "<"
+            threshold: 100
+          timeout: 5
+          interval: 30
+      tolerance_threshold: 80
+      
+    monitoring:
+      metrics:
+        - "http_request_duration_seconds"
+        - "db_connection_pool_size"
+        - "db_connection_pool_used"
+        - "db_query_duration_seconds"
+      alerts:
+        - name: "high_db_latency"
+          condition: "avg(db_query_duration_seconds) > 2"
+          severity: "warning"
+          notification_channels: ["#chaos-alerts"]
+      dashboards: ["chaos-network"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["connection_pool_exhausted", "api_timeout"]
+      timeout: 900
+      
+    schedule: "0 16 * * 3"  # Every Wednesday at 4 PM
+    enabled: true
+    environment: ["staging"]
+    approval_required: true
+    risk_level: "medium"
+    compliance_frameworks: ["SOC2"]
+    created_by: "platform-engineering"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+  # Security Resilience Tests
+  - experimentId: "sec-001"
+    name: "Authentication Service Failure"
+    description: "Simulate authentication service failures to test fallback mechanisms"
+    type: "security"
+    
+    scope:
+      target_type: "service"
+      selector:
+        namespace: "isectech-security"
+        labels:
+          app: "auth-service"
+      count: 1
+      
+    failure:
+      action: "auth_failure"
+      parameters:
+        failure_rate: 30  # 30% of auth requests fail
+        failure_types: ["timeout", "invalid_token", "service_unavailable"]
+      gradual_rollout: true
+      delay_before_injection: 60
+      
+    duration: 420  # 7 minutes
+    
+    blast_radius:
+      max_affected_instances: 1
+      max_affected_services: 1
+      max_revenue_impact: 1500
+      max_user_impact: 2000
+      
+    steady_state_hypothesis:
+      title: "Application provides graceful degradation during auth failures"
+      probes:
+        - name: "login_success_rate"
+          type: "metric"
+          query: "rate(auth_requests_total{status=\"success\"}[5m]) / rate(auth_requests_total[5m])"
+          expected_result:
+            operator: ">"
+            threshold: 0.7
+          timeout: 10
+          interval: 30
+        - name: "guest_access_available"
+          type: "http"
+          endpoint: "https://app.isectech.com/guest"
+          expected_result: 200
+          timeout: 5
+          interval: 30
+      tolerance_threshold: 85
+      
+    monitoring:
+      metrics:
+        - "auth_requests_total"
+        - "auth_request_duration_seconds"
+        - "user_sessions_active"
+        - "fallback_auth_usage"
+      alerts:
+        - name: "auth_failure_rate_high"
+          condition: "rate(auth_requests_total{status=\"error\"}[5m]) > 0.5"
+          severity: "critical"
+          notification_channels: ["#security-alerts", "#chaos-alerts"]
+      dashboards: ["chaos-security"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["auth_completely_down", "user_lockout"]
+      timeout: 600
+      
+    schedule: "0 11 * * 5"  # Every Friday at 11 AM
+    enabled: true
+    environment: ["staging"]
+    approval_required: true
+    risk_level: "high"
+    compliance_frameworks: ["SOC2", "ISO27001"]
+    created_by: "security-team"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+  # Data Resilience Tests
+  - experimentId: "data-001"
+    name: "Database Connection Pool Exhaustion"
+    description: "Exhaust database connection pool to test connection handling"
+    type: "data"
+    
+    scope:
+      target_type: "database"
+      selector:
+        instance_name: "isectech-postgres-primary"
+        region: "us-east-1"
+      count: 1
+      
+    failure:
+      action: "database_connection_failure"
+      parameters:
+        connection_limit: 5  # Reduce max connections to 5
+        duration: 300
+      gradual_rollout: false
+      
+    duration: 300  # 5 minutes
+    
+    blast_radius:
+      max_affected_instances: 1
+      max_affected_services: 3
+      max_revenue_impact: 3000
+      max_user_impact: 1500
+      
+    steady_state_hypothesis:
+      title: "Application handles database connection limits gracefully"
+      probes:
+        - name: "api_error_rate"
+          type: "metric"
+          query: "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m])"
+          expected_result:
+            operator: "<"
+            threshold: 0.1
+          timeout: 10
+          interval: 30
+        - name: "database_health"
+          type: "http"
+          endpoint: "https://api.isectech.com/health/database"
+          expected_result: 200
+          timeout: 15
+          interval: 30
+      tolerance_threshold: 75
+      
+    monitoring:
+      metrics:
+        - "db_connections_active"
+        - "db_connections_idle"
+        - "db_connection_errors_total"
+        - "http_requests_total{path=~\".*database.*\"}"
+      alerts:
+        - name: "db_connection_pool_full"
+          condition: "db_connections_active >= db_connections_max * 0.9"
+          severity: "critical"
+          notification_channels: ["#database-alerts", "#chaos-alerts"]
+      dashboards: ["chaos-data"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["database_unavailable", "too_many_errors"]
+      timeout: 450
+      
+    schedule: "0 13 * * 1"  # Every Monday at 1 PM
+    enabled: true
+    environment: ["staging"]
+    approval_required: true
+    risk_level: "high"
+    compliance_frameworks: ["SOC2"]
+    created_by: "data-engineering"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+  # Comprehensive Resilience Test
+  - experimentId: "comprehensive-001"
+    name: "Multi-Service Cascade Failure Test"
+    description: "Comprehensive test simulating multiple service failures"
+    type: "infrastructure"
+    
+    scope:
+      target_type: "service"
+      selector:
+        namespace: "isectech-production"
+        labels:
+          tier: "backend"
+      percentage: 30
+      
+    failure:
+      action: "multi_service_failure"
+      parameters:
+        failures:
+          - type: "pod_termination"
+            target: "isectech-backend"
+            delay: 0
+          - type: "network_latency"
+            target: "database"
+            delay: 120
+          - type: "resource_exhaustion"
+            target: "cache"
+            delay: 240
+      gradual_rollout: true
+      delay_before_injection: 0
+      
+    duration: 900  # 15 minutes
+    
+    blast_radius:
+      max_affected_instances: 5
+      max_affected_services: 3
+      max_revenue_impact: 5000
+      max_user_impact: 3000
+      geographic_limit: ["us-east-1"]
+      
+    steady_state_hypothesis:
+      title: "Platform maintains core functionality during cascading failures"
+      probes:
+        - name: "critical_apis_available"
+          type: "http"
+          endpoint: "https://api.isectech.com/v1/critical/health"
+          expected_result: 200
+          timeout: 30
+          interval: 60
+        - name: "user_experience_acceptable"
+          type: "metric"
+          query: "histogram_quantile(0.95, http_request_duration_seconds{endpoint=\"/\"})"
+          expected_result:
+            operator: "<"
+            threshold: 10.0
+          timeout: 15
+          interval: 60
+        - name: "data_consistency"
+          type: "http"
+          endpoint: "https://api.isectech.com/v1/consistency/check"
+          expected_result: 200
+          timeout: 20
+          interval: 120
+      tolerance_threshold: 70
+      
+    monitoring:
+      metrics:
+        - "up"
+        - "http_requests_total"
+        - "http_request_duration_seconds"
+        - "business_transactions_total"
+        - "error_budget_remaining"
+      alerts:
+        - name: "sla_breach_imminent"
+          condition: "error_budget_remaining < 0.1"
+          severity: "critical"
+          notification_channels: ["#sre-escalation", "#executives"]
+      dashboards: ["chaos-comprehensive"]
+      log_collection: true
+      
+    rollback:
+      automatic: true
+      triggers: ["sla_breach", "critical_service_down", "data_loss_detected"]
+      timeout: 1200
+      custom_actions:
+        - "scale_up_all_services"
+        - "activate_circuit_breakers"
+        - "enable_read_only_mode"
+      
+    schedule: "0 9 1 * *"  # First day of month at 9 AM
+    enabled: false  # Disabled by default - requires manual execution
+    environment: ["staging"]
+    approval_required: true
+    risk_level: "critical"
+    compliance_frameworks: ["SOC2", "ISO27001"]
+    created_by: "platform-engineering"
+    created_at: "2024-01-15T00:00:00Z"
+    execution_count: 0
+
+---
+# Global experiment configuration
+globalConfig:
+  defaultTimeout: 1800  # 30 minutes
+  maxConcurrentExperiments: 2
+  
+  safetyLimits:
+    maxExperimentsPerDay: 5
+    maxExperimentsPerWeek: 15
+    emergencyStopConditions:
+      - "error_rate > 25%"
+      - "availability < 95%"
+      - "response_time > 10s"
+    
+  notifications:
+    defaultChannels: ["#chaos-engineering"]
+    escalationChannels: ["#sre-escalation"]
+    
+  compliance:
+    auditingEnabled: true
+    evidenceRetention: 2555  # 7 years
+    approvalWorkflow: true
+    
+  environments:
+    staging:
+      allowedRiskLevels: ["low", "medium", "high", "critical"]
+      autoApprovalRiskLevel: "medium"
+      
+    production-test:
+      allowedRiskLevels: ["low", "medium"]
+      autoApprovalRiskLevel: "low"
+      
+    production:
+      allowedRiskLevels: ["low"]
+      autoApprovalRiskLevel: "none"
+      requireExecutiveApproval: true

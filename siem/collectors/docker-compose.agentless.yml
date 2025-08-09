@@ -1,0 +1,516 @@
+# iSECTECH SIEM Agentless Collectors Docker Compose
+# Production-ready deployment for agentless log collection services
+
+version: '3.8'
+
+networks:
+  isectech-siem:
+    external: true
+  monitoring:
+    external: true
+
+volumes:
+  rsyslog-config:
+    driver: local
+  rsyslog-certs:
+    driver: local
+  snmp-config:
+    driver: local
+  flow-data:
+    driver: local
+  redis-data:
+    driver: local
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SYSLOG RECEIVER SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  syslog-receiver:
+    image: rsyslog/rsyslog_base_ubuntu:8.2204.0-3.33.1ubuntu2-rs1
+    container_name: isectech-syslog-receiver
+    hostname: syslog-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      # Standard syslog ports
+      - "514:514/udp"
+      - "514:514/tcp"
+      # Secure syslog ports
+      - "1514:1514/udp"
+      - "6514:6514/tcp"
+      # RELP
+      - "20514:20514/tcp"
+      # Metrics
+      - "9101:9101/tcp"
+    
+    volumes:
+      - ./syslog-receiver.conf:/etc/rsyslog.conf:ro
+      - ./certs:/etc/rsyslog/certs:ro
+      - rsyslog-config:/etc/rsyslog
+      - /var/log/siem:/var/log/siem
+      - /var/spool/rsyslog:/var/spool/rsyslog
+    
+    environment:
+      - RSYSLOG_CONF=/etc/rsyslog.conf
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    sysctls:
+      - net.core.rmem_max=134217728
+      - net.core.wmem_max=134217728
+      - net.ipv4.udp_mem=102400 873800 16777216
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
+    
+    healthcheck:
+      test: ["CMD", "rsyslogd", "-N", "1", "-f", "/etc/rsyslog.conf"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=syslog-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SNMP COLLECTOR SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  snmp-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.snmp
+    container_name: isectech-snmp-collector
+    hostname: snmp-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9161:9161/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./snmp-collector.py:/app/snmp-collector.py:ro
+      - ./snmp-collector.yaml:/etc/isectech-siem/snmp-collector.yaml:ro
+      - snmp-config:/etc/isectech-siem
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=2
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    
+    depends_on:
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9161/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=snmp-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # NETWORK FLOW COLLECTOR SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  flow-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.flow
+    container_name: isectech-flow-collector
+    hostname: flow-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      # NetFlow v5/v9
+      - "2055:2055/udp"
+      # sFlow
+      - "6343:6343/udp"
+      # IPFIX
+      - "4739:4739/udp"
+      - "4739:4739/tcp"
+      # Metrics
+      - "9162:9162/tcp"
+    
+    volumes:
+      - ./network-flow-collector.go:/app/main.go:ro
+      - ./flow-collector.yaml:/etc/isectech-siem/flow-collector.yaml:ro
+      - flow-data:/var/lib/flow-collector
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=3
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - GOMAXPROCS=4
+    
+    depends_on:
+      - redis-cache
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
+    
+    healthcheck:
+      test: ["CMD", "/app/flow-collector", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=flow-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # REDIS CACHE SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  redis-cache:
+    image: redis:7.2.4-alpine
+    container_name: isectech-redis-cache
+    hostname: redis-cache.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "6379:6379/tcp"
+    
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    
+    command: redis-server /usr/local/etc/redis/redis.conf
+    
+    environment:
+      - TZ=UTC
+    
+    sysctls:
+      - net.core.somaxconn=65535
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=redis-cache"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # WMI COLLECTOR SERVICE (WINDOWS INTEGRATION)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  wmi-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.wmi
+    container_name: isectech-wmi-collector
+    hostname: wmi-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9163:9163/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./wmi-collector.py:/app/wmi-collector.py:ro
+      - ./wmi-collector.yaml:/etc/isectech-siem/wmi-collector.yaml:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9163/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=wmi-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # MONITORING AND METRICS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  prometheus-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: isectech-agentless-exporter
+    hostname: agentless-exporter.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - monitoring
+    
+    ports:
+      - "9100:9100/tcp"
+    
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--web.listen-address=0.0.0.0:9100'
+    
+    volumes:
+      - /:/host:ro,rslave
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    
+    labels:
+      - "com.isectech.service=monitoring"
+      - "com.isectech.component=prometheus-exporter"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # LOG AGGREGATOR (CENTRALIZED LOGGING)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  log-aggregator:
+    image: fluent/fluent-bit:2.2.2
+    container_name: isectech-log-aggregator
+    hostname: log-aggregator.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "24224:24224/tcp"  # Forward protocol
+      - "24224:24224/udp"
+    
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /var/log/siem:/var/log/siem:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    
+    environment:
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - ELASTICSEARCH_HOST=elasticsearch.isectech.local
+      - ELASTICSEARCH_PORT=9200
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2020/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=log-aggregator"
+      - "com.isectech.environment=production"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HEALTH CHECK AND MONITORING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+x-security: &default-security
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp:noexec,nosuid,size=256m
+
+x-healthcheck: &default-healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEPLOYMENT NOTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Production Deployment Commands:
+#
+# 1. Create external networks:
+#    docker network create isectech-siem
+#    docker network create monitoring
+#
+# 2. Deploy services:
+#    docker-compose -f docker-compose.agentless.yml up -d
+#
+# 3. Monitor deployment:
+#    docker-compose -f docker-compose.agentless.yml logs -f
+#
+# 4. Health checks:
+#    docker-compose -f docker-compose.agentless.yml ps
+#
+# 5. Scale services:
+#    docker-compose -f docker-compose.agentless.yml up -d --scale snmp-collector=3
+#
+# Performance Tuning:
+#   - Adjust ulimits based on expected load
+#   - Monitor resource usage and scale accordingly
+#   - Tune Kafka producer settings for throughput
+#   - Configure Redis memory limits appropriately
+#
+# Security Considerations:
+#   - All services run with no-new-privileges
+#   - Read-only filesystems where possible
+#   - Network segmentation via Docker networks
+#   - TLS encryption for external communications
+#   - Regular security updates for base images

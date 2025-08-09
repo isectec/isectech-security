@@ -1,0 +1,788 @@
+# iSECTECH Istio Service Mesh Configuration
+# Production-grade service mesh for resilient service-to-service communication with multi-region support
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    app.kubernetes.io/name: istio-system
+    app.kubernetes.io/instance: isectech
+    security.isectech.com/zone: infrastructure
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ISTIO CONTROL PLANE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: isectech-control-plane
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: istio-control-plane
+    app.kubernetes.io/instance: isectech
+spec:
+  # Control plane configuration
+  hub: docker.io/istio
+  tag: 1.19.0
+  
+  values:
+    global:
+      # Multi-region mesh configuration
+      meshID: isectech-mesh
+      network: isectech-network
+      
+      # Security configuration
+      defaultPodDisruptionBudget:
+        enabled: true
+      
+      # Proxy configuration
+      proxy:
+        # Resource configuration
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+        
+        # Security settings
+        privileged: false
+        readinessInitialDelaySeconds: 1
+        readinessPeriodSeconds: 2
+        readinessFailureThreshold: 30
+        
+        # Logging configuration
+        logLevel: warning
+        accessLogFormat: |
+          [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%"
+          %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT%
+          %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% "%REQ(X-FORWARDED-FOR)%"
+          "%REQ(USER-AGENT)%" "%REQ(X-REQUEST-ID)%" "%REQ(:AUTHORITY)%" "%UPSTREAM_HOST%"
+          %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS%
+          %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%
+    
+    # Pilot configuration
+    pilot:
+      # High availability
+      env:
+        EXTERNAL_ISTIOD: false
+        PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION: true
+        PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY: true
+        PILOT_SKIP_VALIDATE_TRUST_DOMAIN: true
+      
+      # Resource configuration
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+    
+    # Istio CNI configuration
+    cni:
+      enabled: true
+      excludeNamespaces:
+        - istio-system
+        - kube-system
+        - kube-public
+        - kube-node-lease
+      
+    # Gateway configuration
+    gateways:
+      istio-ingressgateway:
+        autoscaleEnabled: true
+        autoscaleMin: 3
+        autoscaleMax: 10
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+        
+        # Service configuration
+        type: LoadBalancer
+        loadBalancerIP: ""
+        serviceAnnotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: nlb
+          service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+          service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+        
+        # Security
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 2
+  
+  # Component configuration
+  components:
+    pilot:
+      enabled: true
+      k8s:
+        # High availability deployment
+        replicaCount: 3
+        
+        # Pod disruption budget
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 2
+        
+        # Anti-affinity
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: istiod
+                topologyKey: kubernetes.io/hostname
+        
+        # Resource configuration
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        
+        # Environment variables
+        env:
+          - name: PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION
+            value: "true"
+          - name: PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY
+            value: "true"
+          - name: EXTERNAL_ISTIOD
+            value: "false"
+    
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          replicaCount: 3
+          
+          # Pod disruption budget
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 2
+          
+          # Anti-affinity
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app: istio-ingressgateway
+                  topologyKey: kubernetes.io/hostname
+          
+          # Resource configuration
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          
+          # Service configuration
+          service:
+            type: LoadBalancer
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: nlb
+              service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+              service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+          
+          # HPA configuration
+          hpaSpec:
+            minReplicas: 3
+            maxReplicas: 10
+            metrics:
+              - type: Resource
+                resource:
+                  name: cpu
+                  target:
+                    type: Utilization
+                    averageUtilization: 70
+    
+    egressGateways:
+      - name: istio-egressgateway
+        enabled: true
+        k8s:
+          replicaCount: 2
+          
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# PEER AUTHENTICATION (mTLS)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  # Enforce mTLS for all workloads by default
+  mtls:
+    mode: STRICT
+---
+# Namespace-specific mTLS policies
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: isectech-production-mtls
+  namespace: isectech-production
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: isectech-security-mtls
+  namespace: isectech-security
+spec:
+  mtls:
+    mode: STRICT
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTHORIZATION POLICIES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Default deny-all policy
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: istio-system
+spec:
+  # Empty selector applies to all workloads in namespace
+  {}
+---
+# Allow istio-system internal communication
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-istio-system
+  namespace: istio-system
+spec:
+  rules:
+    - from:
+        - source:
+            namespaces: ["istio-system"]
+---
+# Allow ingress gateway to application services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-apps
+  namespace: isectech-production
+spec:
+  rules:
+    - from:
+        - source:
+            namespaces: ["istio-system"]
+            principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"]
+      to:
+        - operation:
+            methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
+---
+# Allow inter-service communication within production namespace
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-production-services
+  namespace: isectech-production
+spec:
+  rules:
+    - from:
+        - source:
+            namespaces: ["isectech-production"]
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# GATEWAY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: isectech-gateway
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: isectech-gateway
+    app.kubernetes.io/instance: isectech
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    # HTTPS server
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: isectech-tls-cert
+      hosts:
+        - "*.isectech.com"
+        - "isectech.com"
+    
+    # HTTP server (redirect to HTTPS)
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*.isectech.com"
+        - "isectech.com"
+      tls:
+        httpsRedirect: true
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# VIRTUAL SERVICE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-apps
+  namespace: isectech-production
+  labels:
+    app.kubernetes.io/name: isectech-virtualservice
+    app.kubernetes.io/instance: isectech
+spec:
+  hosts:
+    - "isectech.com"
+    - "app.isectech.com"
+  gateways:
+    - istio-system/isectech-gateway
+  http:
+    # API routes
+    - match:
+        - uri:
+            prefix: "/api/v1/"
+      route:
+        - destination:
+            host: isectech-backend
+            port:
+              number: 8080
+          weight: 100
+      fault:
+        delay:
+          percentage:
+            value: 0.1
+          fixedDelay: 5s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: gateway-error,connect-failure,refused-stream
+      timeout: 30s
+    
+    # Frontend routes
+    - match:
+        - uri:
+            prefix: "/"
+      route:
+        - destination:
+            host: isectech-frontend
+            port:
+              number: 3000
+          weight: 100
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+      timeout: 15s
+---
+# Security API virtual service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: isectech-security-api
+  namespace: isectech-security
+spec:
+  hosts:
+    - "security.isectech.com"
+  gateways:
+    - istio-system/isectech-gateway
+  http:
+    - match:
+        - uri:
+            prefix: "/security/api/v1/"
+      route:
+        - destination:
+            host: isectech-security-service
+            port:
+              number: 8080
+      retries:
+        attempts: 3
+        perTryTimeout: 15s
+        retryOn: gateway-error,connect-failure,refused-stream
+      timeout: 60s
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# DESTINATION RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: isectech-backend
+  namespace: isectech-production
+spec:
+  host: isectech-backend
+  trafficPolicy:
+    # Connection pool settings
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30s
+        tcpNoDelay: true
+      http:
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 2
+        maxRetries: 3
+        consecutiveGatewayErrors: 5
+        interval: 30s
+        baseEjectionTime: 30s
+        maxEjectionPercent: 50
+        minHealthPercent: 50
+    
+    # Load balancing
+    loadBalancer:
+      simple: LEAST_CONN
+    
+    # Circuit breaker
+    outlierDetection:
+      consecutiveGatewayErrors: 3
+      consecutiveServerErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 30
+  
+  # Subset definitions for canary deployments
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+    - name: canary
+      labels:
+        version: canary
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: isectech-frontend
+  namespace: isectech-production
+spec:
+  host: isectech-frontend
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 10s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 500
+        maxRequestsPerConnection: 1
+        maxRetries: 2
+    loadBalancer:
+      simple: ROUND_ROBIN
+    outlierDetection:
+      consecutiveGatewayErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 30
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVICE ENTRIES FOR EXTERNAL SERVICES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# AWS RDS service entry
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: aws-rds
+  namespace: isectech-production
+spec:
+  hosts:
+    - isectech-postgres.cluster-xyz.us-east-1.rds.amazonaws.com
+  ports:
+    - number: 5432
+      name: postgres
+      protocol: TCP
+  location: MESH_EXTERNAL
+  resolution: DNS
+---
+# AWS ElastiCache Redis service entry
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: aws-redis
+  namespace: isectech-production
+spec:
+  hosts:
+    - isectech-redis.abc123.cache.amazonaws.com
+  ports:
+    - number: 6379
+      name: redis
+      protocol: TCP
+  location: MESH_EXTERNAL
+  resolution: DNS
+---
+# AWS Elasticsearch service entry
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: aws-elasticsearch
+  namespace: isectech-production
+spec:
+  hosts:
+    - search-isectech-elasticsearch-xyz.us-east-1.es.amazonaws.com
+  ports:
+    - number: 443
+      name: https
+      protocol: HTTPS
+  location: MESH_EXTERNAL
+  resolution: DNS
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# TELEMETRY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: default-metrics
+  namespace: istio-system
+spec:
+  # Custom metrics for business KPIs
+  metrics:
+    - providers:
+        - name: prometheus
+    - overrides:
+        - match:
+            metric: ALL_METRICS
+          disabled: false
+        - match:
+            metric: REQUEST_COUNT
+          operation: UPSERT
+          tags:
+            custom_header:
+              value: "%{REQUEST_HEADERS['x-custom-header']}"
+        - match:
+            metric: REQUEST_DURATION
+          operation: UPSERT
+          tags:
+            response_code:
+              value: "%{RESPONSE_CODE}"
+---
+# Access logs configuration
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: access-logs
+  namespace: istio-system
+spec:
+  accessLogging:
+    - providers:
+        - name: otel
+      filter:
+        expression: 'response.code >= 400'
+---
+# Distributed tracing configuration
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: tracing
+  namespace: istio-system
+spec:
+  tracing:
+    - providers:
+        - name: jaeger
+      customTags:
+        custom_header:
+          header:
+            name: x-custom-header
+        user_agent:
+          header:
+            name: user-agent
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENVOY FILTERS FOR ADVANCED CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Rate limiting filter
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: rate-limit-filter
+  namespace: istio-system
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: rate_limiter
+              token_bucket:
+                max_tokens: 1000
+                tokens_per_fill: 1000
+                fill_interval: 1s
+              filter_enabled:
+                runtime_key: local_rate_limit_enabled
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+              filter_enforced:
+                runtime_key: local_rate_limit_enforced
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+---
+# Security headers filter
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: security-headers
+  namespace: istio-system
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inline_code: |
+              function envoy_on_response(response_handle)
+                response_handle:headers():add("X-Frame-Options", "DENY")
+                response_handle:headers():add("X-Content-Type-Options", "nosniff")
+                response_handle:headers():add("X-XSS-Protection", "1; mode=block")
+                response_handle:headers():add("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+                response_handle:headers():add("Content-Security-Policy", "default-src 'self'")
+                response_handle:headers():add("Referrer-Policy", "strict-origin-when-cross-origin")
+                response_handle:headers():add("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+              end
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# WASM EXTENSIONS FOR ADVANCED SECURITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: security-scanner
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      app: isectech-backend
+  url: oci://ghcr.io/isectech/security-scanner-wasm:latest
+  phase: AUTHN
+  pluginConfig:
+    scan_headers: true
+    scan_body: true
+    block_suspicious: true
+    log_level: "INFO"
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK POLICIES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: istio-system-netpol
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: istio-system
+        - namespaceSelector:
+            matchLabels:
+              name: isectech-production
+        - namespaceSelector:
+            matchLabels:
+              name: isectech-security
+  egress:
+    - to: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: production-netpol
+  namespace: isectech-production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: istio-system
+        - namespaceSelector:
+            matchLabels:
+              name: isectech-production
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: istio-system
+        - namespaceSelector:
+            matchLabels:
+              name: isectech-production
+        - namespaceSelector:
+            matchLabels:
+              name: isectech-security
+    # Allow egress to external services (AWS APIs, etc.)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5432  # PostgreSQL
+        - protocol: TCP
+          port: 6379  # Redis

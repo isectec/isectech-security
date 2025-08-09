@@ -1,0 +1,496 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ML System Performance Dashboard",
+    "tags": ["ml", "ai", "monitoring", "performance", "drift"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "ML System Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(count by (model_id) (ml_model_inferences_total))",
+            "legendFormat": "Active Models",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(ml_model_inferences_total[5m]))",
+            "legendFormat": "Total Throughput",
+            "refId": "B"
+          },
+          {
+            "expr": "avg(ml_model_health_score)",
+            "legendFormat": "Avg Health Score",
+            "refId": "C"
+          },
+          {
+            "expr": "sum(rate(ml_data_drift_detections_total[5m])) * 60",
+            "legendFormat": "Drift Detections/min",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"displayMode": "list", "orientation": "horizontal"},
+            "unit": "short"
+          }
+        },
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Model Inference Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95 Inference Time - {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(ml_model_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "P50 Inference Time - {{model_id}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "line"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.025}, {"color": "red", "value": 0.05}]},
+            "unit": "s"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+      },
+      {
+        "id": 3,
+        "title": "Model Throughput",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (model_id) (rate(ml_model_inferences_total[5m]))",
+            "legendFormat": "{{model_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+      },
+      {
+        "id": 4,
+        "title": "Model Accuracy Tracking",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_model_accuracy",
+            "legendFormat": "{{model_id}} - {{dataset_type}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "auto", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "line"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.8}, {"color": "green", "value": 0.9}]},
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14}
+      },
+      {
+        "id": 5,
+        "title": "Model Health Scores",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "ml_model_health_score",
+            "legendFormat": "{{model_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"orientation": "horizontal", "displayMode": "gradient"},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 70}, {"color": "green", "value": 90}]},
+            "unit": "short",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "options": {
+          "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14}
+      },
+      {
+        "id": 6,
+        "title": "Drift Detection Scores",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_model_drift_score{drift_type=\"kl_divergence\"}",
+            "legendFormat": "KL Divergence - {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "ml_model_drift_score{drift_type=\"js_divergence\"}",
+            "legendFormat": "JS Divergence - {{model_id}}",
+            "refId": "B"
+          },
+          {
+            "expr": "ml_model_drift_score{drift_type=\"psi_score\"}",
+            "legendFormat": "PSI Score - {{model_id}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "auto", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "line"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.1}, {"color": "red", "value": 0.2}]},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 22}
+      },
+      {
+        "id": 7,
+        "title": "Resource Utilization",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_model_cpu_usage_percent",
+            "legendFormat": "CPU - {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "ml_model_memory_usage_bytes / 1024 / 1024",
+            "legendFormat": "Memory MB - {{model_id}}",
+            "refId": "B"
+          },
+          {
+            "expr": "ml_model_gpu_usage_percent",
+            "legendFormat": "GPU - {{model_id}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30}
+      },
+      {
+        "id": 8,
+        "title": "Model Error Rates",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(ml_model_errors_total[5m])",
+            "legendFormat": "{{model_id}} - {{error_type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_model_timeouts_total[5m])",
+            "legendFormat": "Timeouts - {{model_id}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "normal", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "reqps"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30}
+      },
+      {
+        "id": 9,
+        "title": "Feature Drift Heatmap",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "ml_feature_drift_score",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "spectrum"},
+            "custom": {"hideFrom": {"legend": false, "tooltip": false, "vis": false}}
+          }
+        },
+        "options": {
+          "calculate": false,
+          "yAxis": {"unit": "short"},
+          "cellGap": 1,
+          "cellValues": {
+            "unit": "short"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 38}
+      },
+      {
+        "id": 10,
+        "title": "Queue Metrics",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_model_queue_depth",
+            "legendFormat": "Queue Depth - {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_model_queue_wait_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95 Wait Time - {{model_id}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "none", "spanNulls": false, "insertNulls": false, "showPoints": "never", "pointSize": 5, "stacking": {"mode": "none", "group": "A"}, "axisPlacement": "auto", "axisLabel": "", "scaleDistribution": {"type": "linear"}, "hideFrom": {"legend": false, "tooltip": false, "vis": false}, "thresholdsStyle": {"mode": "off"}},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi", "sort": "desc"},
+          "legend": {"displayMode": "table", "placement": "right", "values": ["max", "mean", "last"]}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 38}
+      },
+      {
+        "id": 11,
+        "title": "Model Training Events",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "increase(ml_model_retraining_total[24h])",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"align": "auto", "displayMode": "auto", "filterable": true},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}]}
+          },
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "model_id"}, "properties": [{"id": "custom.width", "value": 200}]},
+            {"matcher": {"id": "byName", "options": "trigger_reason"}, "properties": [{"id": "custom.width", "value": 150}]},
+            {"matcher": {"id": "byName", "options": "status"}, "properties": [{"id": "custom.displayMode", "value": "color-background"}]}
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"desc": true, "displayName": "Value"}]
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 46}
+      },
+      {
+        "id": 12,
+        "title": "SLA Violations",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(ml_model_sla_violations_total[1h]))",
+            "legendFormat": "Last Hour",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(increase(ml_model_sla_violations_total[24h]))",
+            "legendFormat": "Last 24h",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"orientation": "auto", "textMode": "auto"},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 20}]},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+          "orientation": "auto",
+          "textMode": "value_and_name",
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "center"
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 46}
+      },
+      {
+        "id": 13,
+        "title": "Model Comparison Matrix",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ml_model_accuracy * on(model_id) group_left(model_type) ml_model_health_score",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[1h]))",
+            "format": "table", 
+            "instant": true,
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {"align": "auto", "displayMode": "color-background", "filterable": true},
+            "mappings": [],
+            "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.7}, {"color": "green", "value": 0.9}]}
+          },
+          "overrides": [
+            {"matcher": {"id": "byName", "options": "model_id"}, "properties": [{"id": "custom.width", "value": 150}]},
+            {"matcher": {"id": "byName", "options": "model_type"}, "properties": [{"id": "custom.width", "value": 120}]},
+            {"matcher": {"id": "byName", "options": "Accuracy"}, "properties": [{"id": "unit", "value": "percentunit"}]},
+            {"matcher": {"id": "byName", "options": "P95 Latency"}, "properties": [{"id": "unit", "value": "s"}]}
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"desc": true, "displayName": "Accuracy"}]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 54}
+      }
+    ],
+    "time": {"from": "now-6h", "to": "now"},
+    "timepicker": {},
+    "timezone": "",
+    "refresh": "30s",
+    "schemaVersion": 30,
+    "version": 1,
+    "links": [
+      {
+        "type": "link",
+        "title": "ML Operations Runbook",
+        "url": "https://docs.isectech.internal/runbooks/ml-operations",
+        "icon": "external link"
+      },
+      {
+        "type": "link",
+        "title": "Model Registry",
+        "url": "https://mlflow.isectech.internal",
+        "icon": "cloud"
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "model_id",
+          "type": "query",
+          "query": "label_values(ml_model_inferences_total, model_id)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*",
+          "multi": true
+        },
+        {
+          "name": "model_type",
+          "type": "query",
+          "query": "label_values(ml_model_inferences_total, model_type)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*",
+          "multi": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "query",
+          "query": "label_values(ml_model_inferences_total, tenant_id)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*",
+          "multi": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Model Deployments",
+          "datasource": "Prometheus",
+          "expr": "changes(ml_model_versions_total[1m]) > 0",
+          "titleFormat": "Model Deployment: {{model_id}}",
+          "textFormat": "Version deployment for {{model_id}}",
+          "iconColor": "blue"
+        },
+        {
+          "name": "Drift Alerts",
+          "datasource": "Prometheus", 
+          "expr": "changes(ml_data_drift_detections_total[1m]) > 0",
+          "titleFormat": "Drift Detected: {{model_id}}",
+          "textFormat": "{{drift_type}} drift detected for {{model_id}}",
+          "iconColor": "red"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,4065 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "iSECTECH Extended APIs",
+    "description": "Additional API specification for extended iSECTECH platform endpoints including notification templates, analytics, policy management, and administrative functions",
+    "version": "1.0.0",
+    "contact": {
+      "name": "iSECTECH API Team",
+      "email": "api@isectech.com"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://isectech.com/license"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.isectech.com/v2",
+      "description": "Production server"
+    },
+    {
+      "url": "https://api-staging.isectech.com/v2",
+      "description": "Staging server"
+    },
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Development server"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Notification Templates",
+      "description": "Template management and rendering for notifications"
+    },
+    {
+      "name": "Notification Analytics",
+      "description": "Analytics and reporting for notification systems"
+    },
+    {
+      "name": "Notification Management",
+      "description": "Advanced notification management operations"
+    },
+    {
+      "name": "Trust Score Analytics",
+      "description": "Advanced trust scoring analytics and insights"
+    },
+    {
+      "name": "Trust Score WebSocket",
+      "description": "Real-time trust score updates via WebSocket"
+    },
+    {
+      "name": "Policy Administration",
+      "description": "Policy bundle management and administration"
+    },
+    {
+      "name": "Compliance Management",
+      "description": "Compliance assessment and violation management"
+    },
+    {
+      "name": "Analytics",
+      "description": "Performance and operational analytics"
+    },
+    {
+      "name": "Onboarding Management",
+      "description": "Advanced onboarding workflow management"
+    }
+  ],
+  "paths": {
+    "/notifications/preferences": {
+      "get": {
+        "tags": ["Notification Management"],
+        "summary": "Get user notification preferences",
+        "description": "Retrieve notification preferences for a user with detailed channel configurations",
+        "operationId": "getNotificationPreferences",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "User ID (optional, defaults to authenticated user)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preferences retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                },
+                "examples": {
+                  "user_preferences": {
+                    "summary": "User notification preferences",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "channels": {
+                          "push": {
+                            "enabled": true,
+                            "quietHours": {
+                              "enabled": true,
+                              "startTime": "22:00",
+                              "endTime": "08:00",
+                              "timezone": "America/New_York"
+                            },
+                            "categories": ["security", "alert"]
+                          },
+                          "email": {
+                            "enabled": true,
+                            "frequency": "immediate",
+                            "digest": false
+                          }
+                        },
+                        "globalSettings": {
+                          "doNotDisturb": false,
+                          "language": "en",
+                          "timezone": "America/New_York"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Notification Management"],
+        "summary": "Update user notification preferences",
+        "description": "Update notification preferences for a user with channel-specific settings",
+        "operationId": "updateNotificationPreferences",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferencesRequest"
+              },
+              "examples": {
+                "update_preferences": {
+                  "summary": "Update push and email preferences",
+                  "value": {
+                    "userId": "550e8400-e29b-41d4-a716-446655440000",
+                    "preferences": {
+                      "channels": {
+                        "push": {
+                          "enabled": true,
+                          "quietHours": {
+                            "enabled": true,
+                            "startTime": "23:00",
+                            "endTime": "07:00"
+                          }
+                        },
+                        "email": {
+                          "frequency": "daily",
+                          "digest": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preferences updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/templates": {
+      "get": {
+        "tags": ["Notification Templates"],
+        "summary": "Get notification templates",
+        "description": "Retrieve notification templates with filtering and pagination support",
+        "operationId": "getNotificationTemplates",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "description": "Filter by template category",
+            "schema": {
+              "type": "string",
+              "enum": ["security", "alert", "info", "warning", "error", "system"]
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by notification type",
+            "schema": {
+              "type": "string",
+              "enum": ["push", "email", "sms", "webhook"]
+            }
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "description": "Filter by active status",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of templates to return",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of templates to skip",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTemplatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Notification Templates"],
+        "summary": "Create notification template",
+        "description": "Create a new notification template with variables and localization support",
+        "operationId": "createNotificationTemplate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationTemplateRequest"
+              },
+              "examples": {
+                "security_alert_template": {
+                  "summary": "Security alert email template",
+                  "value": {
+                    "name": "Security Alert Template",
+                    "description": "Template for security-related alerts",
+                    "category": "security",
+                    "type": "email",
+                    "subject": "Security Alert: {{alert_type}}",
+                    "title": "Security Alert Detected",
+                    "body": "A {{alert_type}} was detected at {{timestamp}}. Details: {{description}}",
+                    "variables": [
+                      {
+                        "name": "alert_type",
+                        "type": "string",
+                        "required": true,
+                        "description": "Type of security alert"
+                      },
+                      {
+                        "name": "timestamp",
+                        "type": "date",
+                        "required": true,
+                        "description": "When the alert occurred"
+                      },
+                      {
+                        "name": "description",
+                        "type": "string",
+                        "required": false,
+                        "description": "Detailed alert description"
+                      }
+                    ],
+                    "localization": {
+                      "es": {
+                        "subject": "Alerta de Seguridad: {{alert_type}}",
+                        "title": "Alerta de Seguridad Detectada",
+                        "body": "Se detectó un {{alert_type}} en {{timestamp}}. Detalles: {{description}}"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTemplateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/templates/render": {
+      "post": {
+        "tags": ["Notification Templates"],
+        "summary": "Render notification template",
+        "description": "Render a notification template with provided variables and personalization options",
+        "operationId": "renderNotificationTemplate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderNotificationTemplateRequest"
+              },
+              "examples": {
+                "render_security_alert": {
+                  "summary": "Render security alert template",
+                  "value": {
+                    "templateId": "template_security_alert_001",
+                    "variables": {
+                      "alert_type": "Suspicious Login",
+                      "timestamp": "2024-01-01T12:00:00Z",
+                      "description": "Login attempt from unusual location detected",
+                      "user_name": "John Doe",
+                      "ip_address": "192.168.1.100"
+                    },
+                    "language": "en",
+                    "personalizeFor": {
+                      "userId": "user_123",
+                      "deviceType": "mobile",
+                      "preferences": {
+                        "timezone": "America/New_York"
+                      }
+                    },
+                    "preview": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Template rendered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderedNotificationTemplateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/analytics": {
+      "get": {
+        "tags": ["Notification Analytics"],
+        "summary": "Get notification analytics",
+        "description": "Retrieve comprehensive analytics and metrics for notification delivery and engagement",
+        "operationId": "getNotificationAnalytics",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Type of analytics to retrieve",
+            "schema": {
+              "type": "string",
+              "enum": ["overview", "detailed", "performance", "engagement", "channels", "trends", "insights"],
+              "default": "overview"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "description": "Time granularity for data aggregation",
+            "schema": {
+              "type": "string",
+              "enum": ["hour", "day", "week", "month"],
+              "default": "day"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Filter by notification channel",
+            "schema": {
+              "type": "string",
+              "enum": ["push", "email", "sms", "webhook"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/subscribe": {
+      "post": {
+        "tags": ["Notification Management"],
+        "summary": "Subscribe to notifications",
+        "description": "Subscribe a user to specific notification types or topics",
+        "operationId": "subscribeToNotifications",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSubscribeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSubscribeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/schedule": {
+      "post": {
+        "tags": ["Notification Management"],
+        "summary": "Schedule notification delivery",
+        "description": "Schedule notifications for future delivery with advanced scheduling options",
+        "operationId": "scheduleNotification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleNotificationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Notification scheduled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleNotificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/webhooks": {
+      "post": {
+        "tags": ["Notification Management"],
+        "summary": "Configure notification webhooks",
+        "description": "Set up webhook endpoints for notification delivery and status updates",
+        "operationId": "configureNotificationWebhook",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationWebhookRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook configured successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationWebhookResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/trust-score/analytics": {
+      "get": {
+        "tags": ["Trust Score Analytics"],
+        "summary": "Get trust score analytics",
+        "description": "Retrieve comprehensive analytics and insights for trust scoring system with advanced filtering and aggregation",
+        "operationId": "getTrustScoreAnalytics",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Type of analytics to retrieve",
+            "schema": {
+              "type": "string",
+              "enum": ["overview", "detailed", "factors", "trends", "segments", "anomalies", "performance", "predictions"],
+              "default": "overview"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "description": "Time granularity for data aggregation",
+            "schema": {
+              "type": "string",
+              "enum": ["hour", "day", "week", "month"],
+              "default": "day"
+            }
+          },
+          {
+            "name": "segments",
+            "in": "query",
+            "description": "User segments to include in analysis",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustScoreAnalyticsDetailedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/trust-score/websocket": {
+      "get": {
+        "tags": ["Trust Score WebSocket"],
+        "summary": "Establish WebSocket connection for real-time trust score updates",
+        "description": "Establish a WebSocket connection to receive real-time trust score updates and events. Connection requires valid authentication token.",
+        "operationId": "connectTrustScoreWebSocket",
+        "parameters": [
+          {
+            "name": "Upgrade",
+            "in": "header",
+            "required": true,
+            "description": "Must be 'websocket'",
+            "schema": {
+              "type": "string",
+              "enum": ["websocket"]
+            }
+          },
+          {
+            "name": "Connection",
+            "in": "header",
+            "required": true,
+            "description": "Must be 'Upgrade'",
+            "schema": {
+              "type": "string",
+              "enum": ["Upgrade"]
+            }
+          },
+          {
+            "name": "Sec-WebSocket-Key",
+            "in": "header",
+            "required": true,
+            "description": "WebSocket key for handshake",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-WebSocket-Version",
+            "in": "header",
+            "required": true,
+            "description": "WebSocket version (must be 13)",
+            "schema": {
+              "type": "string",
+              "enum": ["13"]
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket connection established",
+            "headers": {
+              "Upgrade": {
+                "description": "Upgrade to WebSocket",
+                "schema": {
+                  "type": "string",
+                  "example": "websocket"
+                }
+              },
+              "Connection": {
+                "description": "Connection upgrade",
+                "schema": {
+                  "type": "string",
+                  "example": "Upgrade"
+                }
+              },
+              "Sec-WebSocket-Accept": {
+                "description": "WebSocket accept key",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad WebSocket request"
+          },
+          "401": {
+            "description": "Unauthorized WebSocket connection"
+          }
+        }
+      }
+    },
+    "/policy/admin/bundles": {
+      "get": {
+        "tags": ["Policy Administration"],
+        "summary": "Get policy bundles",
+        "description": "Retrieve available policy bundles with version information and activation status",
+        "operationId": "getPolicyBundles",
+        "parameters": [
+          {
+            "name": "active",
+            "in": "query",
+            "description": "Filter by activation status",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Filter by specific version",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy bundles retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyBundlesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Policy Administration"],
+        "summary": "Upload policy bundle",
+        "description": "Upload a new policy bundle for deployment",
+        "operationId": "uploadPolicyBundle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadPolicyBundleRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyBundleMetadata"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Policy bundle uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyBundleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/policy/admin/bundles/activate": {
+      "post": {
+        "tags": ["Policy Administration"],
+        "summary": "Activate policy bundle",
+        "description": "Activate a policy bundle to make it the current active policy set",
+        "operationId": "activatePolicyBundle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivatePolicyBundleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy bundle activated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyBundleActivationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "Policy bundle not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/policy/logs": {
+      "get": {
+        "tags": ["Policy Administration"],
+        "summary": "Get policy decision logs",
+        "description": "Retrieve audit logs of policy decisions with filtering and pagination",
+        "operationId": "getPolicyLogs",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date for log filtering",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date for log filtering",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "Filter by user ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "query",
+            "description": "Filter by resource",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Filter by action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "decision",
+            "in": "query",
+            "description": "Filter by decision result",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of logs to return",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of logs to skip",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy logs retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyLogsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/compliance/assessments": {
+      "get": {
+        "tags": ["Compliance Management"],
+        "summary": "Get compliance assessments",
+        "description": "Retrieve list of compliance assessments with their status and results",
+        "operationId": "getComplianceAssessments",
+        "parameters": [
+          {
+            "name": "framework",
+            "in": "query",
+            "description": "Filter by compliance framework",
+            "schema": {
+              "type": "string",
+              "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by assessment status",
+            "schema": {
+              "type": "string",
+              "enum": ["scheduled", "in_progress", "completed", "failed"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of assessments to return",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compliance assessments retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceAssessmentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Compliance Management"],
+        "summary": "Start compliance assessment",
+        "description": "Initiate a new compliance assessment for specified framework",
+        "operationId": "startComplianceAssessment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartComplianceAssessmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Assessment started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceAssessmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/compliance/violations": {
+      "get": {
+        "tags": ["Compliance Management"],
+        "summary": "Get compliance violations",
+        "description": "Retrieve list of compliance violations with filtering and severity information",
+        "operationId": "getComplianceViolations",
+        "parameters": [
+          {
+            "name": "framework",
+            "in": "query",
+            "description": "Filter by compliance framework",
+            "schema": {
+              "type": "string",
+              "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"]
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "description": "Filter by violation severity",
+            "schema": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "critical"]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by resolution status",
+            "schema": {
+              "type": "string",
+              "enum": ["open", "in_progress", "resolved", "dismissed"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Violations retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceViolationsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/compliance/audit-trail": {
+      "get": {
+        "tags": ["Compliance Management"],
+        "summary": "Get compliance audit trail",
+        "description": "Retrieve comprehensive audit trail for compliance activities and changes",
+        "operationId": "getComplianceAuditTrail",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date for audit trail",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date for audit trail",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "activity",
+            "in": "query",
+            "description": "Filter by activity type",
+            "schema": {
+              "type": "string",
+              "enum": ["assessment", "violation", "remediation", "policy_change"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit trail retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceAuditTrailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/analytics/performance": {
+      "get": {
+        "tags": ["Analytics"],
+        "summary": "Get performance analytics",
+        "description": "Retrieve system performance metrics and analytics with customizable time ranges and granularity",
+        "operationId": "getPerformanceAnalytics",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date for analytics range",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "metrics",
+            "in": "query",
+            "description": "Specific metrics to include",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["response_time", "throughput", "error_rate", "availability", "resource_usage"]
+              }
+            },
+            "style": "form",
+            "explode": false
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "description": "Data granularity",
+            "schema": {
+              "type": "string",
+              "enum": ["minute", "hour", "day", "week"],
+              "default": "hour"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Performance analytics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/onboarding/{id}": {
+      "get": {
+        "tags": ["Onboarding Management"],
+        "summary": "Get onboarding workflow details",
+        "description": "Retrieve detailed information about a specific onboarding workflow including step progress and completion status",
+        "operationId": "getOnboardingWorkflowDetails",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Onboarding workflow ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Onboarding workflow details retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingWorkflowDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Onboarding workflow not found"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Onboarding Management"],
+        "summary": "Update onboarding workflow",
+        "description": "Update onboarding workflow progress or configuration",
+        "operationId": "updateOnboardingWorkflow",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Onboarding workflow ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOnboardingWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Onboarding workflow updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingWorkflowDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Onboarding workflow not found"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT bearer token for user authentication"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key for service-to-service authentication"
+      }
+    },
+    "schemas": {
+      "NotificationPreferencesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationPreferences"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "properties": {
+          "channels": {
+            "type": "object",
+            "properties": {
+              "push": {
+                "$ref": "#/components/schemas/PushChannelPreferences"
+              },
+              "email": {
+                "$ref": "#/components/schemas/EmailChannelPreferences"
+              },
+              "sms": {
+                "$ref": "#/components/schemas/SMSChannelPreferences"
+              },
+              "webhook": {
+                "$ref": "#/components/schemas/WebhookChannelPreferences"
+              }
+            }
+          },
+          "globalSettings": {
+            "$ref": "#/components/schemas/GlobalNotificationSettings"
+          }
+        }
+      },
+      "PushChannelPreferences": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "quietHours": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "startTime": {
+                "type": "string",
+                "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$",
+                "example": "22:00"
+              },
+              "endTime": {
+                "type": "string",
+                "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$",
+                "example": "08:00"
+              },
+              "timezone": {
+                "type": "string",
+                "example": "America/New_York"
+              }
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["security", "alert", "info", "warning", "error"]
+            }
+          },
+          "sound": {
+            "type": "boolean",
+            "default": true
+          },
+          "vibration": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "EmailChannelPreferences": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["immediate", "hourly", "daily", "weekly"],
+            "default": "immediate"
+          },
+          "digest": {
+            "type": "boolean",
+            "default": false
+          },
+          "html": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "SMSChannelPreferences": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "emergencyOnly": {
+            "type": "boolean",
+            "default": true
+          },
+          "phoneNumber": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          }
+        }
+      },
+      "WebhookChannelPreferences": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "secret": {
+                  "type": "string"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "GlobalNotificationSettings": {
+        "type": "object",
+        "properties": {
+          "doNotDisturb": {
+            "type": "boolean",
+            "default": false
+          },
+          "language": {
+            "type": "string",
+            "enum": ["en", "es", "fr", "de", "ja", "zh"],
+            "default": "en"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "America/New_York"
+          },
+          "theme": {
+            "type": "string",
+            "enum": ["light", "dark", "system"],
+            "default": "system"
+          }
+        }
+      },
+      "UpdateNotificationPreferencesRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User ID (optional, defaults to authenticated user)"
+          },
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "channels": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "globalSettings": {
+                "$ref": "#/components/schemas/GlobalNotificationSettings"
+              }
+            }
+          }
+        }
+      },
+      "NotificationTemplatesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "templates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NotificationTemplate"
+                }
+              },
+              "total": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              }
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "NotificationTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["security", "alert", "info", "warning", "error", "system"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["push", "email", "sms", "webhook"]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateVariable"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "localization": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TemplateLocalization"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "TemplateVariable": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["string", "number", "date", "boolean", "object", "array"]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "validation": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "minLength": {
+                "type": "integer"
+              },
+              "maxLength": {
+                "type": "integer"
+              },
+              "minimum": {
+                "type": "number"
+              },
+              "maximum": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "TemplateLocalization": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateNotificationTemplateRequest": {
+        "type": "object",
+        "required": ["name", "category", "type", "title", "body", "variables"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "category": {
+            "type": "string",
+            "enum": ["security", "alert", "info", "warning", "error", "system"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["push", "email", "sms", "webhook"]
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateVariable"
+            }
+          },
+          "localization": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TemplateLocalization"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "NotificationTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationTemplate"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "RenderNotificationTemplateRequest": {
+        "type": "object",
+        "required": ["templateId", "variables"],
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "language": {
+            "type": "string",
+            "default": "en"
+          },
+          "personalizeFor": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deviceType": {
+                "type": "string",
+                "enum": ["mobile", "desktop", "tablet"]
+              },
+              "preferences": {
+                "type": "object"
+              }
+            }
+          },
+          "preview": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "RenderedNotificationTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RenderedNotificationTemplate"
+          }
+        }
+      },
+      "RenderedNotificationTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "personalizedFor": {
+            "type": "object"
+          },
+          "variables": {
+            "type": "object"
+          },
+          "renderedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wordCount": {
+            "type": "integer"
+          },
+          "estimatedReadTime": {
+            "type": "integer",
+            "description": "Estimated reading time in minutes"
+          }
+        }
+      },
+      "NotificationAnalyticsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationAnalytics"
+          },
+          "type": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "NotificationAnalytics": {
+        "type": "object",
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/NotificationOverviewMetrics"
+          },
+          "breakdowns": {
+            "$ref": "#/components/schemas/NotificationBreakdowns"
+          },
+          "timeSeries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationTimeSeriesPoint"
+            }
+          },
+          "channelPerformance": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChannelMetrics"
+            }
+          },
+          "trends": {
+            "$ref": "#/components/schemas/NotificationTrends"
+          },
+          "insights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationInsight"
+            }
+          }
+        }
+      },
+      "NotificationOverviewMetrics": {
+        "type": "object",
+        "properties": {
+          "totalNotifications": {
+            "type": "integer"
+          },
+          "deliveryRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "readRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "clickRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "bounceRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "averageDeliveryTime": {
+            "type": "number",
+            "description": "Average delivery time in seconds"
+          }
+        }
+      },
+      "NotificationBreakdowns": {
+        "type": "object",
+        "properties": {
+          "byType": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NotificationTypeMetrics"
+            }
+          },
+          "byPriority": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NotificationPriorityMetrics"
+            }
+          },
+          "byChannel": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChannelMetrics"
+            }
+          }
+        }
+      },
+      "NotificationTypeMetrics": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "read": {
+            "type": "integer"
+          },
+          "clicked": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          }
+        }
+      },
+      "NotificationPriorityMetrics": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "deliveryRate": {
+            "type": "number"
+          },
+          "averageDeliveryTime": {
+            "type": "number"
+          }
+        }
+      },
+      "ChannelMetrics": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "read": {
+            "type": "integer"
+          },
+          "clicked": {
+            "type": "integer"
+          },
+          "bounced": {
+            "type": "integer"
+          },
+          "deliveryRate": {
+            "type": "number"
+          },
+          "readRate": {
+            "type": "number"
+          },
+          "clickRate": {
+            "type": "number"
+          },
+          "averageDeliveryTime": {
+            "type": "number"
+          }
+        }
+      },
+      "NotificationTimeSeriesPoint": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sent": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "read": {
+            "type": "integer"
+          },
+          "clicked": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          }
+        }
+      },
+      "NotificationTrends": {
+        "type": "object",
+        "properties": {
+          "volumeTrend": {
+            "type": "string",
+            "enum": ["increasing", "decreasing", "stable"]
+          },
+          "deliveryTrend": {
+            "type": "string",
+            "enum": ["improving", "declining", "stable"]
+          },
+          "engagementTrend": {
+            "type": "string",
+            "enum": ["improving", "declining", "stable"]
+          },
+          "volumeChange": {
+            "type": "number",
+            "description": "Percentage change in volume"
+          },
+          "deliveryChange": {
+            "type": "number",
+            "description": "Percentage change in delivery rate"
+          }
+        }
+      },
+      "NotificationInsight": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["performance", "optimization", "issue", "trend"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "critical"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      },
+      "TrustScoreAnalyticsDetailedResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrustScoreAnalyticsDetailed"
+          },
+          "type": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "TrustScoreAnalyticsDetailed": {
+        "type": "object",
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/TrustScoreOverview"
+          },
+          "factorBreakdown": {
+            "$ref": "#/components/schemas/TrustScoreFactorBreakdown"
+          },
+          "riskDistribution": {
+            "$ref": "#/components/schemas/TrustScoreRiskDistribution"
+          },
+          "userSegmentAnalysis": {
+            "$ref": "#/components/schemas/UserSegmentAnalysis"
+          },
+          "trends": {
+            "$ref": "#/components/schemas/TrustScoreTrends"
+          },
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrustScoreAnomaly"
+            }
+          },
+          "predictions": {
+            "$ref": "#/components/schemas/TrustScorePredictions"
+          },
+          "insights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrustScoreInsight"
+            }
+          }
+        }
+      },
+      "TrustScoreOverview": {
+        "type": "object",
+        "properties": {
+          "totalCalculations": {
+            "type": "integer"
+          },
+          "averageScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "scoreImprovement": {
+            "type": "number",
+            "description": "Percentage improvement over previous period"
+          },
+          "riskReduction": {
+            "type": "number",
+            "description": "Percentage reduction in risk"
+          },
+          "highRiskUsers": {
+            "type": "integer"
+          },
+          "scoreDistribution": {
+            "type": "object",
+            "properties": {
+              "0-25": {
+                "type": "integer"
+              },
+              "26-50": {
+                "type": "integer"
+              },
+              "51-75": {
+                "type": "integer"
+              },
+              "76-100": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "TrustScoreFactorBreakdown": {
+        "type": "object",
+        "properties": {
+          "behavioral": {
+            "$ref": "#/components/schemas/FactorAnalysis"
+          },
+          "device": {
+            "$ref": "#/components/schemas/FactorAnalysis"
+          },
+          "network": {
+            "$ref": "#/components/schemas/FactorAnalysis"
+          },
+          "location": {
+            "$ref": "#/components/schemas/FactorAnalysis"
+          },
+          "threat": {
+            "$ref": "#/components/schemas/FactorAnalysis"
+          }
+        }
+      },
+      "FactorAnalysis": {
+        "type": "object",
+        "properties": {
+          "averageScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "impact": {
+            "type": "number",
+            "description": "Impact on overall trust score"
+          },
+          "trends": {
+            "type": "object",
+            "properties": {
+              "direction": {
+                "type": "string",
+                "enum": ["improving", "declining", "stable"]
+              },
+              "change": {
+                "type": "number"
+              }
+            }
+          },
+          "topIssues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "issue": {
+                  "type": "string"
+                },
+                "frequency": {
+                  "type": "integer"
+                },
+                "impact": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TrustScoreRiskDistribution": {
+        "type": "object",
+        "properties": {
+          "low": {
+            "$ref": "#/components/schemas/RiskLevelMetrics"
+          },
+          "medium": {
+            "$ref": "#/components/schemas/RiskLevelMetrics"
+          },
+          "high": {
+            "$ref": "#/components/schemas/RiskLevelMetrics"
+          },
+          "critical": {
+            "$ref": "#/components/schemas/RiskLevelMetrics"
+          }
+        }
+      },
+      "RiskLevelMetrics": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "percentage": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "trend": {
+            "type": "string",
+            "enum": ["increasing", "decreasing", "stable"]
+          }
+        }
+      },
+      "UserSegmentAnalysis": {
+        "type": "object",
+        "properties": {
+          "segments": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/UserSegment"
+            }
+          },
+          "comparisons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentComparison"
+            }
+          }
+        }
+      },
+      "UserSegment": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "userCount": {
+            "type": "integer"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "riskProfile": {
+            "type": "object",
+            "properties": {
+              "low": {
+                "type": "integer"
+              },
+              "medium": {
+                "type": "integer"
+              },
+              "high": {
+                "type": "integer"
+              },
+              "critical": {
+                "type": "integer"
+              }
+            }
+          },
+          "commonFactors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SegmentComparison": {
+        "type": "object",
+        "properties": {
+          "segment1": {
+            "type": "string"
+          },
+          "segment2": {
+            "type": "string"
+          },
+          "scoreDifference": {
+            "type": "number"
+          },
+          "significance": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "keyDifferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TrustScoreTrends": {
+        "type": "object",
+        "properties": {
+          "overall": {
+            "$ref": "#/components/schemas/TrendAnalysis"
+          },
+          "byFactor": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrendAnalysis"
+            }
+          },
+          "seasonal": {
+            "$ref": "#/components/schemas/SeasonalAnalysis"
+          }
+        }
+      },
+      "TrendAnalysis": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": ["improving", "declining", "stable"]
+          },
+          "changeRate": {
+            "type": "number",
+            "description": "Rate of change per period"
+          },
+          "significance": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "timeSeries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "value": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "SeasonalAnalysis": {
+        "type": "object",
+        "properties": {
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "enum": ["daily", "weekly", "monthly"]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "strength": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "TrustScoreAnomaly": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["score_spike", "score_drop", "unusual_pattern", "factor_anomaly"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "detectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "affectedUsers": {
+            "type": "integer"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "recommendation": {
+            "type": "string"
+          }
+        }
+      },
+      "TrustScorePredictions": {
+        "type": "object",
+        "properties": {
+          "shortTerm": {
+            "$ref": "#/components/schemas/Prediction"
+          },
+          "mediumTerm": {
+            "$ref": "#/components/schemas/Prediction"
+          },
+          "longTerm": {
+            "$ref": "#/components/schemas/Prediction"
+          },
+          "riskForecast": {
+            "type": "object",
+            "properties": {
+              "highRiskUsersPrediction": {
+                "type": "integer"
+              },
+              "confidenceInterval": {
+                "type": "object",
+                "properties": {
+                  "lower": {
+                    "type": "integer"
+                  },
+                  "upper": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Prediction": {
+        "type": "object",
+        "properties": {
+          "timeHorizon": {
+            "type": "string"
+          },
+          "predictedScore": {
+            "type": "number"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "factors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "factor": {
+                  "type": "string"
+                },
+                "expectedImpact": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TrustScoreInsight": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["optimization", "risk", "trend", "anomaly"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "actionable": {
+            "type": "boolean"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "estimatedImpact": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      },
+      "NotificationSubscribeRequest": {
+        "type": "object",
+        "required": ["subscriptions"],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionConfig"
+            }
+          }
+        }
+      },
+      "SubscriptionConfig": {
+        "type": "object",
+        "required": ["type", "channels"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["security", "alert", "info", "warning", "error", "system"]
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["push", "email", "sms", "webhook"]
+            }
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["immediate", "hourly", "daily", "weekly"],
+            "default": "immediate"
+          },
+          "filters": {
+            "type": "object",
+            "properties": {
+              "severity": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high", "critical"]
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotificationSubscribeResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "subscriptionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SubscriptionConfig"
+                }
+              },
+              "effectiveAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "ScheduleNotificationRequest": {
+        "type": "object",
+        "required": ["notification", "schedule"],
+        "properties": {
+          "notification": {
+            "$ref": "#/components/schemas/CreateNotificationRequest"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/NotificationSchedule"
+          },
+          "timezone": {
+            "type": "string",
+            "default": "UTC"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/RecurrenceConfig"
+          }
+        }
+      },
+      "NotificationSchedule": {
+        "type": "object",
+        "properties": {
+          "sendAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sendAfter": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sendBefore": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RecurrenceConfig": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly", "yearly", "custom"]
+          },
+          "interval": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maxOccurrences": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "weekDays": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            }
+          },
+          "monthDay": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          }
+        }
+      },
+      "ScheduleNotificationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "scheduleId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "notificationId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "nextDelivery": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["scheduled", "cancelled", "completed"]
+              }
+            }
+          }
+        }
+      },
+      "NotificationWebhookRequest": {
+        "type": "object",
+        "required": ["url", "events"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["notification.sent", "notification.delivered", "notification.read", "notification.failed", "notification.clicked"]
+            }
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 10
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "retryConfig": {
+            "type": "object",
+            "properties": {
+              "maxRetries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 3
+              },
+              "retryDelay": {
+                "type": "integer",
+                "minimum": 1000,
+                "default": 5000
+              },
+              "exponentialBackoff": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "active": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "NotificationWebhookResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "webhookId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": ["active", "inactive", "failed"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lastTriggered": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "PolicyBundlesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "bundles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PolicyBundle"
+                }
+              },
+              "activeBundleId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      },
+      "PolicyBundle": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyInfo"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Bundle size in bytes"
+          },
+          "checksum": {
+            "type": "string"
+          }
+        }
+      },
+      "PolicyInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["rego", "data", "manifest"]
+          },
+          "size": {
+            "type": "integer"
+          }
+        }
+      },
+      "UploadPolicyBundleRequest": {
+        "type": "object",
+        "properties": {
+          "bundle": {
+            "type": "string",
+            "format": "binary",
+            "description": "Policy bundle file (tar.gz)"
+          },
+          "metadata": {
+            "type": "string",
+            "description": "JSON metadata for the bundle"
+          }
+        }
+      },
+      "PolicyBundleMetadata": {
+        "type": "object",
+        "required": ["name", "version"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PolicyBundleResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PolicyBundle"
+          }
+        }
+      },
+      "ActivatePolicyBundleRequest": {
+        "type": "object",
+        "required": ["bundleId"],
+        "properties": {
+          "bundleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force activation even if validation fails"
+          }
+        }
+      },
+      "PolicyBundleActivationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "bundleId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "activatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "validationResults": {
+                "type": "object",
+                "properties": {
+                  "valid": {
+                    "type": "boolean"
+                  },
+                  "warnings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "errors": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "PolicyLogsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "logs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PolicyDecisionLog"
+                }
+              },
+              "total": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "PolicyDecisionLog": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "policyVersion": {
+            "type": "string"
+          },
+          "evaluationTime": {
+            "type": "number",
+            "description": "Evaluation time in milliseconds"
+          },
+          "ipAddress": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "userAgent": {
+            "type": "string"
+          },
+          "trustScore": {
+            "type": "number"
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          }
+        }
+      },
+      "ComplianceAssessmentsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "assessments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ComplianceAssessment"
+                }
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "ComplianceAssessment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "framework": {
+            "type": "string",
+            "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["scheduled", "in_progress", "completed", "failed"]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "results": {
+            "$ref": "#/components/schemas/AssessmentResults"
+          },
+          "triggeredBy": {
+            "type": "string"
+          }
+        }
+      },
+      "AssessmentResults": {
+        "type": "object",
+        "properties": {
+          "overallScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "controlsAssessed": {
+            "type": "integer"
+          },
+          "controlsPassed": {
+            "type": "integer"
+          },
+          "controlsFailed": {
+            "type": "integer"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComplianceRecommendation"
+            }
+          }
+        }
+      },
+      "ComplianceRecommendation": {
+        "type": "object",
+        "properties": {
+          "controlId": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "estimatedEffort": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      },
+      "StartComplianceAssessmentRequest": {
+        "type": "object",
+        "required": ["framework"],
+        "properties": {
+          "framework": {
+            "type": "string",
+            "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"]
+          },
+          "scope": {
+            "type": "object",
+            "properties": {
+              "controls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excludeControls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ComplianceAssessmentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ComplianceAssessment"
+          }
+        }
+      },
+      "ComplianceViolationsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "violations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ComplianceViolation"
+                }
+              },
+              "total": {
+                "type": "integer"
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "critical": {
+                    "type": "integer"
+                  },
+                  "high": {
+                    "type": "integer"
+                  },
+                  "medium": {
+                    "type": "integer"
+                  },
+                  "low": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ComplianceViolation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "framework": {
+            "type": "string",
+            "enum": ["gdpr", "hipaa", "pci_dss", "soc2", "iso27001"]
+          },
+          "controlId": {
+            "type": "string"
+          },
+          "controlName": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "in_progress", "resolved", "dismissed"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "detectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assignedTo": {
+            "type": "string"
+          },
+          "remediationSteps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViolationEvidence"
+            }
+          }
+        }
+      },
+      "ViolationEvidence": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["log", "screenshot", "document", "configuration"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ComplianceAuditTrailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "auditEvents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ComplianceAuditEvent"
+                }
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "ComplianceAuditEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "activity": {
+            "type": "string",
+            "enum": ["assessment", "violation", "remediation", "policy_change", "control_update"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "framework": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["user", "system", "api"]
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "impact": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "details": {
+            "type": "object"
+          }
+        }
+      },
+      "PerformanceAnalyticsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PerformanceAnalytics"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        }
+      },
+      "PerformanceAnalytics": {
+        "type": "object",
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/PerformanceOverview"
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "responseTime": {
+                "$ref": "#/components/schemas/MetricTimeSeries"
+              },
+              "throughput": {
+                "$ref": "#/components/schemas/MetricTimeSeries"
+              },
+              "errorRate": {
+                "$ref": "#/components/schemas/MetricTimeSeries"
+              },
+              "availability": {
+                "$ref": "#/components/schemas/MetricTimeSeries"
+              },
+              "resourceUsage": {
+                "$ref": "#/components/schemas/ResourceUsageMetrics"
+              }
+            }
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PerformanceAlert"
+            }
+          },
+          "insights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PerformanceInsight"
+            }
+          }
+        }
+      },
+      "PerformanceOverview": {
+        "type": "object",
+        "properties": {
+          "averageResponseTime": {
+            "type": "number",
+            "description": "Average response time in milliseconds"
+          },
+          "requestsPerSecond": {
+            "type": "number"
+          },
+          "errorRate": {
+            "type": "number",
+            "description": "Error rate as percentage"
+          },
+          "uptime": {
+            "type": "number",
+            "description": "Uptime percentage"
+          },
+          "totalRequests": {
+            "type": "integer"
+          },
+          "totalErrors": {
+            "type": "integer"
+          }
+        }
+      },
+      "MetricTimeSeries": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "current": {
+            "type": "number"
+          },
+          "average": {
+            "type": "number"
+          },
+          "trend": {
+            "type": "string",
+            "enum": ["improving", "degrading", "stable"]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "value": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ResourceUsageMetrics": {
+        "type": "object",
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/MetricTimeSeries"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MetricTimeSeries"
+          },
+          "disk": {
+            "$ref": "#/components/schemas/MetricTimeSeries"
+          },
+          "network": {
+            "$ref": "#/components/schemas/MetricTimeSeries"
+          }
+        }
+      },
+      "PerformanceAlert": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "critical"]
+          },
+          "metric": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "currentValue": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          },
+          "triggeredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "resolved", "acknowledged"]
+          }
+        }
+      },
+      "PerformanceInsight": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["optimization", "issue", "trend", "anomaly"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      },
+      "OnboardingWorkflowDetailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/OnboardingWorkflowDetail"
+          }
+        }
+      },
+      "OnboardingWorkflowDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["user", "tenant", "integration"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not_started", "in_progress", "completed", "failed", "cancelled"]
+          },
+          "targetId": {
+            "type": "string",
+            "description": "ID of the entity being onboarded"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStepDetail"
+            }
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "percentage": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "configuration": {
+            "type": "object",
+            "description": "Workflow-specific configuration"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimatedDuration": {
+            "type": "integer",
+            "description": "Estimated duration in minutes"
+          },
+          "actualDuration": {
+            "type": "integer",
+            "description": "Actual duration in minutes"
+          }
+        }
+      },
+      "OnboardingStepDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "completed", "failed", "skipped"]
+          },
+          "order": {
+            "type": "integer"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Step IDs that must be completed first"
+          },
+          "estimatedDuration": {
+            "type": "integer",
+            "description": "Estimated duration in minutes"
+          },
+          "actualDuration": {
+            "type": "integer",
+            "description": "Actual duration in minutes"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if step failed"
+          },
+          "data": {
+            "type": "object",
+            "description": "Step-specific data and results"
+          }
+        }
+      },
+      "UpdateOnboardingWorkflowRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["in_progress", "completed", "cancelled"]
+          },
+          "stepUpdates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stepId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["in_progress", "completed", "failed", "skipped"]
+                },
+                "data": {
+                  "type": "object",
+                  "description": "Step-specific data"
+                },
+                "error": {
+                  "type": "string",
+                  "description": "Error message if step failed"
+                }
+              }
+            }
+          },
+          "configuration": {
+            "type": "object",
+            "description": "Updated workflow configuration"
+          }
+        }
+      },
+      "ResponseMetadata": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "processingTime": {
+            "type": "integer",
+            "description": "Processing time in milliseconds"
+          },
+          "cached": {
+            "type": "boolean",
+            "description": "Whether the response was served from cache"
+          },
+          "version": {
+            "type": "string",
+            "description": "API version"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request - Invalid request parameters or body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Invalid request parameters"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized - Authentication required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Authentication required"
+                },
+                "code": {
+                  "type": "string",
+                  "example": "UNAUTHORIZED"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden - Insufficient permissions",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Insufficient permissions"
+                },
+                "code": {
+                  "type": "string",
+                  "example": "FORBIDDEN"
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal Server Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Internal server error"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

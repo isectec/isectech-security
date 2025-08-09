@@ -1,0 +1,824 @@
+# iSECTECH Network Security Monitoring - Traffic Capture Infrastructure
+# Production-ready deployment for full packet capture and flow analysis
+
+version: '3.8'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORKS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  nsm-capture:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  nsm-processing:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+  isectech-siem:
+    external: true
+  monitoring:
+    external: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOLUMES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+volumes:
+  # Packet capture storage
+  moloch_pcap_hot:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/nsm/pcap/hot
+  moloch_pcap_warm:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/nsm/pcap/warm
+  
+  # Flow data storage
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+  
+  # Configuration and state
+  moloch_config:
+    driver: local
+  zeek_config:
+    driver: local
+  zeek_logs:
+    driver: local
+  suricata_config:
+    driver: local
+  suricata_logs:
+    driver: local
+  
+  # Processing cache
+  redis_capture_cache:
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVICES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # MOLOCH/ARKIME PACKET CAPTURE CLUSTER
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  moloch-capture-01:
+    build:
+      context: ./moloch
+      dockerfile: Dockerfile.capture
+    container_name: isectech-moloch-capture-01
+    hostname: moloch-capture-01.isectech.local
+    restart: unless-stopped
+    
+    # Network configuration for packet capture
+    network_mode: "host"
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    
+    volumes:
+      - moloch_pcap_hot:/data/pcap/hot
+      - moloch_pcap_warm:/data/pcap/warm
+      - moloch_config:/etc/moloch
+      - ./moloch/config/config.ini:/etc/moloch/config.ini:ro
+      - ./moloch/rules:/etc/moloch/rules:ro
+      - /var/log/nsm:/var/log/moloch
+    
+    environment:
+      - MOLOCH_INTERFACE=eth0,eth1,eth2,eth3
+      - MOLOCH_ELASTICSEARCH=elasticsearch-01:9200,elasticsearch-02:9200,elasticsearch-03:9200
+      - MOLOCH_PASSWORD=isectech_moloch_2024
+      - MOLOCH_ADMIN_PASSWORD=isectech_admin_2024
+      - CAPTURE_NODE_ID=01
+      - MOLOCH_PCAP_DIR=/data/pcap/hot
+      - MOLOCH_MAX_FILE_SIZE=12GB
+      - MOLOCH_PACKET_THREADS=8
+      - MOLOCH_COMPRESS_ES=gzip
+      - MOLOCH_DELETE_CHECK_DAYS=7
+      - MOLOCH_EXPIRE_DAYS=30
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=moloch-capture"
+      - "com.isectech.environment=production"
+      - "com.isectech.node=01"
+  
+  moloch-capture-02:
+    build:
+      context: ./moloch
+      dockerfile: Dockerfile.capture
+    container_name: isectech-moloch-capture-02
+    hostname: moloch-capture-02.isectech.local
+    restart: unless-stopped
+    
+    network_mode: "host"
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    
+    volumes:
+      - moloch_pcap_hot:/data/pcap/hot
+      - moloch_pcap_warm:/data/pcap/warm
+      - moloch_config:/etc/moloch
+      - ./moloch/config/config.ini:/etc/moloch/config.ini:ro
+      - ./moloch/rules:/etc/moloch/rules:ro
+      - /var/log/nsm:/var/log/moloch
+    
+    environment:
+      - MOLOCH_INTERFACE=eth4,eth5,eth6,eth7
+      - MOLOCH_ELASTICSEARCH=elasticsearch-01:9200,elasticsearch-02:9200,elasticsearch-03:9200
+      - MOLOCH_PASSWORD=isectech_moloch_2024
+      - MOLOCH_ADMIN_PASSWORD=isectech_admin_2024
+      - CAPTURE_NODE_ID=02
+      - MOLOCH_PCAP_DIR=/data/pcap/hot
+      - MOLOCH_MAX_FILE_SIZE=12GB
+      - MOLOCH_PACKET_THREADS=8
+      - MOLOCH_COMPRESS_ES=gzip
+      - MOLOCH_DELETE_CHECK_DAYS=7
+      - MOLOCH_EXPIRE_DAYS=30
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=moloch-capture"
+      - "com.isectech.environment=production"
+      - "com.isectech.node=02"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # MOLOCH VIEWER CLUSTER
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  moloch-viewer:
+    build:
+      context: ./moloch
+      dockerfile: Dockerfile.viewer
+    container_name: isectech-moloch-viewer
+    hostname: moloch-viewer.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-processing
+      - monitoring
+    
+    ports:
+      - "8005:8005"
+      - "9205:9205"  # Metrics
+    
+    volumes:
+      - moloch_config:/etc/moloch
+      - ./moloch/config/config.ini:/etc/moloch/config.ini:ro
+      - ./moloch/viewer-config:/etc/moloch/viewer
+      - /var/log/nsm:/var/log/moloch
+    
+    environment:
+      - MOLOCH_ELASTICSEARCH=elasticsearch-01:9200,elasticsearch-02:9200,elasticsearch-03:9200
+      - MOLOCH_PASSWORD=isectech_moloch_2024
+      - MOLOCH_ADMIN_PASSWORD=isectech_admin_2024
+      - MOLOCH_VIEWER_PORT=8005
+      - MOLOCH_MAX_SESSIONS=1000000
+      - MOLOCH_CERT_FILE=/etc/moloch/moloch.crt
+      - MOLOCH_KEY_FILE=/etc/moloch/moloch.key
+    
+    depends_on:
+      - moloch-capture-01
+      - moloch-capture-02
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=moloch-viewer"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ENHANCED FLOW COLLECTORS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  flow-collector-primary:
+    build:
+      context: ../siem/collectors
+      dockerfile: Dockerfile.flow-collector
+    container_name: isectech-flow-collector-primary
+    hostname: flow-collector-primary.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-capture
+      - nsm-processing
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "2055:2055/udp"    # NetFlow
+      - "6343:6343/udp"    # sFlow
+      - "4739:4739/udp"    # IPFIX
+      - "9162:9162"        # Metrics
+    
+    volumes:
+      - ./flow-collector/config/primary.yaml:/etc/config.yaml:ro
+      - ./flow-collector/geoip:/etc/geoip:ro
+      - /var/log/nsm:/var/log/flow-collector
+    
+    environment:
+      - COLLECTOR_ID=primary
+      - COLLECTOR_ROLE=primary
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis-capture-cache
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - CLICKHOUSE_HOST=clickhouse-01
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_DATABASE=nsm_flows
+      - CLICKHOUSE_USER=flow_collector
+      - CLICKHOUSE_PASSWORD=isectech_flows_2024
+      - ELASTICSEARCH_HOSTS=elasticsearch-01:9200,elasticsearch-02:9200
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - THREAT_INTEL_ENABLED=true
+      - GEOIP_ENABLED=true
+      - BEHAVIORAL_ANALYSIS_ENABLED=true
+    
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9162/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=flow-collector"
+      - "com.isectech.environment=production"
+      - "com.isectech.role=primary"
+
+  flow-collector-secondary:
+    build:
+      context: ../siem/collectors
+      dockerfile: Dockerfile.flow-collector
+    container_name: isectech-flow-collector-secondary
+    hostname: flow-collector-secondary.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-capture
+      - nsm-processing
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "2056:2055/udp"    # NetFlow
+      - "6344:6343/udp"    # sFlow
+      - "4740:4739/udp"    # IPFIX
+      - "9163:9162"        # Metrics
+    
+    volumes:
+      - ./flow-collector/config/secondary.yaml:/etc/config.yaml:ro
+      - ./flow-collector/geoip:/etc/geoip:ro
+      - /var/log/nsm:/var/log/flow-collector
+    
+    environment:
+      - COLLECTOR_ID=secondary
+      - COLLECTOR_ROLE=secondary
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis-capture-cache
+      - REDIS_PORT=6379
+      - REDIS_DB=1
+      - CLICKHOUSE_HOST=clickhouse-02
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_DATABASE=nsm_flows
+      - CLICKHOUSE_USER=flow_collector
+      - CLICKHOUSE_PASSWORD=isectech_flows_2024
+      - ELASTICSEARCH_HOSTS=elasticsearch-01:9200,elasticsearch-02:9200
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - THREAT_INTEL_ENABLED=true
+      - GEOIP_ENABLED=true
+      - BEHAVIORAL_ANALYSIS_ENABLED=true
+    
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9162/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=flow-collector"
+      - "com.isectech.environment=production"
+      - "com.isectech.role=secondary"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CLICKHOUSE CLUSTER FOR FLOW STORAGE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  clickhouse-01:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: isectech-clickhouse-01
+    hostname: clickhouse-01.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-processing
+      - monitoring
+    
+    ports:
+      - "8123:8123"      # HTTP interface
+      - "9000:9000"      # Native interface
+      - "9009:9009"      # Inter-server communication
+    
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./clickhouse/config/config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./clickhouse/config/users.xml:/etc/clickhouse-server/users.xml:ro
+      - ./clickhouse/config/clusters.xml:/etc/clickhouse-server/config.d/clusters.xml:ro
+      - ./clickhouse/schema:/docker-entrypoint-initdb.d:ro
+    
+    environment:
+      - CLICKHOUSE_DB=nsm_flows
+      - CLICKHOUSE_USER=flow_collector
+      - CLICKHOUSE_PASSWORD=isectech_flows_2024
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_INIT_TIMEOUT=60
+    
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=clickhouse"
+      - "com.isectech.environment=production"
+      - "com.isectech.node=01"
+
+  clickhouse-02:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: isectech-clickhouse-02
+    hostname: clickhouse-02.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-processing
+      - monitoring
+    
+    ports:
+      - "8124:8123"      # HTTP interface
+      - "9001:9000"      # Native interface
+      - "9010:9009"      # Inter-server communication
+    
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./clickhouse/config/config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./clickhouse/config/users.xml:/etc/clickhouse-server/users.xml:ro
+      - ./clickhouse/config/clusters.xml:/etc/clickhouse-server/config.d/clusters.xml:ro
+      - ./clickhouse/schema:/docker-entrypoint-initdb.d:ro
+    
+    environment:
+      - CLICKHOUSE_DB=nsm_flows
+      - CLICKHOUSE_USER=flow_collector
+      - CLICKHOUSE_PASSWORD=isectech_flows_2024
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_INIT_TIMEOUT=60
+    
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=clickhouse"
+      - "com.isectech.environment=production"
+      - "com.isectech.node=02"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # REDIS CACHE FOR CAPTURE PROCESSING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  redis-capture-cache:
+    image: redis:7.2.4-alpine
+    container_name: isectech-redis-capture-cache
+    hostname: redis-capture-cache.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-processing
+      - monitoring
+    
+    ports:
+      - "6380:6379"
+    
+    volumes:
+      - redis_capture_cache:/data
+      - ./redis/config/redis-capture.conf:/usr/local/etc/redis/redis.conf:ro
+    
+    command: redis-server /usr/local/etc/redis/redis.conf
+    
+    environment:
+      - TZ=UTC
+      - REDIS_MAXMEMORY=8gb
+      - REDIS_MAXMEMORY_POLICY=allkeys-lru
+    
+    sysctls:
+      - net.core.somaxconn=65535
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=redis-cache"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ZEEK NETWORK ANALYSIS ENGINE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  zeek-analyzer:
+    build:
+      context: ./zeek
+      dockerfile: Dockerfile.zeek
+    container_name: isectech-zeek-analyzer
+    hostname: zeek-analyzer.isectech.local
+    restart: unless-stopped
+    
+    network_mode: "host"
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    
+    volumes:
+      - zeek_config:/usr/local/zeek/etc
+      - zeek_logs:/usr/local/zeek/logs
+      - ./zeek/scripts:/usr/local/zeek/share/zeek/site:ro
+      - ./zeek/config:/etc/zeek:ro
+      - /var/log/nsm:/var/log/zeek
+    
+    environment:
+      - ZEEK_INTERFACE=eth0,eth1,eth2,eth3
+      - ZEEK_NODE_NAME=zeek-analyzer-01
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - ELASTICSEARCH_HOSTS=elasticsearch-01:9200,elasticsearch-02:9200
+      - ZEEK_LOG_ROTATE=3600  # 1 hour
+      - ZEEK_LOG_EXPIRE=86400 # 24 hours
+    
+    command: >
+      zeek -i eth0,eth1,eth2,eth3
+      -C /usr/local/zeek/share/zeek/site/local.zeek
+      --no-checksums
+      LogAscii::use_json=T
+    
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "zeek"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=zeek-analyzer"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SURICATA INTRUSION DETECTION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  suricata-ids:
+    build:
+      context: ./suricata
+      dockerfile: Dockerfile.suricata
+    container_name: isectech-suricata-ids
+    hostname: suricata-ids.isectech.local
+    restart: unless-stopped
+    
+    network_mode: "host"
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    
+    volumes:
+      - suricata_config:/etc/suricata
+      - suricata_logs:/var/log/suricata
+      - ./suricata/config/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./suricata/rules:/var/lib/suricata/rules:ro
+      - ./suricata/update-rules.sh:/usr/local/bin/update-rules.sh:ro
+      - /var/log/nsm:/var/log/suricata
+    
+    environment:
+      - SURICATA_INTERFACE=eth0,eth1,eth2,eth3
+      - SURICATA_HOME_NET=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12
+      - SURICATA_EXTERNAL_NET=!$HOME_NET
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - ELASTICSEARCH_HOSTS=elasticsearch-01:9200,elasticsearch-02:9200
+      - RULE_UPDATE_ENABLED=true
+      - RULE_UPDATE_INTERVAL=3600  # 1 hour
+    
+    command: >
+      suricata -c /etc/suricata/suricata.yaml
+      -i eth0,eth1,eth2,eth3
+      --runmode=workers
+      --set detect.profile=high
+      --set outputs.1.eve-log.enabled=yes
+      --set outputs.1.eve-log.filetype=regular
+      --set outputs.1.eve-log.filename=/var/log/suricata/eve.json
+    
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "suricata"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=suricata-ids"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # TRAFFIC CAPTURE MANAGEMENT API
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  capture-management-api:
+    build:
+      context: ./management-api
+      dockerfile: Dockerfile
+    container_name: isectech-capture-management-api
+    hostname: capture-management-api.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - nsm-processing
+      - monitoring
+    
+    ports:
+      - "8080:8080"      # Management API
+      - "9180:9180"      # Metrics
+    
+    volumes:
+      - ./management-api/config:/etc/config:ro
+      - /var/log/nsm:/var/log/management-api
+    
+    environment:
+      - API_PORT=8080
+      - METRICS_PORT=9180
+      - MOLOCH_API_URL=http://moloch-viewer:8005/api
+      - CLICKHOUSE_URL=http://clickhouse-01:8123
+      - ELASTICSEARCH_HOSTS=elasticsearch-01:9200,elasticsearch-02:9200
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis-capture-cache
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+    
+    depends_on:
+      - moloch-viewer
+      - clickhouse-01
+      - redis-capture-cache
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=nsm"
+      - "com.isectech.component=management-api"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PROMETHEUS METRICS EXPORTER
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  prometheus-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: isectech-nsm-prometheus-exporter
+    hostname: nsm-prometheus-exporter.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - monitoring
+    
+    ports:
+      - "9181:9100"
+    
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--web.listen-address=0.0.0.0:9100'
+      - '--collector.systemd'
+      - '--collector.processes'
+    
+    volumes:
+      - /:/host:ro,rslave
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    
+    labels:
+      - "com.isectech.service=monitoring"
+      - "com.isectech.component=nsm-prometheus-exporter"
+      - "com.isectech.environment=production"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEPLOYMENT NOTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Production Deployment Commands:
+#
+# 1. Prepare infrastructure:
+#    sudo mkdir -p /data/nsm/{pcap,logs,config}
+#    sudo mkdir -p /data/nsm/pcap/{hot,warm,cold}
+#    sudo chown -R 1000:1000 /data/nsm
+#
+# 2. Configure storage:
+#    sudo mount -t tmpfs -o size=64G tmpfs /data/nsm/pcap/hot
+#    sudo mount /dev/sdb1 /data/nsm/pcap/warm
+#    sudo mount /dev/sdc1 /data/nsm/pcap/cold
+#
+# 3. Network preparation:
+#    sudo modprobe 8021q
+#    sudo ip link set eth0 promisc on
+#    sudo ethtool -K eth0 gro off gso off tso off
+#
+# 4. Deploy services:
+#    docker-compose -f docker-compose.traffic-capture.yml up -d
+#
+# 5. Verify deployment:
+#    docker-compose -f docker-compose.traffic-capture.yml ps
+#    docker-compose -f docker-compose.traffic-capture.yml logs -f
+#
+# 6. Initialize databases:
+#    docker exec -it isectech-clickhouse-01 clickhouse-client --multiquery < ./clickhouse/schema/init.sql
+#    docker exec -it isectech-moloch-viewer /data/moloch/db/db.pl http://elasticsearch-01:9200 init
+#
+# 7. Configure rules and intelligence:
+#    docker exec -it isectech-suricata-ids /usr/local/bin/update-rules.sh
+#    docker exec -it isectech-moloch-viewer /data/moloch/db/db.pl http://elasticsearch-01:9200 upgrade
+#
+# Performance Tuning:
+#   - Adjust worker threads based on CPU cores
+#   - Configure memory limits for optimal performance
+#   - Tune disk I/O scheduler for storage performance
+#   - Configure network interface for high throughput
+#   - Monitor resource utilization and scale accordingly
+#
+# Security Considerations:
+#   - Use TLS certificates for all web interfaces
+#   - Configure network segmentation and access controls
+#   - Regular security updates and vulnerability scanning
+#   - Audit logging for all administrative actions
+#   - Secure backup and recovery procedures

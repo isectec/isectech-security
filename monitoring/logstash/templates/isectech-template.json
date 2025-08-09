@@ -1,0 +1,183 @@
+{
+  "index_patterns": ["logs-isectech-*"],
+  "version": 1,
+  "priority": 100,
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "refresh_interval": "30s",
+        "codec": "best_compression",
+        "mapping": {
+          "total_fields": {
+            "limit": 2000
+          }
+        },
+        "lifecycle": {
+          "name": "isectech-logs-policy",
+          "rollover_alias": "logs-isectech"
+        }
+      }
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keywords": {
+            "match_mapping_type": "string",
+            "match": "*_id",
+            "mapping": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        {
+          "ip_addresses": {
+            "match": "*_ip",
+            "mapping": {
+              "type": "ip"
+            }
+          }
+        },
+        {
+          "timestamps": {
+            "match": "*_timestamp",
+            "mapping": {
+              "type": "date"
+            }
+          }
+        },
+        {
+          "metrics": {
+            "match": "*_time*",
+            "match_mapping_type": "long",
+            "mapping": {
+              "type": "long",
+              "meta": {
+                "unit": "milliseconds"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "log": {
+          "properties": {
+            "level": {
+              "type": "keyword"
+            },
+            "message": {
+              "type": "text",
+              "analyzer": "standard",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 8192
+                }
+              }
+            }
+          }
+        },
+        "service": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "version": {
+              "type": "keyword"
+            },
+            "environment": {
+              "type": "keyword"
+            }
+          }
+        },
+        "tracing": {
+          "properties": {
+            "trace_id": {
+              "type": "keyword"
+            },
+            "span_id": {
+              "type": "keyword"
+            }
+          }
+        },
+        "security": {
+          "properties": {
+            "event_type": {
+              "type": "keyword"
+            },
+            "source_country": {
+              "type": "keyword"
+            },
+            "auth_event": {
+              "type": "boolean"
+            }
+          }
+        },
+        "k8s": {
+          "properties": {
+            "pod_name": {
+              "type": "keyword"
+            },
+            "namespace": {
+              "type": "keyword"
+            },
+            "container": {
+              "type": "keyword"
+            }
+          }
+        },
+        "audit": {
+          "properties": {
+            "id": {
+              "type": "keyword"
+            },
+            "user": {
+              "type": "keyword"
+            },
+            "action": {
+              "type": "keyword"
+            }
+          }
+        },
+        "error": {
+          "properties": {
+            "detected": {
+              "type": "boolean"
+            },
+            "has_stacktrace": {
+              "type": "boolean"
+            }
+          }
+        },
+        "performance": {
+          "properties": {
+            "response_time_ms": {
+              "type": "float",
+              "meta": {
+                "unit": "milliseconds"
+              }
+            }
+          }
+        },
+        "geoip": {
+          "properties": {
+            "location": {
+              "type": "geo_point"
+            },
+            "country_name": {
+              "type": "keyword"
+            },
+            "city_name": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

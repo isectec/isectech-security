@@ -1,0 +1,255 @@
+# Production Configuration for Trust Scoring Engine
+# Real-time trust scoring with high performance and reliability
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  workers: 4
+  worker_class: "uvicorn.workers.UvicornWorker"
+  max_requests: 10000
+  max_requests_jitter: 1000
+  timeout: 30
+  keepalive: 5
+
+trust_scoring:
+  # Cache configuration
+  cache:
+    redis_cluster:
+      primary:
+        host: "redis-primary.isectech-cache.com"
+        port: 6379
+        db: 4
+        password: "${REDIS_PASSWORD}"
+        ssl: true
+      replicas:
+        - host: "redis-replica-1.isectech-cache.com"
+          port: 6379
+          db: 4
+        - host: "redis-replica-2.isectech-cache.com"
+          port: 6379
+          db: 4
+    ttl_seconds: 300
+    max_memory_mb: 2048
+    eviction_policy: "allkeys-lru"
+  
+  # Performance tuning
+  performance:
+    max_concurrent_calculations: 100
+    request_timeout_seconds: 30
+    bulk_max_items: 100
+    bulk_max_concurrent: 20
+    cache_warmup_enabled: true
+    cache_warmup_entities: 1000
+  
+  # Trust calculation parameters
+  calculation:
+    base_trust_score: 0.5
+    min_trust_score: 0.0
+    max_trust_score: 1.0
+    smoothing_factor: 0.3
+    max_historical_data_days: 30
+    
+    # Factor weights
+    factor_weights:
+      user_behavior: 0.35
+      device_posture: 0.30
+      network_context: 0.20
+      authentication: 0.15
+    
+    # Trust level thresholds
+    trust_levels:
+      untrusted: 0.0
+      low: 0.3
+      medium: 0.6
+      high: 0.8
+
+# Database configuration
+database:
+  url: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+  pool_size: 20
+  max_overflow: 30
+  pool_timeout: 30
+  pool_recycle: 3600
+  echo: false
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "json"
+  handlers:
+    - type: "console"
+      level: "INFO"
+    - type: "file"
+      level: "INFO"
+      filename: "/var/log/trust-scoring/app.log"
+      max_size_mb: 100
+      backup_count: 5
+    - type: "syslog"
+      level: "WARNING"
+      facility: "local0"
+  
+  loggers:
+    trust_scoring:
+      level: "INFO"
+      propagate: false
+    uvicorn:
+      level: "INFO"
+      propagate: false
+    fastapi:
+      level: "INFO"
+      propagate: false
+
+# Monitoring and metrics
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    metrics_path: "/metrics"
+  
+  health_checks:
+    interval_seconds: 30
+    timeout_seconds: 10
+    
+  alerting:
+    enabled: true
+    thresholds:
+      error_rate_percent: 5.0
+      response_time_p95_ms: 150
+      cache_hit_rate_percent: 70.0
+      memory_usage_percent: 80.0
+
+# Security configuration
+security:
+  cors:
+    allow_origins:
+      - "https://*.isectech.com"
+      - "https://dashboard.isectech.com"
+    allow_methods: ["GET", "POST", "PUT", "DELETE"]
+    allow_headers: ["*"]
+    allow_credentials: true
+  
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000
+    burst_allowance: 100
+    
+  authentication:
+    required_for_admin: true
+    api_key_header: "X-API-Key"
+    jwt_secret: "${JWT_SECRET}"
+    jwt_algorithm: "HS256"
+    jwt_expiry_hours: 24
+
+# Integration services
+integrations:
+  # Behavioral analysis service
+  behavioral_analysis:
+    base_url: "http://behavioral-analysis-service.isectech-ai.svc.cluster.local:8080"
+    timeout_seconds: 10
+    max_retries: 3
+    
+  # Device management integration
+  device_management:
+    providers:
+      microsoft_intune:
+        enabled: true
+        base_url: "https://graph.microsoft.com"
+        tenant_id: "${INTUNE_TENANT_ID}"
+        client_id: "${INTUNE_CLIENT_ID}"
+        client_secret: "${INTUNE_CLIENT_SECRET}"
+        
+      vmware_workspace:
+        enabled: true
+        base_url: "${VMWARE_API_URL}"
+        username: "${VMWARE_USERNAME}"
+        password: "${VMWARE_PASSWORD}"
+        
+      jamf_pro:
+        enabled: false
+        base_url: "${JAMF_API_URL}"
+        username: "${JAMF_USERNAME}"
+        password: "${JAMF_PASSWORD}"
+  
+  # Threat intelligence feeds
+  threat_intelligence:
+    providers:
+      virustotal:
+        enabled: true
+        api_key: "${VIRUSTOTAL_API_KEY}"
+        rate_limit_per_minute: 4
+        
+      abuseipdb:
+        enabled: true
+        api_key: "${ABUSEIPDB_API_KEY}"
+        confidence_threshold: 75
+        
+      greynoise:
+        enabled: true
+        api_key: "${GREYNOISE_API_KEY}"
+        
+      otx_alienvault:
+        enabled: true
+        api_key: "${OTX_API_KEY}"
+
+# Environment-specific overrides
+environments:
+  development:
+    logging.level: "DEBUG"
+    database.echo: true
+    trust_scoring.performance.max_concurrent_calculations: 10
+    
+  staging:
+    monitoring.alerting.enabled: false
+    trust_scoring.cache.ttl_seconds: 60
+    
+  production:
+    security.authentication.required_for_admin: true
+    monitoring.alerting.enabled: true
+
+# Feature flags
+features:
+  trust_trends_enabled: true
+  bulk_operations_enabled: true
+  policy_decisions_enabled: true
+  cache_warmup_enabled: true
+  predictive_scoring_enabled: false  # Future feature
+  ml_model_updates_enabled: false    # Future feature
+
+# Resource limits and quotas
+resources:
+  # Per-tenant quotas
+  tenant_quotas:
+    default:
+      requests_per_hour: 10000
+      entities_tracked: 50000
+      historical_data_days: 30
+      
+    premium:
+      requests_per_hour: 100000
+      entities_tracked: 500000
+      historical_data_days: 90
+  
+  # System-wide limits
+  system_limits:
+    max_memory_per_request_mb: 100
+    max_processing_time_seconds: 10
+    max_concurrent_requests: 1000
+    max_entity_cache_size: 1000000
+
+# Disaster recovery and backup
+disaster_recovery:
+  backup:
+    enabled: true
+    interval_hours: 6
+    retention_days: 30
+    storage_location: "gs://isectech-trust-scoring-backups"
+    
+  replication:
+    enabled: true
+    regions: ["us-central1", "us-east1", "europe-west1"]
+    sync_interval_minutes: 5
+    
+  failover:
+    automatic: true
+    health_check_failures_threshold: 3
+    recovery_time_objective_minutes: 5

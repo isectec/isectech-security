@@ -1,0 +1,190 @@
+# Redis Configuration for iSECTECH Production Environment
+# This configuration implements a high-availability Redis setup with Sentinel
+# optimized for cybersecurity caching and real-time event processing
+
+redis:
+  # Connection settings
+  addresses:
+    - "${REDIS_HOST_1:-redis-node-01:6379}"
+    - "${REDIS_HOST_2:-redis-node-02:6379}"
+    - "${REDIS_HOST_3:-redis-node-03:6379}"
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  dial_timeout: 5s
+  read_timeout: 30s
+  write_timeout: 30s
+  
+  # Connection pool settings
+  pool_size: 100
+  min_idle_conns: 20
+  max_idle_conns: 50
+  conn_max_idle_time: 30m
+  conn_max_lifetime: 1h
+  pool_timeout: 30s
+  
+  # Cluster configuration (disabled in favor of Sentinel)
+  cluster:
+    enabled: false
+    max_redirects: 3
+    read_only: false
+    route_by_latency: true
+    route_randomly: false
+  
+  # Sentinel configuration for high availability
+  sentinel:
+    enabled: true
+    master_name: "isectech-master"
+    sentinel_addrs:
+      - "${REDIS_SENTINEL_1:-redis-sentinel-01:26379}"
+      - "${REDIS_SENTINEL_2:-redis-sentinel-02:26379}"
+      - "${REDIS_SENTINEL_3:-redis-sentinel-03:26379}"
+    sentinel_password: "${REDIS_SENTINEL_PASSWORD}"
+    failover_timeout: 3s
+  
+  # Streams configuration for event processing
+  streams:
+    enabled: true
+    max_length: 100000
+    approx_max_length: true
+    blocking_timeout: 5s
+    processing_timeout: 30s
+    consumer_groups:
+      security-events:
+        stream_name: "security:events"
+        group_name: "security-processors"
+        consumer_name: "processor-${HOSTNAME:-1}"
+        batch_size: 10
+        idle_timeout: 5m
+        retry_interval: 30s
+        max_retries: 3
+      threat-intel:
+        stream_name: "threat:intelligence"
+        group_name: "threat-processors"
+        consumer_name: "threat-processor-${HOSTNAME:-1}"
+        batch_size: 5
+        idle_timeout: 10m
+        retry_interval: 1m
+        max_retries: 5
+      audit-events:
+        stream_name: "audit:events"
+        group_name: "audit-processors"
+        consumer_name: "audit-processor-${HOSTNAME:-1}"
+        batch_size: 20
+        idle_timeout: 1m
+        retry_interval: 10s
+        max_retries: 2
+      performance-metrics:
+        stream_name: "metrics:performance"
+        group_name: "metrics-processors"
+        consumer_name: "metrics-processor-${HOSTNAME:-1}"
+        batch_size: 50
+        idle_timeout: 30s
+        retry_interval: 5s
+        max_retries: 2
+  
+  # Cache configuration
+  cache:
+    default_ttl: 1h
+    max_memory: "4gb"
+    eviction_policy: "allkeys-lru"
+    serialization: "msgpack"
+    compression:
+      enabled: true
+      algorithm: "lz4"
+      threshold: 1024  # 1KB
+      level: 1
+    prefixes:
+      "session:":
+        ttl: 30m
+        max_size: 1048576  # 1MB
+        compress: false
+        encrypt: true
+        tenant_isolated: true
+      "threat:":
+        ttl: 24h
+        max_size: 10485760  # 10MB
+        compress: true
+        encrypt: true
+        tenant_isolated: true
+      "asset:":
+        ttl: 6h
+        max_size: 5242880  # 5MB
+        compress: true
+        encrypt: false
+        tenant_isolated: true
+      "compliance:":
+        ttl: 168h  # 1 week
+        max_size: 2097152  # 2MB
+        compress: true
+        encrypt: true
+        tenant_isolated: true
+      "metrics:":
+        ttl: 15m
+        max_size: 524288  # 512KB
+        compress: false
+        encrypt: false
+        tenant_isolated: false
+      "alert:":
+        ttl: 72h  # 3 days
+        max_size: 1048576  # 1MB
+        compress: true
+        encrypt: true
+        tenant_isolated: true
+      "user:":
+        ttl: 2h
+        max_size: 524288  # 512KB
+        compress: false
+        encrypt: true
+        tenant_isolated: true
+  
+  # Security settings
+  security:
+    enable_tls: true
+    tls_config:
+      cert_file: "/etc/redis/certs/redis.crt"
+      key_file: "/etc/redis/certs/redis.key"
+      ca_file: "/etc/redis/certs/ca.crt"
+      insecure_skip_verify: false
+    enable_encryption: true
+    encryption_key: "${REDIS_ENCRYPTION_KEY}"
+    tenant_isolation: true
+    acl_config:
+      enabled: true
+      users:
+        isectech-api:
+          password: "${REDIS_API_USER_PASSWORD}"
+          categories: ["+@all", "-@dangerous"]
+          commands: ["+get", "+set", "+del", "+exists", "+expire", "+ttl", "+xadd", "+xread", "+xack"]
+          keys: ["~*"]
+          channels: ["&*"]
+        isectech-readonly:
+          password: "${REDIS_READONLY_PASSWORD}"
+          categories: ["+@read"]
+          commands: ["+get", "+exists", "+ttl", "+scan", "+xread"]
+          keys: ["~*"]
+          channels: ["&*"]
+        isectech-streams:
+          password: "${REDIS_STREAMS_PASSWORD}"
+          categories: ["+@stream", "+@read"]
+          commands: ["+xadd", "+xread", "+xgroup", "+xack", "+xpending", "+xclaim"]
+          keys: ["~security:*", "~threat:*", "~audit:*", "~metrics:*"]
+          channels: ["&*"]
+  
+  # Monitoring and observability
+  enable_metrics: true
+  enable_tracing: true
+  slow_log_threshold: 100ms
+  
+  # Circuit breaker settings
+  circuit_breaker:
+    max_requests: 10
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 5
+  
+  # Retry settings
+  retry_config:
+    max_attempts: 3
+    initial_interval: 100ms
+    max_interval: 5s
+    multiplier: 2.0

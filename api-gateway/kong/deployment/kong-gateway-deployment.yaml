@@ -1,0 +1,524 @@
+# Production-grade Kong Gateway Deployment for iSECTECH
+# High availability, multi-region deployment with comprehensive monitoring
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-api-gateway
+  labels:
+    name: isectech-api-gateway
+    security.isectech.com/tier: "api-gateway"
+    monitoring.isectech.com/enabled: "true"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-config
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+    tier: api-gateway
+data:
+  kong.conf: |
+    # Kong Configuration for iSECTECH Production
+    
+    # Database configuration (PostgreSQL)
+    database = postgres
+    pg_host = kong-postgres.isectech-data.svc.cluster.local
+    pg_port = 5432
+    pg_database = kong_isectech
+    pg_user = kong_user
+    pg_ssl = on
+    pg_ssl_verify = on
+    
+    # Admin API configuration
+    admin_listen = 0.0.0.0:8001 ssl
+    admin_ssl_cert = /etc/kong/certs/admin.crt
+    admin_ssl_cert_key = /etc/kong/certs/admin.key
+    admin_access_log = /dev/stdout
+    admin_error_log = /dev/stderr
+    admin_gui_access_log = /dev/stdout
+    admin_gui_error_log = /dev/stderr
+    
+    # Proxy configuration
+    proxy_listen = 0.0.0.0:8000 ssl http2, 0.0.0.0:8443 ssl http2
+    ssl_cert = /etc/kong/certs/proxy.crt
+    ssl_cert_key = /etc/kong/certs/proxy.key
+    proxy_access_log = /dev/stdout
+    proxy_error_log = /dev/stderr
+    
+    # Security settings
+    headers = Server, X-Kong-Response-Latency
+    trusted_ips = 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+    real_ip_header = X-Forwarded-For
+    real_ip_recursive = on
+    
+    # Performance tuning
+    nginx_worker_processes = auto
+    nginx_daemon = off
+    mem_cache_size = 256m
+    
+    # Logging
+    log_level = info
+    plugins = bundled,correlation-id,circuit-breaker,proxy-cache
+    
+    # Security headers
+    nginx_http_ssl_protocols = TLSv1.2 TLSv1.3
+    nginx_http_ssl_ciphers = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    nginx_http_ssl_prefer_server_ciphers = off
+    nginx_http_ssl_session_tickets = off
+    nginx_http_ssl_session_timeout = 1d
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kong-postgres-secret
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+type: Opaque
+data:
+  # Base64 encoded password - replace with actual password
+  password: aXNlY3RlY2hfa29uZ19wYXNzd29yZA==
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kong-tls-secret
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+type: kubernetes.io/tls
+data:
+  # Base64 encoded TLS certificates - replace with actual certificates
+  tls.crt: LS0tLS1CRUdJTi...
+  tls.key: LS0tLS1CRUdJTi...
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-gateway
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+    tier: api-gateway
+    version: "3.4"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: kong-gateway
+  template:
+    metadata:
+      labels:
+        app: kong-gateway
+        tier: api-gateway
+        version: "3.4"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8100"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kong-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - kong-gateway
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: kong-gateway
+        image: kong/kong-gateway:3.4.2.0-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: KONG_DATABASE
+          value: "postgres"
+        - name: KONG_PG_HOST
+          value: "kong-postgres.isectech-data.svc.cluster.local"
+        - name: KONG_PG_PORT
+          value: "5432"
+        - name: KONG_PG_DATABASE
+          value: "kong_isectech"
+        - name: KONG_PG_USER
+          value: "kong_user"
+        - name: KONG_PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kong-postgres-secret
+              key: password
+        - name: KONG_PROXY_ACCESS_LOG
+          value: "/dev/stdout"
+        - name: KONG_ADMIN_ACCESS_LOG
+          value: "/dev/stdout"
+        - name: KONG_PROXY_ERROR_LOG
+          value: "/dev/stderr"
+        - name: KONG_ADMIN_ERROR_LOG
+          value: "/dev/stderr"
+        - name: KONG_ADMIN_LISTEN
+          value: "0.0.0.0:8001 ssl"
+        - name: KONG_ADMIN_GUI_LISTEN
+          value: "0.0.0.0:8002 ssl"
+        - name: KONG_PROXY_LISTEN
+          value: "0.0.0.0:8000, 0.0.0.0:8443 ssl http2"
+        - name: KONG_STATUS_LISTEN
+          value: "0.0.0.0:8100"
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "auto"
+        - name: KONG_LOG_LEVEL
+          value: "info"
+        - name: KONG_PLUGINS
+          value: "bundled,correlation-id,circuit-breaker,proxy-cache"
+        - name: KONG_TRUSTED_IPS
+          value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+        - name: KONG_REAL_IP_HEADER
+          value: "X-Forwarded-For"
+        - name: KONG_REAL_IP_RECURSIVE
+          value: "on"
+        - name: KONG_MEM_CACHE_SIZE
+          value: "256m"
+        - name: KONG_NGINX_HTTP_SSL_PROTOCOLS
+          value: "TLSv1.2 TLSv1.3"
+        - name: KONG_NGINX_HTTP_SSL_PREFER_SERVER_CIPHERS
+          value: "off"
+        - name: KONG_NGINX_HTTP_SSL_SESSION_TICKETS
+          value: "off"
+        - name: KONG_NGINX_HTTP_SSL_SESSION_TIMEOUT
+          value: "1d"
+        - name: KONG_HEADERS
+          value: "Server, X-Kong-Response-Latency"
+        ports:
+        - name: proxy
+          containerPort: 8000
+          protocol: TCP
+        - name: proxy-ssl
+          containerPort: 8443
+          protocol: TCP
+        - name: admin
+          containerPort: 8001
+          protocol: TCP
+        - name: admin-gui
+          containerPort: 8002
+          protocol: TCP
+        - name: status
+          containerPort: 8100
+          protocol: TCP
+        volumeMounts:
+        - name: kong-config-volume
+          mountPath: /etc/kong/
+        - name: kong-tls-volume
+          mountPath: /etc/kong/certs/
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: 8100
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /status/ready
+            port: 8100
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: kong-config-volume
+        configMap:
+          name: kong-config
+      - name: kong-tls-volume
+        secret:
+          secretName: kong-tls-secret
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kong-gateway
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kong-gateway
+  labels:
+    app: kong-gateway
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions", "networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kong-gateway
+  labels:
+    app: kong-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kong-gateway
+subjects:
+- kind: ServiceAccount
+  name: kong-gateway
+  namespace: isectech-api-gateway
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+    tier: api-gateway
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "kong-backendconfig"}'
+spec:
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+  - 10.0.0.0/8      # Internal traffic
+  - 172.16.0.0/12   # Internal traffic
+  - 0.0.0.0/0       # External traffic (restrict as needed)
+  ports:
+  - name: proxy
+    port: 80
+    targetPort: 8000
+    protocol: TCP
+  - name: proxy-ssl
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  selector:
+    app: kong-gateway
+  sessionAffinity: None
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+    tier: api-gateway
+spec:
+  type: ClusterIP
+  ports:
+  - name: admin
+    port: 8001
+    targetPort: 8001
+    protocol: TCP
+  - name: admin-gui
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  selector:
+    app: kong-gateway
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-status
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+    tier: api-gateway
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8100"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: status
+    port: 8100
+    targetPort: 8100
+    protocol: TCP
+  selector:
+    app: kong-gateway
+
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: kong-backendconfig
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+spec:
+  timeoutSec: 300
+  connectionDraining:
+    drainingTimeoutSec: 60
+  healthCheck:
+    checkIntervalSec: 15
+    port: 8100
+    type: HTTP
+    requestPath: /status
+  sessionAffinity:
+    affinityType: "CLIENT_IP"
+    affinityCookieTtlSec: 3600
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kong-gateway-pdb
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: kong-gateway
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kong-gateway-hpa
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kong-gateway
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kong-gateway-netpol
+  namespace: isectech-api-gateway
+  labels:
+    app: kong-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app: kong-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-ingress
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-monitoring
+    ports:
+    - protocol: TCP
+      port: 8000
+    - protocol: TCP
+      port: 8443
+    - protocol: TCP
+      port: 8001
+    - protocol: TCP
+      port: 8100
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-data
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-services
+    ports:
+    - protocol: TCP
+      port: 443
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

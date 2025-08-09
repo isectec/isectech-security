@@ -1,0 +1,651 @@
+# iSECTECH Anomaly Detection System Deployment Configuration
+# Production deployment for comprehensive anomaly and behavioral detection
+
+# Global Configuration
+global:
+  # Environment settings
+  environment: "production"
+  debug_mode: false
+  log_level: "INFO"
+  
+  # Service identification
+  service_name: "isectech-anomaly-detection"
+  version: "1.0.0"
+  
+  # Data directories
+  data_root: "/var/lib/nsm"
+  log_root: "/var/log/nsm"
+  config_root: "/etc/nsm"
+  
+  # Network settings
+  bind_address: "0.0.0.0"
+  timezone: "UTC"
+
+# Component Services Configuration
+services:
+  # Main Anomaly Detection Engine
+  anomaly_detection_engine:
+    enabled: true
+    component: "anomaly-detection-engine"
+    config_file: "/etc/nsm/anomaly-detection.yaml"
+    
+    # Service settings
+    host: "0.0.0.0"
+    port: 8441
+    workers: 4
+    
+    # Resource limits
+    memory_limit: "8GB"
+    cpu_limit: "4"
+    
+    # Health checks
+    health_check:
+      enabled: true
+      endpoint: "/health"
+      interval: 30
+      timeout: 10
+    
+    # Scaling
+    auto_scaling:
+      enabled: true
+      min_replicas: 2
+      max_replicas: 8
+      cpu_threshold: 80
+      memory_threshold: 85
+  
+  # Network Flow Processor
+  network_flow_processor:
+    enabled: true
+    component: "network-flow-processor"
+    
+    # Service settings
+    host: "0.0.0.0"
+    port: 8442
+    workers: 8
+    
+    # Resource limits
+    memory_limit: "4GB"
+    cpu_limit: "4"
+    
+    # Input sources
+    input_sources:
+      - type: "zeek"
+        path: "/var/log/zeek/conn.log"
+        enabled: true
+        
+      - type: "suricata"
+        path: "/var/log/suricata/eve.json"
+        enabled: true
+        
+      - type: "netflow"
+        host: "collector.isectech.local"
+        port: 2055
+        enabled: true
+    
+    # Output destinations
+    outputs:
+      redis:
+        enabled: true
+        host: "redis-nsm.isectech.local"
+        port: 6379
+        db: 0
+        
+      kafka:
+        enabled: true
+        bootstrap_servers:
+          - "kafka01.isectech.local:9092"
+          - "kafka02.isectech.local:9092"
+        topic: "network-flows"
+        
+      elasticsearch:
+        enabled: true
+        hosts:
+          - "elastic01.isectech.local:9200"
+          - "elastic02.isectech.local:9200"
+        index_pattern: "network-flows-%Y-%m-%d"
+  
+  # Time Series Anomaly Detector
+  time_series_anomaly_detector:
+    enabled: true
+    component: "time-series-anomaly-detector"
+    config_file: "/etc/nsm/time-series-anomaly.yaml"
+    
+    # Service settings
+    host: "0.0.0.0"
+    port: 8443
+    workers: 2
+    
+    # Resource limits
+    memory_limit: "6GB"
+    cpu_limit: "4"
+    
+    # GPU support (if available)
+    gpu_enabled: false
+    gpu_memory_limit: "2GB"
+    
+    # Data sources
+    data_sources:
+      - name: "network_metrics"
+        type: "redis"
+        connection: "redis-nsm.isectech.local:6379"
+        
+      - name: "flow_aggregations"
+        type: "elasticsearch"
+        connection: "elastic01.isectech.local:9200"
+  
+  # Behavioral Pattern Analyzer
+  behavioral_pattern_analyzer:
+    enabled: true
+    component: "behavioral-pattern-analyzer"
+    config_file: "/etc/nsm/behavioral-analysis.yaml"
+    
+    # Service settings
+    host: "0.0.0.0"
+    port: 8444
+    workers: 2
+    
+    # Resource limits
+    memory_limit: "4GB"
+    cpu_limit: "2"
+    
+    # Analysis settings
+    analysis_intervals:
+      user_profiling: 3600    # 1 hour
+      host_profiling: 1800    # 30 minutes
+      peer_group_update: 86400  # 24 hours
+      graph_analysis: 7200    # 2 hours
+    
+    # Machine learning settings
+    ml_settings:
+      enable_clustering: true
+      enable_graph_analysis: true
+      enable_peer_comparison: true
+      min_confidence_threshold: 0.3
+
+# Database Configuration
+databases:
+  # Primary anomaly database
+  anomaly_db:
+    type: "sqlite"
+    path: "/var/lib/nsm/anomaly_detection.db"
+    connection_pool_size: 20
+    
+    # Backup settings
+    backup:
+      enabled: true
+      frequency: "daily"
+      retention_days: 30
+      backup_path: "/var/backups/nsm/anomaly_db"
+  
+  # Baseline database
+  baseline_db:
+    type: "sqlite"
+    path: "/var/lib/nsm/baselines.db"
+    connection_pool_size: 10
+    
+  # Time series database
+  time_series_db:
+    type: "sqlite"
+    path: "/var/lib/nsm/time_series_anomalies.db"
+    connection_pool_size: 15
+    
+  # Behavioral analysis database
+  behavioral_db:
+    type: "sqlite"
+    path: "/var/lib/nsm/behavioral_analysis.db"
+    connection_pool_size: 15
+
+# Redis Configuration
+redis:
+  # Main Redis instance
+  main:
+    host: "redis-nsm.isectech.local"
+    port: 6379
+    password: "${REDIS_PASSWORD}"
+    
+    # Database allocation
+    databases:
+      flows: 0          # Network flows
+      signatures: 2     # Signature detection
+      anomalies: 3      # Anomaly detection
+      time_series: 4    # Time series data
+      cache: 5          # General caching
+    
+    # Connection settings
+    connection_pool_size: 50
+    socket_timeout: 30
+    socket_connect_timeout: 30
+    retry_on_timeout: true
+    max_connections: 200
+    
+    # Performance settings
+    tcp_keepalive: true
+    tcp_keepalive_count: 3
+    tcp_keepalive_idle: 600
+    tcp_keepalive_interval: 30
+
+# Machine Learning Configuration
+machine_learning:
+  # Model storage
+  model_storage:
+    base_path: "/var/lib/nsm/models"
+    versioning: true
+    compression: true
+    
+    # Model lifecycle
+    lifecycle:
+      auto_retrain: true
+      retrain_frequency: 86400  # 24 hours
+      model_validation: true
+      a_b_testing: false
+    
+  # GPU settings (if available)
+  gpu:
+    enabled: false
+    device_ids: [0]
+    memory_growth: true
+    
+  # Distributed training (for large deployments)
+  distributed:
+    enabled: false
+    strategy: "mirrored"
+    num_workers: 2
+
+# Integration Configuration
+integrations:
+  # SIEM Integration
+  siem:
+    splunk:
+      enabled: true
+      host: "splunk.isectech.local"
+      port: 8089
+      username: "${SPLUNK_USERNAME}"
+      password: "${SPLUNK_PASSWORD}"
+      index: "anomaly_detection"
+      
+    elastic:
+      enabled: true
+      hosts:
+        - "elastic01.isectech.local:9200"
+        - "elastic02.isectech.local:9200"
+      username: "${ELASTIC_USERNAME}"
+      password: "${ELASTIC_PASSWORD}"
+      index_prefix: "anomalies"
+      
+    qradar:
+      enabled: false
+      host: "qradar.isectech.local"
+      api_token: "${QRADAR_API_TOKEN}"
+  
+  # SOAR Integration
+  soar:
+    phantom:
+      enabled: true
+      host: "phantom.isectech.local"
+      api_token: "${PHANTOM_API_TOKEN}"
+      playbooks:
+        - "anomaly_investigation"
+        - "behavioral_analysis"
+        - "baseline_validation"
+      
+    demisto:
+      enabled: false
+      host: "demisto.isectech.local"
+      api_key: "${DEMISTO_API_KEY}"
+  
+  # Threat Intelligence
+  threat_intelligence:
+    misp:
+      enabled: true
+      api_url: "https://misp.isectech.local"
+      api_key: "${MISP_API_KEY}"
+      
+    otx:
+      enabled: true
+      api_key: "${OTX_API_KEY}"
+      
+    taxii:
+      enabled: true
+      discovery_url: "https://taxii.isectech.local/services/discovery"
+      username: "${TAXII_USERNAME}"
+      password: "${TAXII_PASSWORD}"
+
+# Monitoring and Observability
+monitoring:
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    port: 9090
+    metrics_path: "/metrics"
+    
+    # Custom metrics
+    custom_metrics:
+      - anomaly_detection_rate
+      - false_positive_rate
+      - model_accuracy
+      - processing_latency
+      - system_resource_usage
+  
+  # Grafana dashboards
+  grafana:
+    enabled: true
+    host: "grafana.isectech.local"
+    port: 3000
+    
+    # Dashboard configurations
+    dashboards:
+      - name: "Anomaly Detection Overview"
+        file: "anomaly_overview.json"
+        
+      - name: "Behavioral Analysis"
+        file: "behavioral_analysis.json"
+        
+      - name: "Time Series Anomalies"
+        file: "time_series_anomalies.json"
+        
+      - name: "System Performance"
+        file: "system_performance.json"
+  
+  # Log aggregation
+  logging:
+    elasticsearch:
+      enabled: true
+      hosts:
+        - "elastic-logs01.isectech.local:9200"
+      index_pattern: "anomaly-logs-%Y-%m-%d"
+    
+    rsyslog:
+      enabled: true
+      server: "syslog.isectech.local:514"
+      facility: "local2"
+  
+  # Health checks
+  health_checks:
+    enabled: true
+    interval: 30
+    timeout: 10
+    
+    # Service-specific health checks
+    services:
+      - name: "anomaly_detection_engine"
+        endpoint: "http://localhost:8441/health"
+        
+      - name: "flow_processor"
+        endpoint: "http://localhost:8442/health"
+        
+      - name: "time_series_detector"
+        endpoint: "http://localhost:8443/health"
+        
+      - name: "behavioral_analyzer"
+        endpoint: "http://localhost:8444/health"
+
+# Security Configuration
+security:
+  # API Security
+  api_security:
+    authentication:
+      method: "jwt"
+      secret_key: "${JWT_SECRET_KEY}"
+      token_expiry: 3600
+      
+    authorization:
+      enabled: true
+      rbac_config: "/etc/nsm/rbac.yaml"
+      
+    rate_limiting:
+      enabled: true
+      default_limit: 1000  # requests per hour
+      burst_limit: 100
+    
+    ssl_tls:
+      enabled: true
+      cert_file: "/etc/ssl/certs/anomaly-detection.crt"
+      key_file: "/etc/ssl/private/anomaly-detection.key"
+      min_tls_version: "1.2"
+  
+  # Data Security
+  data_security:
+    encryption_at_rest:
+      enabled: true
+      key_file: "/etc/nsm/encryption.key"
+      algorithm: "AES-256-GCM"
+      
+    encryption_in_transit:
+      enabled: true
+      force_https: true
+      
+    data_masking:
+      enabled: false  # Disable for security monitoring
+      sensitive_fields: []
+  
+  # Network Security
+  network_security:
+    firewall_rules:
+      enabled: true
+      allow_ports: [8441, 8442, 8443, 8444, 9090]
+      allow_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      
+    vpn_required: false
+    
+    # Intrusion detection integration
+    ids_integration:
+      enabled: true
+      alert_on_anomalous_access: true
+
+# Performance and Scaling Configuration
+performance:
+  # Load balancing
+  load_balancing:
+    enabled: true
+    algorithm: "round_robin"
+    health_check_enabled: true
+    
+    # Backend servers
+    backends:
+      - host: "anomaly01.isectech.local"
+        port: 8441
+        weight: 1
+        
+      - host: "anomaly02.isectech.local"
+        port: 8441
+        weight: 1
+  
+  # Caching
+  caching:
+    enabled: true
+    backend: "redis"
+    ttl: 3600  # 1 hour
+    max_size: "1GB"
+    
+    # Cache warming
+    cache_warming:
+      enabled: true
+      warm_up_queries:
+        - "baseline_metrics"
+        - "model_predictions"
+        - "entity_profiles"
+  
+  # Resource optimization
+  optimization:
+    # Memory optimization
+    memory:
+      enable_memory_mapping: true
+      garbage_collection_frequency: 300
+      memory_profiling: false
+      
+    # CPU optimization
+    cpu:
+      enable_multiprocessing: true
+      process_pool_size: 8
+      thread_pool_size: 16
+      
+    # I/O optimization
+    io:
+      enable_async_io: true
+      buffer_size: 64000
+      batch_processing: true
+
+# Backup and Recovery
+backup_recovery:
+  # Backup configuration
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    retention_policy:
+      daily: 7
+      weekly: 4
+      monthly: 12
+      yearly: 3
+    
+    # Backup destinations
+    destinations:
+      - type: "local"
+        path: "/var/backups/nsm"
+        
+      - type: "s3"
+        bucket: "isectech-nsm-backups"
+        region: "us-east-1"
+        encryption: true
+        
+      - type: "nfs"
+        server: "backup.isectech.local"
+        path: "/backups/nsm"
+  
+  # Recovery procedures
+  recovery:
+    # Automated recovery
+    auto_recovery:
+      enabled: true
+      max_attempts: 3
+      backoff_factor: 2
+      
+    # Manual recovery procedures
+    procedures:
+      database_corruption: "/opt/nsm/scripts/recover_database.sh"
+      model_corruption: "/opt/nsm/scripts/recover_models.sh"
+      config_corruption: "/opt/nsm/scripts/recover_config.sh"
+
+# Deployment Settings
+deployment:
+  # Container settings (if using containers)
+  containers:
+    runtime: "docker"
+    registry: "registry.isectech.local"
+    image_prefix: "nsm"
+    
+    # Resource requests and limits
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "8"
+        memory: "16Gi"
+    
+    # Environment variables
+    environment:
+      - name: "ENVIRONMENT"
+        value: "production"
+      - name: "LOG_LEVEL"
+        value: "INFO"
+      - name: "REDIS_HOST"
+        value: "redis-nsm.isectech.local"
+  
+  # Service discovery
+  service_discovery:
+    enabled: true
+    backend: "consul"
+    consul_address: "consul.isectech.local:8500"
+    
+    # Service registration
+    services:
+      - name: "anomaly-detection"
+        port: 8441
+        health_check: "/health"
+        
+      - name: "flow-processor"
+        port: 8442
+        health_check: "/health"
+  
+  # Configuration management
+  config_management:
+    backend: "consul"
+    prefix: "nsm/anomaly-detection"
+    watch_for_changes: true
+    reload_on_change: true
+
+# Maintenance and Operations
+maintenance:
+  # Scheduled maintenance
+  scheduled_tasks:
+    - name: "model_retraining"
+      schedule: "0 3 * * *"  # Daily at 3 AM
+      script: "/opt/nsm/scripts/retrain_models.sh"
+      
+    - name: "baseline_recalculation"
+      schedule: "0 4 * * 0"  # Weekly on Sunday at 4 AM
+      script: "/opt/nsm/scripts/recalculate_baselines.sh"
+      
+    - name: "cleanup_old_data"
+      schedule: "0 5 * * 0"  # Weekly on Sunday at 5 AM
+      script: "/opt/nsm/scripts/cleanup_data.sh"
+      
+    - name: "system_health_check"
+      schedule: "*/15 * * * *"  # Every 15 minutes
+      script: "/opt/nsm/scripts/health_check.sh"
+  
+  # Automatic maintenance
+  auto_maintenance:
+    enabled: true
+    
+    # Database maintenance
+    database:
+      vacuum_frequency: 86400  # Daily
+      analyze_frequency: 3600  # Hourly
+      
+    # Log rotation
+    log_rotation:
+      frequency: "daily"
+      retention_days: 30
+      compression: true
+  
+  # Emergency procedures
+  emergency_procedures:
+    high_memory_usage: "/opt/nsm/scripts/emergency_memory_cleanup.sh"
+    high_cpu_usage: "/opt/nsm/scripts/emergency_cpu_throttle.sh"
+    disk_space_critical: "/opt/nsm/scripts/emergency_disk_cleanup.sh"
+
+# Testing and Validation
+testing:
+  # Automated testing
+  automated_tests:
+    enabled: true
+    schedule: "0 1 * * *"  # Daily at 1 AM
+    
+    # Test suites
+    test_suites:
+      - name: "unit_tests"
+        command: "python -m pytest tests/unit/"
+        
+      - name: "integration_tests"
+        command: "python -m pytest tests/integration/"
+        
+      - name: "performance_tests"
+        command: "python -m pytest tests/performance/"
+  
+  # Validation procedures
+  validation:
+    model_validation:
+      enabled: true
+      validation_split: 0.2
+      cross_validation_folds: 5
+      
+    data_validation:
+      enabled: true
+      schema_validation: true
+      data_quality_checks: true
+      
+    configuration_validation:
+      enabled: true
+      syntax_validation: true
+      dependency_validation: true

@@ -1,0 +1,255 @@
+# iSECTECH Cybersecurity Platform - Code Ownership Configuration
+# This file defines code ownership for automated review assignment and branch protection
+
+# =============================================================================
+# GLOBAL OWNERSHIP
+# =============================================================================
+
+# Default ownership for all files
+* @isectech/core-team
+
+# =============================================================================
+# SECURITY AND COMPLIANCE
+# =============================================================================
+
+# Security-related directories and files require security team review
+/security/ @isectech/security-team @isectech/lead-security-engineer
+/__tests__/security/ @isectech/security-team @isectech/lead-security-engineer
+/threat-intelligence/ @isectech/security-team @isectech/threat-intel-team
+/vulnerability-management/ @isectech/security-team @isectech/vuln-management-team
+
+# CI/CD and workflow configurations require DevOps and Security review
+/.github/workflows/ @isectech/devops-team @isectech/security-team
+/.github/actions/ @isectech/devops-team
+/.github/branch-protection-rules.md @isectech/security-team @isectech/devops-team
+
+# Configuration files with security implications
+.env* @isectech/devops-team @isectech/security-team
+.secrets* @isectech/security-team
+/config/ @isectech/devops-team @isectech/security-team
+
+# =============================================================================
+# INFRASTRUCTURE AND DEPLOYMENT
+# =============================================================================
+
+# Infrastructure as Code
+/infrastructure/ @isectech/devops-team @isectech/platform-team
+/terraform/ @isectech/devops-team @isectech/platform-team
+/k8s/ @isectech/devops-team @isectech/platform-team
+/helm/ @isectech/devops-team
+/ansible/ @isectech/devops-team
+
+# Container configurations
+Dockerfile* @isectech/devops-team @isectech/security-team
+docker-compose*.yml @isectech/devops-team
+.dockerignore @isectech/devops-team
+
+# Deployment and pipeline configurations
+/scripts/ @isectech/devops-team
+/deploy/ @isectech/devops-team
+/.taskmaster/ @isectech/devops-team @isectech/core-team
+
+# =============================================================================
+# BACKEND SERVICES
+# =============================================================================
+
+# Go backend services
+/backend/ @isectech/backend-team @isectech/go-team
+/api/ @isectech/backend-team @isectech/api-team
+/cmd/ @isectech/backend-team
+/internal/ @isectech/backend-team
+/pkg/ @isectech/backend-team
+
+# Go configuration files
+go.mod @isectech/backend-team @isectech/go-team
+go.sum @isectech/backend-team @isectech/go-team
+*.go @isectech/backend-team
+
+# Event processing services
+/event-processing/ @isectech/backend-team @isectech/event-processing-team
+
+# =============================================================================
+# FRONTEND APPLICATION
+# =============================================================================
+
+# Next.js frontend application
+/app/ @isectech/frontend-team @isectech/ui-ux-team
+/components/ @isectech/frontend-team
+/pages/ @isectech/frontend-team
+/public/ @isectech/frontend-team
+/styles/ @isectech/frontend-team @isectech/ui-ux-team
+
+# Frontend configuration files
+package.json @isectech/frontend-team @isectech/core-team
+package-lock.json @isectech/frontend-team
+next.config.js @isectech/frontend-team @isectech/devops-team
+tsconfig.json @isectech/frontend-team
+
+# Frontend testing
+/__tests__/**/*.tsx @isectech/frontend-team @isectech/qa-team
+/__tests__/**/*.ts @isectech/frontend-team @isectech/qa-team
+/playwright.config.ts @isectech/frontend-team @isectech/qa-team
+
+# Storybook and component documentation
+/.storybook/ @isectech/frontend-team @isectech/ui-ux-team
+/stories/ @isectech/frontend-team @isectech/ui-ux-team
+
+# =============================================================================
+# AI AND MACHINE LEARNING SERVICES
+# =============================================================================
+
+# AI services and machine learning
+/ai-services/ @isectech/ai-team @isectech/ml-team
+/models/ @isectech/ai-team @isectech/data-science-team
+/notebooks/ @isectech/ai-team @isectech/data-science-team
+
+# Python configuration files
+requirements.txt @isectech/ai-team
+requirements-*.txt @isectech/ai-team
+Pipfile @isectech/ai-team
+Pipfile.lock @isectech/ai-team
+pyproject.toml @isectech/ai-team
+setup.py @isectech/ai-team
+
+# Python source files
+*.py @isectech/ai-team
+
+# =============================================================================
+# TESTING AND QUALITY ASSURANCE
+# =============================================================================
+
+# Test configurations and frameworks
+jest.config.js @isectech/qa-team @isectech/frontend-team
+jest.setup.js @isectech/qa-team @isectech/frontend-team
+playwright.config.ts @isectech/qa-team @isectech/frontend-team
+pytest.ini @isectech/qa-team @isectech/ai-team
+
+# Test directories
+/__tests__/ @isectech/qa-team
+/test/ @isectech/qa-team
+/tests/ @isectech/qa-team
+
+# Performance testing
+/__tests__/performance/ @isectech/qa-team @isectech/performance-team
+/load-tests/ @isectech/qa-team @isectech/performance-team
+
+# Cross-browser testing
+/__tests__/cross-browser/ @isectech/qa-team @isectech/frontend-team
+/test-setup/ @isectech/qa-team
+
+# =============================================================================
+# DOCUMENTATION
+# =============================================================================
+
+# Core documentation files
+README.md @isectech/core-team @isectech/tech-writers
+CLAUDE.md @isectech/core-team @isectech/ai-team
+CLAUDE.local.md @isectech/core-team
+
+# Documentation directories
+/docs/ @isectech/tech-writers @isectech/core-team
+/documentation/ @isectech/tech-writers
+
+# API documentation
+/api-docs/ @isectech/backend-team @isectech/tech-writers
+/openapi/ @isectech/backend-team @isectech/api-team
+
+# =============================================================================
+# DATA AND DATABASES
+# =============================================================================
+
+# Database migrations and schemas
+/migrations/ @isectech/backend-team @isectech/dba-team
+/sql/ @isectech/backend-team @isectech/dba-team
+/schemas/ @isectech/backend-team @isectech/dba-team
+
+# Data processing and ETL
+/data/ @isectech/data-team @isectech/backend-team
+/etl/ @isectech/data-team
+
+# =============================================================================
+# MONITORING AND OBSERVABILITY
+# =============================================================================
+
+# Monitoring configurations
+/monitoring/ @isectech/devops-team @isectech/sre-team
+/grafana/ @isectech/devops-team @isectech/sre-team
+/prometheus/ @isectech/devops-team @isectech/sre-team
+/alerting/ @isectech/devops-team @isectech/sre-team
+
+# Logging configurations
+/logging/ @isectech/devops-team @isectech/backend-team
+
+# =============================================================================
+# MOBILE APPLICATIONS
+# =============================================================================
+
+# Mobile app directories (if applicable)
+/mobile/ @isectech/mobile-team
+/ios/ @isectech/mobile-team @isectech/ios-team
+/android/ @isectech/mobile-team @isectech/android-team
+
+# =============================================================================
+# SPECIAL FILES AND CONFIGURATIONS
+# =============================================================================
+
+# License and legal files
+LICENSE @isectech/legal-team @isectech/core-team
+SECURITY.md @isectech/security-team @isectech/legal-team
+PRIVACY.md @isectech/legal-team @isectech/privacy-team
+
+# Editor and IDE configurations
+.vscode/ @isectech/core-team
+.idea/ @isectech/core-team
+.editorconfig @isectech/core-team
+
+# Linting and formatting configurations
+.eslintrc* @isectech/frontend-team @isectech/core-team
+.prettierrc* @isectech/frontend-team @isectech/core-team
+.golangci.yml @isectech/backend-team @isectech/go-team
+pyproject.toml @isectech/ai-team
+.flake8 @isectech/ai-team
+.pylintrc @isectech/ai-team
+
+# Git configurations
+.gitignore @isectech/core-team
+.gitattributes @isectech/core-team
+
+# Dependency lock files (require careful review)
+package-lock.json @isectech/frontend-team @isectech/security-team
+go.sum @isectech/backend-team @isectech/security-team
+Pipfile.lock @isectech/ai-team @isectech/security-team
+
+# =============================================================================
+# TEAM DEFINITIONS
+# These teams should be configured in GitHub organization settings
+# =============================================================================
+
+# @isectech/core-team - Core maintainers and tech leads
+# @isectech/security-team - Security engineers and analysts
+# @isectech/devops-team - DevOps and platform engineers
+# @isectech/backend-team - Backend developers
+# @isectech/frontend-team - Frontend developers
+# @isectech/ai-team - AI/ML engineers
+# @isectech/qa-team - Quality assurance engineers
+# @isectech/mobile-team - Mobile developers
+# @isectech/data-team - Data engineers and scientists
+# @isectech/sre-team - Site reliability engineers
+# @isectech/tech-writers - Technical documentation team
+# @isectech/legal-team - Legal and compliance team
+
+# Specialized sub-teams:
+# @isectech/lead-security-engineer - Lead security engineer
+# @isectech/threat-intel-team - Threat intelligence specialists
+# @isectech/vuln-management-team - Vulnerability management specialists
+# @isectech/platform-team - Platform architecture team
+# @isectech/go-team - Go language specialists
+# @isectech/api-team - API design specialists
+# @isectech/ui-ux-team - UI/UX designers
+# @isectech/ml-team - Machine learning specialists
+# @isectech/data-science-team - Data science team
+# @isectech/performance-team - Performance engineering specialists
+# @isectech/dba-team - Database administrators
+# @isectech/ios-team - iOS development team
+# @isectech/android-team - Android development team
+# @isectech/privacy-team - Privacy and compliance specialists

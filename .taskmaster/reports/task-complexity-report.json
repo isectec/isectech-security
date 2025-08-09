@@ -1,0 +1,77 @@
+{
+	"meta": {
+		"generatedAt": "2025-08-06T04:34:29.960Z",
+		"tasksAnalyzed": 8,
+		"totalTasks": 49,
+		"analysisCount": 8,
+		"thresholdScore": 5,
+		"projectName": "Taskmaster",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 68,
+			"taskTitle": "Implement Automated Customer Onboarding Workflow",
+			"complexityScore": 9,
+			"recommendedSubtasks": 12,
+			"expansionPrompt": "Break down the onboarding workflow into discrete modules: (1) account provisioning/configuration, (2) customer success portal integration, (3) guided setup wizard development, (4) welcome communications and checklist automation, (5) dynamic forms for data collection, (6) compliance/multi-tenant integration, (7) extensibility/white-labeling support, (8) CRM/support/analytics integration, (9) onboarding analytics/reporting, (10) secure data handling, (11) accessibility/localization, (12) stakeholder review and feedback.",
+			"reasoning": "This task involves orchestrating multiple complex, interdependent systems (workflow automation, compliance, multi-tenancy, extensibility, analytics, and integrations) and requires robust security, accessibility, and localization. Each step is non-trivial and must be modular for future extensibility and white-labeling, demanding a high number of subtasks to ensure maintainability and testability according to industry best practices."
+		},
+		{
+			"taskId": 69,
+			"taskTitle": "Develop Advanced AI/ML Threat Detection Models",
+			"complexityScore": 10,
+			"recommendedSubtasks": 14,
+			"expansionPrompt": "Decompose the task into: (1) requirements and data source analysis, (2) data collection and preprocessing, (3) behavioral analytics model design, (4) anomaly detection (unsupervised learning), (5) supervised threat classification, (6) zero-day/unknown threat detection (semi/unsupervised), (7) predictive threat intelligence (time-series), (8) automated threat hunting algorithms, (9) model explainability (SHAP/LIME), (10) integration with SIEM/SOAR/threat intelligence, (11) model validation and bias mitigation, (12) secure deployment, (13) continuous learning/retraining pipeline, (14) operational monitoring and drift detection.",
+			"reasoning": "This task is at the upper end of complexity due to the need for multiple ML paradigms, large-scale data engineering, explainability, integration with security infrastructure, continuous learning, and strict validation and security requirements. Each ML component and integration point warrants its own subtask for effective delivery and risk management."
+		},
+		{
+			"taskId": 70,
+			"taskTitle": "Implement Multi-Region Deployment Architecture with Global Load Balancing and Compliance",
+			"complexityScore": 9,
+			"recommendedSubtasks": 12,
+			"expansionPrompt": "Expand into: (1) requirements and region selection, (2) cloud provider environment provisioning, (3) global load balancing setup, (4) deployment model selection (active-active/passive), (5) data residency/sovereignty enforcement, (6) compliance automation integration, (7) cross-region replication strategy, (8) CI/CD pipeline updates for multi-region, (9) monitoring/alerting/failover, (10) operational runbook documentation, (11) disaster recovery drills, (12) performance and compliance validation.",
+			"reasoning": "Multi-region deployment is highly complex due to the interplay of distributed systems, regulatory compliance, data residency, disaster recovery, and operational automation. Each architectural and operational concern must be addressed as a separate subtask to ensure reliability, compliance, and maintainability."
+		},
+		{
+			"taskId": 71,
+			"taskTitle": "Implement Mobile Notification System",
+			"complexityScore": 8,
+			"recommendedSubtasks": 10,
+			"expansionPrompt": "Divide into: (1) push notification infrastructure (FCM/APNS), (2) notification priority and batching, (3) delivery receipts/read tracking, (4) mobile-optimized dashboard (PWA), (5) offline/service worker support, (6) secure mobile authentication (OAuth2/PKCE/WebAuthn), (7) notification management (preferences, grouping, history), (8) integration with event/auth systems, (9) performance/battery optimization, (10) internationalization and white-labeling.",
+			"reasoning": "The task spans multiple domains: real-time messaging, mobile web UI, authentication, integration, and performance. While not as algorithmically complex as ML or multi-region, it requires careful modularization to address security, UX, and cross-platform concerns, each meriting a dedicated subtask."
+		},
+		{
+			"taskId": 72,
+			"taskTitle": "Develop Executive Analytics Dashboards for Security Leadership",
+			"complexityScore": 8,
+			"recommendedSubtasks": 9,
+			"expansionPrompt": "Expand into: (1) requirements gathering with executives, (2) KPI and analytics definition, (3) data integration (threat, compliance, posture), (4) dashboard UI/UX design, (5) data privacy/security controls (encryption, RBAC, SSO, MFA), (6) predictive analytics/recommendations, (7) customization/drill-down features, (8) scalability/performance optimization, (9) regulatory compliance validation.",
+			"reasoning": "Executive dashboards require advanced data integration, security, and usability, but leverage existing analytics engines. The main complexity lies in data modeling, secure presentation, and executive-focused UX, which can be modularized into distinct subtasks."
+		},
+		{
+			"taskId": 73,
+			"taskTitle": "Implement Load Testing and Performance Optimization Framework",
+			"complexityScore": 7,
+			"recommendedSubtasks": 8,
+			"expansionPrompt": "Break down into: (1) tool selection and environment setup, (2) test scenario/script development, (3) distributed load configuration, (4) metrics collection and dashboard integration, (5) bottleneck analysis, (6) optimization implementation, (7) CI/CD integration and regression guardrails, (8) documentation and knowledge transfer.",
+			"reasoning": "This task is moderately complex, involving tool evaluation, scripting, distributed testing, and integration with CI/CD. Each phase is well-defined and can be handled as a separate subtask, following established DevOps and performance engineering practices."
+		},
+		{
+			"taskId": 74,
+			"taskTitle": "Conduct Comprehensive Security Penetration Testing for iSECTECH Platform",
+			"complexityScore": 8,
+			"recommendedSubtasks": 10,
+			"expansionPrompt": "Expand into: (1) scope definition and stakeholder alignment, (2) methodology selection, (3) reconnaissance and attack surface mapping, (4) vulnerability assessment (automated/manual), (5) exploitation and risk validation, (6) infrastructure/cloud security assessment, (7) documentation and reporting, (8) remediation coordination, (9) retesting and closure, (10) continuous improvement and policy updates.",
+			"reasoning": "Penetration testing is complex due to the breadth of coverage (web, API, infra, cloud), need for both automated and manual techniques, and coordination for remediation and retesting. Each phase is critical and aligns with industry-standard pentest workflows."
+		},
+		{
+			"taskId": 75,
+			"taskTitle": "API Rate Limiting and Infrastructure Protection",
+			"complexityScore": 9,
+			"recommendedSubtasks": 12,
+			"expansionPrompt": "Decompose into: (1) current gateway capability assessment, (2) advanced rate limiting implementation, (3) DDoS protection setup, (4) request throttling mechanisms, (5) IP-based protection (allow/deny, geo, reputation), (6) intelligent traffic management (segmentation, routing, A/B, canary), (7) circuit breaker implementation, (8) failover mechanisms, (9) monitoring and alerting, (10) integration with existing infra, (11) load and security testing, (12) documentation and incident response playbooks.",
+			"reasoning": "This task covers a wide range of infrastructure protection mechanisms, each with its own design, implementation, and testing requirements. The need for robust, layered defenses and integration with monitoring and incident response justifies a high complexity score and a large number of subtasks."
+		}
+	]
+}

@@ -1,0 +1,404 @@
+# iSECTECH POC Provisioning Engine - Kubernetes Deployment
+# Production-Grade Infrastructure Provisioning Service
+# Version: 1.0
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: provisioning-engine
+    app.kubernetes.io/part-of: isectech-poc-platform
+    app.kubernetes.io/managed-by: kubernetes
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: poc-provisioning-config
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+  PORT: "8081"
+  GCP_PROJECT: "isectech-poc-platform"
+  GCP_REGION: "us-central1"
+  TERRAFORM_BINARY: "/usr/local/bin/terraform"
+  TERRAFORM_WORKSPACE_DIR: "/app/terraform-workspaces"
+  TERRAFORM_STATE_GCS_BUCKET: "isectech-terraform-state-poc"
+  MAX_CONCURRENT_PROVISIONS: "5"
+  PROVISIONING_TIMEOUT: "45m"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: poc-provisioning-secrets
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+type: Opaque
+data:
+  # Base64 encoded secrets - replace with actual values
+  DATABASE_URL: cG9zdGdyZXM6Ly91c2VybmFtZTpwYXNzd29yZEBsb2NhbGhvc3Q6NTQzMi9pc2VjdGVjaF9wb2M/c3NsbW9kZT1kaXNhYmxl
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poc-provisioning-engine
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: provisioning-engine
+    app.kubernetes.io/part-of: isectech-poc-platform
+    app.kubernetes.io/managed-by: kubernetes
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: poc-provisioning-engine
+      app.kubernetes.io/instance: production
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: poc-provisioning-engine
+        app.kubernetes.io/instance: production
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/component: provisioning-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: poc-provisioning-engine
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: poc-provisioning-engine
+        image: gcr.io/isectech-poc-platform/poc-provisioning-engine:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8081
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: poc-provisioning-secrets
+              key: DATABASE_URL
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/google/key.json
+        envFrom:
+        - configMapRef:
+            name: poc-provisioning-config
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Terraform needs to write temporary files
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: terraform-workspaces
+          mountPath: /app/terraform-workspaces
+        - name: gcp-service-account
+          mountPath: /var/secrets/google
+          readOnly: true
+        - name: terraform-modules
+          mountPath: /app/terraform-modules
+          readOnly: true
+      volumes:
+      - name: terraform-workspaces
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: gcp-service-account
+        secret:
+          secretName: gcp-service-account-key
+      - name: terraform-modules
+        configMap:
+          name: terraform-modules-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - poc-provisioning-engine
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: poc-provisioning-service
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "poc-provisioning-backendconfig"}'
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/instance: production
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: poc-provisioning-engine
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+  annotations:
+    iam.gke.io/gcp-service-account: poc-provisioning-engine@isectech-poc-platform.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: poc-provisioning-engine
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+rules:
+- apiGroups: [""]
+  resources: ["namespaces", "configmaps", "secrets", "services"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poc-provisioning-engine
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: poc-provisioning-engine
+subjects:
+- kind: ServiceAccount
+  name: poc-provisioning-engine
+  namespace: poc-provisioning
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: poc-provisioning-netpol
+  namespace: poc-provisioning
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: poc-provisioning-engine
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: poc-signup-portal
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8081
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: poc-provisioning-backendconfig
+  namespace: poc-provisioning
+spec:
+  healthCheck:
+    checkIntervalSec: 30
+    timeoutSec: 10
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+    type: HTTP
+    requestPath: /api/v1/health
+  timeoutSec: 60  # Longer timeout for provisioning operations
+  connectionDraining:
+    drainingTimeoutSec: 300  # Longer draining for in-progress provisions
+  logging:
+    enable: true
+    sampleRate: 1.0
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: poc-provisioning-hpa
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-provisioning-engine
+    app.kubernetes.io/component: provisioning-engine
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: poc-provisioning-engine
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Longer stabilization for provisioning workloads
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: poc-cleanup-job
+  namespace: poc-provisioning
+  labels:
+    app.kubernetes.io/name: poc-cleanup-job
+    app.kubernetes.io/component: cleanup
+spec:
+  schedule: "0 2 * * *"  # Run daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: poc-provisioning-engine
+          containers:
+          - name: cleanup
+            image: gcr.io/isectech-poc-platform/poc-provisioning-engine:1.0.0
+            command: ["/app/main"]
+            args: ["cleanup"]
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: poc-provisioning-secrets
+                  key: DATABASE_URL
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/google/key.json
+            envFrom:
+            - configMapRef:
+                name: poc-provisioning-config
+            volumeMounts:
+            - name: gcp-service-account
+              mountPath: /var/secrets/google
+              readOnly: true
+          volumes:
+          - name: gcp-service-account
+            secret:
+              secretName: gcp-service-account-key
+          restartPolicy: OnFailure
+      backoffLimit: 3

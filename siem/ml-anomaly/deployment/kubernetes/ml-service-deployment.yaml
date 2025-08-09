@@ -1,0 +1,482 @@
+# iSECTECH SIEM ML Service Kubernetes Deployment
+# Production-grade Kubernetes deployment for ML anomaly detection service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siem-ml-service
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+    component: ml-anomaly-detection
+    tier: application
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: siem-ml-service
+  template:
+    metadata:
+      labels:
+        app: siem-ml-service
+        component: ml-anomaly-detection
+        tier: application
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: siem-ml-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: ml-service
+        image: isectech/siem-ml-service:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        # Database Configuration
+        - name: POSTGRES_HOST
+          value: "postgresql-siem"
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_USER
+          value: "ml_user"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: siem-ml-secrets
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: "siem_ml"
+          
+        # Redis Configuration
+        - name: REDIS_HOST
+          value: "redis-siem"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: siem-ml-secrets
+              key: redis-password
+              
+        # Kafka Configuration
+        - name: KAFKA_BROKERS
+          value: "kafka-siem:9092"
+        - name: KAFKA_SECURITY_PROTOCOL
+          value: "SSL"
+        - name: KAFKA_SSL_CERT_PATH
+          value: "/opt/siem/certs/kafka-client.crt"
+        - name: KAFKA_SSL_KEY_PATH
+          value: "/opt/siem/certs/kafka-client.key"
+        - name: KAFKA_SSL_CA_PATH
+          value: "/opt/siem/certs/kafka-ca.crt"
+          
+        # ML Service Configuration
+        - name: ML_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: siem-ml-secrets
+              key: ml-api-key
+        - name: ML_ADMIN_KEY
+          valueFrom:
+            secretKeyRef:
+              name: siem-ml-secrets
+              key: ml-admin-key
+              
+        # Logging Configuration
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: LOG_FORMAT
+          value: "json"
+          
+        # Performance Configuration
+        - name: ML_MAX_WORKERS
+          value: "4"
+        - name: ML_BATCH_SIZE
+          value: "100"
+        - name: ML_CACHE_TTL
+          value: "3600"
+          
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+            
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+          
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 10
+          
+        volumeMounts:
+        - name: ml-models
+          mountPath: /opt/siem/models
+          readOnly: true
+        - name: ml-config
+          mountPath: /opt/siem/config
+          readOnly: true
+        - name: kafka-certs
+          mountPath: /opt/siem/certs
+          readOnly: true
+        - name: logs
+          mountPath: /var/log/siem
+          
+      # Sidecar container for log shipping
+      - name: log-shipper
+        image: fluent/fluent-bit:2.1.8
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/siem
+          readOnly: true
+        - name: fluent-bit-config
+          mountPath: /fluent-bit/etc
+          readOnly: true
+          
+      volumes:
+      - name: ml-models
+        persistentVolumeClaim:
+          claimName: siem-ml-models-pvc
+      - name: ml-config
+        configMap:
+          name: siem-ml-config
+      - name: kafka-certs
+        secret:
+          secretName: kafka-client-certs
+      - name: logs
+        emptyDir: {}
+      - name: fluent-bit-config
+        configMap:
+          name: fluent-bit-ml-config
+          
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - siem-ml-service
+              topologyKey: kubernetes.io/hostname
+              
+      tolerations:
+      - key: "node.kubernetes.io/memory-pressure"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      - key: "node.kubernetes.io/disk-pressure"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: siem-ml-service
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+    component: ml-anomaly-detection
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: siem-ml-service
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: siem-ml-service
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: isectech-siem
+  name: siem-ml-service-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: siem-ml-service-rolebinding
+  namespace: isectech-siem
+subjects:
+- kind: ServiceAccount
+  name: siem-ml-service
+  namespace: isectech-siem
+roleRef:
+  kind: Role
+  name: siem-ml-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: siem-ml-config
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+data:
+  ml_config.yaml: |
+    version: "1.0.0"
+    description: "iSECTECH SIEM ML Configuration for Kubernetes"
+    
+    database:
+      host: "postgresql-siem"
+      port: 5432
+      database: "siem_ml"
+      user: "ml_user"
+      pool_size: 10
+      
+    redis:
+      host: "redis-siem"
+      port: 6379
+      db: 3
+      max_connections: 50
+      
+    kafka:
+      bootstrap_servers: "kafka-siem:9092"
+      security_protocol: "SSL"
+      ssl_check_hostname: true
+      
+    models:
+      path: "/opt/siem/models"
+      reload_interval_minutes: 60
+      
+    monitoring:
+      enabled: true
+      metrics_endpoint: "/metrics"
+      health_endpoint: "/health"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-ml-config
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         1
+        Log_Level     info
+        Daemon        off
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/siem/*.log
+        Parser            json
+        Tag               ml.service
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+
+    [OUTPUT]
+        Name  elasticsearch
+        Match ml.service
+        Host  elasticsearch-siem
+        Port  9200
+        Index ml-service-logs
+        Type  _doc
+        TLS   On
+        TLS.Verify On
+        
+  parsers.conf: |
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: siem-ml-models-pvc
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: siem-ml-service-hpa
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: siem-ml-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: siem-ml-service-pdb
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: siem-ml-service
+
+---
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: siem-ml-service-netpol
+  namespace: isectech-siem
+  labels:
+    app: siem-ml-service
+spec:
+  podSelector:
+    matchLabels:
+      app: siem-ml-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-siem
+    - podSelector:
+        matchLabels:
+          component: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-siem
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+    - protocol: TCP
+      port: 9092  # Kafka
+    - protocol: TCP
+      port: 9200  # Elasticsearch
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS

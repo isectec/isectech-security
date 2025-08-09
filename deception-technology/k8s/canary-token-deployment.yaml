@@ -1,0 +1,524 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deception
+  labels:
+    name: deception
+    security.isectech.com/monitoring: "high"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canary-token-config
+  namespace: deception
+data:
+  config.json: |
+    {
+      "tokenDomain": "canary.isectech.internal",
+      "alertWebhook": "https://soc.isectech.com/webhooks/deception-alert",
+      "tokenPrefix": "ct_",
+      "deploymentEnvironment": "production",
+      "monitoring": {
+        "healthCheckInterval": 60,
+        "alertRetryAttempts": 3,
+        "alertRetryDelay": 5
+      },
+      "tokenTypes": [
+        "api_key",
+        "aws_key", 
+        "database_record",
+        "document",
+        "dns_record",
+        "email_address",
+        "file_system",
+        "git_commit",
+        "jwt_token",
+        "ssh_key",
+        "url_shortener",
+        "webhook_url"
+      ],
+      "responseActions": {
+        "autoBlock": true,
+        "blockDuration": 3600,
+        "notifySOC": true,
+        "logToSIEM": true
+      }
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: canary-token-secrets
+  namespace: deception
+type: Opaque
+data:
+  # Base64 encoded values - replace with actual secrets
+  redis-url: cmVkaXM6Ly9yZWRpcy1zZXJ2aWNlOjYzNzk=  # redis://redis-service:6379
+  database-url: cG9zdGdyZXNxbDovL3VzZXI6cGFzc0Bwb3N0Z3Jlcy1zZXJ2aWNlOjU0MzIvY2FuYXJ5X3Rva2Vucw==  # postgresql://user:pass@postgres-service:5432/canary_tokens
+  webhook-secret: c2VjcmV0X3dlYmhvb2tfa2V5XzEyMw==  # secret_webhook_key_123
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-token-manager
+  namespace: deception
+  labels:
+    app: canary-token-manager
+    version: v1.0.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: canary-token-manager
+  template:
+    metadata:
+      labels:
+        app: canary-token-manager
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: canary-token-service-account
+      containers:
+      - name: canary-token-manager
+        image: isectech/canary-token-manager:v1.0.0
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: METRICS_PORT
+          value: "9090"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: canary-token-secrets
+              key: redis-url
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: canary-token-secrets
+              key: database-url
+        - name: DECEPTION_ALERT_WEBHOOK
+          value: "https://soc.isectech.com/webhooks/deception-alert"
+        - name: CANARY_DOMAIN
+          value: "canary.isectech.internal"
+        - name: WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: canary-token-secrets
+              key: webhook-secret
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        - name: token-storage
+          mountPath: /app/tokens
+        - name: logs-volume
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+      volumes:
+      - name: config-volume
+        configMap:
+          name: canary-token-config
+      - name: token-storage
+        persistentVolumeClaim:
+          claimName: canary-token-storage
+      - name: logs-volume
+        emptyDir: {}
+      nodeSelector:
+        security.isectech.com/zone: "secure"
+      tolerations:
+      - key: "security"
+        operator: "Equal"
+        value: "high"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - canary-token-manager
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-token-service
+  namespace: deception
+  labels:
+    app: canary-token-manager
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: canary-token-manager
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: canary-token-service-account
+  namespace: deception
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: canary-token-role
+  namespace: deception
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: canary-token-role-binding
+  namespace: deception
+subjects:
+- kind: ServiceAccount
+  name: canary-token-service-account
+  namespace: deception
+roleRef:
+  kind: Role
+  name: canary-token-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: canary-token-storage
+  namespace: deception
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canary-token-ingress
+  namespace: deception
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/auth-url: "https://auth.isectech.com/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://auth.isectech.com/oauth2/start?rd=$escaped_request_uri"
+spec:
+  tls:
+  - hosts:
+    - canary-dashboard.isectech.com
+    - canary.isectech.internal
+    secretName: canary-token-tls
+  rules:
+  - host: canary-dashboard.isectech.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: canary-token-service
+            port:
+              number: 80
+  - host: canary.isectech.internal
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: canary-token-service
+            port:
+              number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: canary-token-network-policy
+  namespace: deception
+spec:
+  podSelector:
+    matchLabels:
+      app: canary-token-manager
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - namespaceSelector:
+        matchLabels:
+          name: soc
+    ports:
+    - protocol: TCP
+      port: 3000
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: database
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: canary-token-pdb
+  namespace: deception
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: canary-token-manager
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: canary-token-metrics
+  namespace: deception
+  labels:
+    app: canary-token-manager
+spec:
+  selector:
+    matchLabels:
+      app: canary-token-manager
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: deception
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: deception
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        args:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --requirepass
+        - "$(REDIS_PASSWORD)"
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: canary-token-secrets
+              key: webhook-secret
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          allowPrivilegeEscalation: false
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-storage
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-storage
+  namespace: deception
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: canary-token-cleanup
+  namespace: deception
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: canary-token-service-account
+          containers:
+          - name: cleanup
+            image: isectech/canary-token-manager:v1.0.0
+            command:
+            - /app/scripts/cleanup.sh
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: canary-token-secrets
+                  key: database-url
+            - name: CLEANUP_DAYS_OLD
+              value: "90"
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "256Mi"
+                cpu: "200m"
+          restartPolicy: OnFailure
+      backoffLimit: 3
+---
+# HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: canary-token-hpa
+  namespace: deception
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: canary-token-manager
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60

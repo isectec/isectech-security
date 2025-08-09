@@ -1,0 +1,391 @@
+# Istio Installation and Configuration for iSECTECH Zero Trust Architecture
+# Phase 2: Service Mesh Security Implementation
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    name: istio-system
+    security.isectech.com/tier: "service-mesh"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: disabled
+
+---
+# Istio Control Plane Configuration
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: isectech-control-plane
+  namespace: istio-system
+spec:
+  # Use minimal profile for production-grade deployment
+  revision: "1-18-2"
+  
+  # Istio values configuration
+  values:
+    global:
+      # Enable strict mTLS by default
+      mtls:
+        auto: true
+      
+      # Network configuration
+      meshID: isectech-mesh
+      network: isectech-network
+      
+      # Pilot configuration
+      pilot:
+        env:
+          PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION: true
+          PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY: true
+          PILOT_TRACE_SAMPLING: 1.0
+        
+      # Proxy configuration
+      proxy:
+        # Security context
+        runAsUser: 1337
+        runAsGroup: 1337
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+        
+        # Envoy access logging
+        accessLogFile: /dev/stdout
+        accessLogFormat: |
+          [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%"
+          %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT%
+          %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% "%REQ(X-FORWARDED-FOR)%"
+          "%REQ(USER-AGENT)%" "%REQ(X-REQUEST-ID)%" "%REQ(:AUTHORITY)%" "%UPSTREAM_HOST%"
+          %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS%
+          %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%
+    
+    # Istiod (control plane) configuration
+    pilot:
+      # High availability
+      env:
+        PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION: true
+        PILOT_SCOPE_GATEWAY_TO_NAMESPACE: false
+        PILOT_ENABLE_STATUS: true
+        PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY: true
+        
+      # Resource configuration
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2048Mi
+        limits:
+          cpu: 1000m
+          memory: 4096Mi
+    
+    # Ingress Gateway configuration
+    gateways:
+      istio-ingressgateway:
+        # Enable for external traffic
+        enabled: true
+        
+        # Security context
+        runAsUser: 1337
+        runAsGroup: 1337
+        
+        # Service configuration
+        type: LoadBalancer
+        
+        # Ports configuration
+        ports:
+        - port: 15021
+          targetPort: 15021
+          name: status-port
+        - port: 80
+          targetPort: 8080
+          name: http2
+        - port: 443
+          targetPort: 8443
+          name: https
+        - port: 15443
+          targetPort: 15443
+          name: tls
+        
+        # Resource configuration
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+            
+        # Auto scaling
+        autoscaleEnabled: true
+        autoscaleMin: 3
+        autoscaleMax: 10
+        
+        # Pod disruption budget
+        podDisruptionBudget:
+          minAvailable: 2
+          
+        # Pod anti-affinity
+        nodeSelector:
+          kubernetes.io/os: linux
+          
+      # Egress Gateway (optional, for controlled egress)
+      istio-egressgateway:
+        enabled: false
+        
+  # Component configuration
+  components:
+    # Istiod configuration
+    pilot:
+      k8s:
+        # Pod configuration
+        replicaCount: 3
+        
+        # Security context
+        securityContext:
+          runAsUser: 1337
+          runAsGroup: 1337
+          runAsNonRoot: true
+          fsGroup: 1337
+        
+        # Pod anti-affinity
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: istiod
+                topologyKey: kubernetes.io/hostname
+        
+        # Toleration for control plane nodes
+        tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+          
+        # Pod disruption budget
+        podDisruptionBudget:
+          minAvailable: 2
+          
+        # Service configuration
+        service:
+          type: ClusterIP
+          
+        # Environment variables
+        env:
+          PILOT_TRACE_SAMPLING: 1.0
+          PILOT_ENABLE_STATUS: true
+          PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION: true
+          
+    # Ingress Gateway
+    ingressGateways:
+    - name: istio-ingressgateway
+      enabled: true
+      k8s:
+        # High availability
+        replicaCount: 3
+        
+        # Security context
+        securityContext:
+          runAsUser: 1337
+          runAsGroup: 1337
+          runAsNonRoot: true
+          fsGroup: 1337
+        
+        # Pod anti-affinity
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: istio-ingressgateway
+                topologyKey: kubernetes.io/hostname
+        
+        # Service configuration
+        service:
+          type: LoadBalancer
+          loadBalancerSourceRanges:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 0.0.0.0/0  # Restrict as needed for production
+          
+        # Pod disruption budget
+        podDisruptionBudget:
+          minAvailable: 2
+          
+        # HPA configuration
+        hpaSpec:
+          minReplicas: 3
+          maxReplicas: 10
+          metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 70
+
+---
+# Default mesh-wide strict mTLS policy
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Telemetry configuration for security monitoring
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: security-telemetry
+  namespace: istio-system
+spec:
+  # Access logging configuration
+  accessLogging:
+  - providers:
+    - name: envoy
+  - providers:
+    - name: otel
+  
+  # Metrics configuration
+  metrics:
+  - providers:
+    - name: prometheus
+    overrides:
+    - match:
+        metric: ALL_METRICS
+      tagOverrides:
+        destination_service_name:
+          value: "%{CANONICAL_SERVICE_NAME}"
+        destination_service_namespace:
+          value: "%{CANONICAL_SERVICE_NAMESPACE}"
+        source_app:
+          value: "%{SOURCE_APP | 'unknown'}"
+        destination_app:
+          value: "%{DESTINATION_APP | 'unknown'}"
+  
+  # Tracing configuration
+  tracing:
+  - providers:
+    - name: jaeger
+
+---
+# Extension Provider configuration for observability
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: telemetry-config
+  namespace: istio-system
+spec:
+  meshConfig:
+    extensionProviders:
+    # Prometheus metrics
+    - name: prometheus
+      prometheus: {}
+    
+    # Jaeger tracing
+    - name: jaeger
+      envoyOtelAls:
+        service: jaeger-collector.monitoring.svc.cluster.local
+        port: 14250
+    
+    # Access logging to stdout
+    - name: envoy
+      envoyFileAccessLog:
+        path: /dev/stdout
+        format: |
+          [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%"
+          %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT%
+          %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% "%REQ(X-FORWARDED-FOR)%"
+          "%REQ(USER-AGENT)%" "%REQ(X-REQUEST-ID)%" "%REQ(:AUTHORITY)%" "%UPSTREAM_HOST%"
+          %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS%
+          %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%
+          "%DOWNSTREAM_TLS_VERSION%" "%DOWNSTREAM_TLS_CIPHER%" "%DOWNSTREAM_TLS_SUBJECT%"
+          "%DOWNSTREAM_TLS_SERIAL_HASH%" "%REQ(X-TENANT-ID)%"
+    
+    # OpenTelemetry access logging
+    - name: otel
+      envoyOtelAls:
+        service: opentelemetry-collector.monitoring.svc.cluster.local
+        port: 4317
+
+---
+# Security configuration for certificate management
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cacerts
+  namespace: istio-system
+type: Opaque
+data:
+  # Custom root CA certificate (replace with actual certificate)
+  # For production, use proper CA certificates
+  root-cert.pem: LS0tLS1CRUdJTi...  # Base64 encoded root certificate
+  cert-chain.pem: LS0tLS1CRUdJTi...  # Base64 encoded certificate chain  
+  ca-cert.pem: LS0tLS1CRUdJTi...     # Base64 encoded CA certificate
+  ca-key.pem: LS0tLS1CRUdJTi...      # Base64 encoded CA private key
+
+---
+# Network policy for Istio system namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: istio-system-netpol
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from all namespaces for control plane communication
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 15010  # Pilot discovery
+    - protocol: TCP
+      port: 15011  # Pilot discovery TLS
+    - protocol: TCP
+      port: 8080   # Pilot debug
+  # Allow monitoring
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 15014  # Control plane monitoring
+  egress:
+  # Allow egress to all for service discovery and certificate management
+  - {}
+
+---
+# Service Monitor for Prometheus scraping
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istio-system
+  namespace: istio-system
+  labels:
+    app: istiod
+spec:
+  selector:
+    matchLabels:
+      app: istiod
+  endpoints:
+  - port: http-monitoring
+    interval: 15s
+    path: /stats/prometheus

@@ -1,0 +1,600 @@
+# Production-grade Kong Gateway Monitoring Configuration for iSECTECH
+# Comprehensive monitoring with Prometheus, Grafana, and Alertmanager
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-prometheus-config
+  namespace: isectech-monitoring
+  labels:
+    app: kong-monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'isectech-production'
+        environment: 'production'
+    
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+    
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager.isectech-monitoring.svc.cluster.local:9093
+    
+    scrape_configs:
+      # Kong Gateway metrics
+      - job_name: 'kong-gateway'
+        static_configs:
+          - targets: ['kong-status.isectech-api-gateway.svc.cluster.local:8100']
+        scrape_interval: 10s
+        metrics_path: /metrics
+        scheme: http
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: kong-status.isectech-api-gateway.svc.cluster.local:8100
+      
+      # Kong Admin API metrics
+      - job_name: 'kong-admin'
+        static_configs:
+          - targets: ['kong-admin.isectech-api-gateway.svc.cluster.local:8001']
+        scrape_interval: 30s
+        metrics_path: /metrics
+        scheme: https
+        tls_config:
+          insecure_skip_verify: false
+          ca_file: /etc/ssl/certs/kong-ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      
+      # Kong upstream health metrics
+      - job_name: 'kong-upstreams'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - isectech-services
+                - isectech-ai-ml
+                - isectech-compliance
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: kubernetes_name
+      
+      # Node exporter for system metrics
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_endpoints_name]
+            regex: 'node-exporter'
+            action: keep
+
+  kong-alerts.yml: |
+    groups:
+    - name: kong-gateway-alerts
+      rules:
+      # High error rate alert
+      - alert: KongHighErrorRate
+        expr: (rate(kong_http_status{code=~"5.."}[5m]) / rate(kong_http_status[5m])) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong Gateway high error rate detected"
+          description: "Kong Gateway error rate is {{ $value }}% for the last 5 minutes, which is above the 5% threshold."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-high-error-rate"
+          dashboard_url: "https://grafana.isectech.com/d/kong-overview"
+      
+      # High latency alert
+      - alert: KongHighLatency
+        expr: histogram_quantile(0.99, rate(kong_latency_bucket[5m])) > 5000
+        for: 5m
+        labels:
+          severity: warning
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong Gateway high latency detected"
+          description: "Kong Gateway 99th percentile latency is {{ $value }}ms for the last 5 minutes, which is above the 5000ms threshold."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-high-latency"
+          dashboard_url: "https://grafana.isectech.com/d/kong-performance"
+      
+      # Gateway down alert
+      - alert: KongGatewayDown
+        expr: up{job="kong-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong Gateway instance is down"
+          description: "Kong Gateway instance {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-gateway-down"
+          dashboard_url: "https://grafana.isectech.com/d/kong-overview"
+      
+      # High memory usage alert
+      - alert: KongHighMemoryUsage
+        expr: (kong_memory_lua_shared_dict_bytes / kong_memory_lua_shared_dict_total_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong Gateway high memory usage"
+          description: "Kong Gateway memory usage is {{ $value }}% for the last 5 minutes, which is above the 80% threshold."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-high-memory"
+          dashboard_url: "https://grafana.isectech.com/d/kong-resources"
+      
+      # Upstream unhealthy targets alert
+      - alert: KongUpstreamUnhealthyTargets
+        expr: kong_upstream_target_health{state="unhealthy"} > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong upstream has unhealthy targets"
+          description: "Kong upstream {{ $labels.upstream }} has {{ $value }} unhealthy targets."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-unhealthy-targets"
+          dashboard_url: "https://grafana.isectech.com/d/kong-upstreams"
+      
+      # Certificate expiration alert
+      - alert: KongCertificateExpiring
+        expr: (kong_ssl_cert_expiry_timestamp - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong SSL certificate expiring soon"
+          description: "Kong SSL certificate {{ $labels.cert_id }} will expire in {{ $value }} days."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-cert-expiry"
+          dashboard_url: "https://grafana.isectech.com/d/kong-certificates"
+      
+      # Rate limiting threshold alert
+      - alert: KongRateLimitingTriggered
+        expr: increase(kong_rate_limiting_requests_blocked[5m]) > 100
+        for: 5m
+        labels:
+          severity: info
+          service: kong-gateway
+          team: security
+        annotations:
+          summary: "Kong rate limiting frequently triggered"
+          description: "Kong has blocked {{ $value }} requests due to rate limiting in the last 5 minutes."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-rate-limiting"
+          dashboard_url: "https://grafana.isectech.com/d/kong-security"
+      
+      # Circuit breaker triggered alert
+      - alert: KongCircuitBreakerTriggered
+        expr: kong_circuit_breaker_state{state="open"} > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: kong-gateway
+          team: platform
+        annotations:
+          summary: "Kong circuit breaker triggered"
+          description: "Kong circuit breaker for service {{ $labels.service }} is in OPEN state."
+          runbook_url: "https://docs.isectech.com/runbooks/kong-circuit-breaker"
+          dashboard_url: "https://grafana.isectech.com/d/kong-resilience"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-grafana-dashboards
+  namespace: isectech-monitoring
+  labels:
+    app: kong-monitoring
+    grafana_dashboard: "1"
+data:
+  kong-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kong Gateway - Overview",
+        "tags": ["kong", "api-gateway", "isectech"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Request Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(rate(kong_http_status[5m]))",
+                "legendFormat": "Requests/sec"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps",
+                "color": {
+                  "mode": "palette-classic"
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Error Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "(sum(rate(kong_http_status{code=~\"5..\"}[5m])) / sum(rate(kong_http_status[5m]))) * 100",
+                "legendFormat": "Error Rate %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 1},
+                    {"color": "red", "value": 5}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Response Time",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.50, rate(kong_latency_bucket[5m]))",
+                "legendFormat": "50th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.95, rate(kong_latency_bucket[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.99, rate(kong_latency_bucket[5m]))",
+                "legendFormat": "99th percentile"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "ms",
+                "color": {
+                  "mode": "palette-classic"
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Upstream Health",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "kong_upstream_target_health",
+                "format": "table",
+                "instant": true
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ]
+      }
+    }
+  
+  kong-performance.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kong Gateway - Performance",
+        "tags": ["kong", "performance", "isectech"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "10s",
+        "time": {
+          "from": "now-15m",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Kong Latency Distribution",
+            "type": "heatmap",
+            "targets": [
+              {
+                "expr": "sum(rate(kong_latency_bucket[2m])) by (le)",
+                "format": "heatmap",
+                "legendFormat": "{{le}}"
+              }
+            ],
+            "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Upstream Latency",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(kong_upstream_latency_bucket[5m]))",
+                "legendFormat": "95th percentile"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}
+          },
+          {
+            "id": 3,
+            "title": "Request Size",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(kong_request_size_bucket[5m]))",
+                "legendFormat": "95th percentile"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}
+          }
+        ]
+      }
+    }
+
+  kong-security.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kong Gateway - Security",
+        "tags": ["kong", "security", "isectech"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Rate Limited Requests",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "sum(rate(kong_rate_limiting_requests_blocked[5m]))",
+                "legendFormat": "Rate Limited"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Authentication Failures",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "sum(rate(kong_http_status{code=\"401\"}[5m]))",
+                "legendFormat": "401 Unauthorized"
+              },
+              {
+                "expr": "sum(rate(kong_http_status{code=\"403\"}[5m]))",
+                "legendFormat": "403 Forbidden"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Request Origin Countries",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "topk(10, sum by (country) (kong_requests_by_country))",
+                "legendFormat": "{{country}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          }
+        ]
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-prometheus
+  namespace: isectech-monitoring
+  labels:
+    app: kong-prometheus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kong-prometheus
+  template:
+    metadata:
+      labels:
+        app: kong-prometheus
+    spec:
+      serviceAccountName: kong-prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.45.0
+        ports:
+        - containerPort: 9090
+        args:
+          - --config.file=/etc/prometheus/prometheus.yml
+          - --storage.tsdb.path=/prometheus/
+          - --web.console.libraries=/etc/prometheus/console_libraries
+          - --web.console.templates=/etc/prometheus/consoles
+          - --storage.tsdb.retention.time=30d
+          - --web.enable-lifecycle
+          - --log.level=info
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus/
+        - name: storage-volume
+          mountPath: /prometheus/
+        - name: rules-volume
+          mountPath: /etc/prometheus/rules/
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config-volume
+        configMap:
+          name: kong-prometheus-config
+      - name: rules-volume
+        configMap:
+          name: kong-prometheus-config
+          items:
+          - key: kong-alerts.yml
+            path: kong-alerts.yml
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: kong-prometheus-storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-prometheus
+  namespace: isectech-monitoring
+  labels:
+    app: kong-prometheus
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9090
+    targetPort: 9090
+    name: web
+  selector:
+    app: kong-prometheus
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kong-prometheus
+  namespace: isectech-monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kong-prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions"]
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kong-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kong-prometheus
+subjects:
+- kind: ServiceAccount
+  name: kong-prometheus
+  namespace: isectech-monitoring
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kong-prometheus-storage
+  namespace: isectech-monitoring
+  labels:
+    app: kong-prometheus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: ssd-retain

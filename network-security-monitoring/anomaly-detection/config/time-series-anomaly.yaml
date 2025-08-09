@@ -1,0 +1,496 @@
+# iSECTECH Time Series Anomaly Detection Configuration
+# Production-grade temporal anomaly detection settings
+
+# Statistical Analysis Configuration
+statistical:
+  # Window size for statistical calculations
+  window_size: 100
+  
+  # Z-score threshold for anomaly detection
+  z_score_threshold: 3.0
+  
+  # IQR k-factor for outlier detection
+  iqr_k_factor: 1.5
+  
+  # Grubbs test significance level
+  grubbs_alpha: 0.05
+  
+  # MAD threshold for modified z-score
+  mad_threshold: 3.5
+  
+  # Percentile thresholds for outlier detection
+  percentile_thresholds:
+    lower: 1
+    upper: 99
+  
+  # Change point detection settings
+  change_point_detection:
+    enabled: true
+    method: "pelt"  # Options: pelt, binary_segmentation, window
+    window_size: 20
+    significance_level: 0.01
+  
+  # Trend analysis settings
+  trend_analysis:
+    enabled: true
+    window_size: 20
+    trend_change_threshold: 2.0  # In standard deviations
+
+# Machine Learning Configuration
+ml:
+  # General settings
+  contamination_rate: 0.1
+  random_state: 42
+  
+  # LSTM Autoencoder settings
+  lstm:
+    enabled: true
+    sequence_length: 50
+    n_features: 1
+    epochs: 50
+    batch_size: 32
+    validation_split: 0.2
+    early_stopping:
+      enabled: true
+      patience: 10
+      restore_best_weights: true
+    architecture:
+      encoder_layers: [64, 32]
+      decoder_layers: [32, 64]
+      dropout_rate: 0.1
+  
+  # Isolation Forest settings
+  isolation_forest:
+    enabled: true
+    n_estimators: 200
+    max_samples: "auto"
+    max_features: 1.0
+    bootstrap: false
+    contamination: 0.1
+  
+  # Variational Autoencoder settings
+  vae:
+    enabled: false  # Advanced feature, computationally intensive
+    latent_dim: 10
+    beta: 1.0
+    epochs: 100
+    batch_size: 32
+    encoder_layers: [64, 32]
+    decoder_layers: [32, 64]
+  
+  # Local Outlier Factor settings
+  lof:
+    enabled: true
+    n_neighbors: 20
+    algorithm: "auto"
+    leaf_size: 30
+    metric: "minkowski"
+    p: 2
+  
+  # Model training and updates
+  training:
+    min_training_samples: 100
+    model_update_frequency: 86400  # 24 hours
+    retrain_threshold: 0.8  # Model performance threshold
+    validation_split: 0.2
+    cross_validation_folds: 5
+
+# Seasonality Analysis Configuration
+seasonality:
+  # Minimum seasonal strength to consider significant
+  min_seasonal_strength: 0.3
+  
+  # Seasonal periods to test (in time units)
+  test_periods:
+    hourly: 24
+    daily: 168    # 7 days in hours
+    weekly: 8760  # 52 weeks in hours
+    monthly: 730  # 30 days in hours
+  
+  # Seasonal decomposition settings
+  decomposition:
+    model: "additive"  # Options: additive, multiplicative
+    extrapolate_trend: "freq"
+    
+  # F-test settings for seasonal significance
+  f_test:
+    significance_level: 0.05
+    min_seasons: 2
+
+# Detection Configuration
+detection:
+  # Ensemble detection settings
+  ensemble:
+    enabled: true
+    methods:
+      - zscore
+      - iqr
+      - mad
+      - isolation_forest
+      - lstm
+      - seasonal
+    consensus_threshold: 2  # Minimum methods that must agree
+    confidence_boost: 0.2   # Confidence boost for ensemble detection
+  
+  # Severity thresholds
+  severity_thresholds:
+    low: 1.0
+    medium: 2.0
+    high: 3.0
+    critical: 5.0
+  
+  # Confidence calculation
+  confidence:
+    base_confidence: 0.5
+    method_weight: 0.2
+    consensus_weight: 0.3
+    seasonal_weight: 0.1
+  
+  # Anomaly filtering
+  filtering:
+    min_confidence: 0.3
+    suppress_duplicates: true
+    duplicate_window: 300  # 5 minutes
+    
+  # Change point specific settings
+  change_points:
+    enabled: true
+    min_significance: 0.01
+    min_magnitude: 1.0
+
+# Data Management Configuration
+data_management:
+  # Time series cache settings
+  cache:
+    max_cache_size: 10000
+    memory_limit_mb: 1024
+    persistence_enabled: true
+    persistence_path: "/var/lib/nsm/ts_cache"
+  
+  # Data preprocessing
+  preprocessing:
+    # Missing value handling
+    missing_values:
+      method: "interpolate"  # Options: interpolate, forward_fill, backward_fill, drop
+      max_gap_size: 10
+      
+    # Outlier preprocessing
+    outlier_preprocessing:
+      enabled: false  # Don't preprocess outliers for anomaly detection
+      method: "isolation_forest"
+      contamination: 0.05
+    
+    # Data smoothing
+    smoothing:
+      enabled: false  # Disable for anomaly detection
+      method: "savgol"
+      window_length: 5
+      polyorder: 2
+  
+  # Data validation
+  validation:
+    check_stationarity: true
+    stationarity_test: "adf"  # Augmented Dickey-Fuller test
+    stationarity_threshold: 0.05
+    
+    check_autocorrelation: true
+    max_lag: 50
+
+# Performance Configuration
+performance:
+  # Resource limits
+  max_memory_usage_mb: 4096
+  max_cpu_usage_percent: 80
+  processing_timeout: 120
+  
+  # Parallel processing
+  parallel_processing:
+    enabled: true
+    max_workers: 8
+    batch_size: 1000
+  
+  # Model optimization
+  model_optimization:
+    enable_gpu: false  # Enable if GPU available
+    mixed_precision: false
+    model_pruning: false
+  
+  # Caching
+  caching:
+    enable_result_caching: true
+    cache_ttl: 3600  # 1 hour
+    max_cache_entries: 1000
+
+# Metrics and Features Configuration
+metrics:
+  # Network traffic metrics
+  network_traffic:
+    - name: "bytes_per_second"
+      description: "Network throughput in bytes per second"
+      unit: "bytes/s"
+      aggregation: "sum"
+      
+    - name: "packets_per_second" 
+      description: "Packet rate per second"
+      unit: "packets/s"
+      aggregation: "sum"
+      
+    - name: "flows_per_minute"
+      description: "Flow rate per minute"
+      unit: "flows/min"
+      aggregation: "count"
+      
+    - name: "unique_destinations"
+      description: "Number of unique destination IPs"
+      unit: "count"
+      aggregation: "count_distinct"
+  
+  # Connection metrics
+  connections:
+    - name: "tcp_connections"
+      description: "Active TCP connections"
+      unit: "count"
+      aggregation: "sum"
+      
+    - name: "failed_connections"
+      description: "Failed connection attempts"
+      unit: "count"
+      aggregation: "sum"
+      
+    - name: "connection_duration_avg"
+      description: "Average connection duration"
+      unit: "seconds"
+      aggregation: "mean"
+  
+  # Protocol metrics
+  protocols:
+    - name: "dns_queries_per_minute"
+      description: "DNS query rate"
+      unit: "queries/min"
+      aggregation: "count"
+      
+    - name: "http_requests_per_minute"
+      description: "HTTP request rate" 
+      unit: "requests/min"
+      aggregation: "count"
+      
+    - name: "smtp_sessions"
+      description: "SMTP sessions"
+      unit: "count"
+      aggregation: "count"
+
+# Alert Configuration
+alerting:
+  # Alert generation
+  generation:
+    enabled: true
+    min_confidence: 0.6
+    min_severity: "medium"
+    
+  # Alert enrichment
+  enrichment:
+    enabled: true
+    include_context: true
+    include_historical_data: true
+    include_seasonal_info: true
+    include_peer_comparison: false  # Handled by behavioral analyzer
+    
+  # Alert suppression
+  suppression:
+    enabled: true
+    duplicate_window: 300  # 5 minutes
+    similar_threshold: 0.8
+    max_alerts_per_hour: 100
+    
+  # Alert correlation
+  correlation:
+    enabled: true
+    time_window: 1800  # 30 minutes
+    correlation_threshold: 0.7
+    max_correlated_alerts: 5
+
+# Output Configuration
+outputs:
+  # Database output
+  database:
+    enabled: true
+    connection_string: "sqlite:///var/lib/nsm/time_series_anomalies.db"
+    table_prefix: "ts_"
+    batch_size: 100
+    
+  # Redis output
+  redis:
+    enabled: true
+    host: "redis-nsm.isectech.local"
+    port: 6379
+    db: 4
+    password: "${REDIS_PASSWORD}"
+    key_prefix: "ts_anomalies:"
+    ttl: 86400  # 24 hours
+    
+  # File output
+  file:
+    enabled: false
+    path: "/var/log/nsm/time_series_anomalies.json"
+    rotation: "daily"
+    max_size_mb: 100
+    
+  # Webhook output
+  webhook:
+    enabled: true
+    url: "http://siem.isectech.local:8080/api/v1/ts-anomalies"
+    method: "POST"
+    headers:
+      Authorization: "Bearer ${SIEM_API_TOKEN}"
+      Content-Type: "application/json"
+    timeout: 30
+    retry_attempts: 3
+
+# Monitoring and Health Checks
+monitoring:
+  # Health checks
+  health_checks:
+    enabled: true
+    interval: 60  # seconds
+    timeout: 30
+    
+  # Performance monitoring
+  performance_monitoring:
+    enabled: true
+    collection_interval: 60
+    metrics:
+      - cpu_usage
+      - memory_usage
+      - processing_time
+      - model_accuracy
+      - alert_rate
+      
+  # Model drift detection
+  model_drift:
+    enabled: true
+    check_interval: 3600  # 1 hour
+    drift_threshold: 0.1
+    reference_window: 7  # days
+    
+  # Data quality monitoring
+  data_quality:
+    enabled: true
+    check_interval: 300  # 5 minutes
+    quality_metrics:
+      - missing_data_ratio
+      - data_freshness
+      - value_range_validation
+      - outlier_ratio
+
+# Integration Configuration
+integrations:
+  # Behavioral analyzer integration
+  behavioral_analyzer:
+    enabled: true
+    endpoint: "http://localhost:8444/api/v1/behavioral"
+    sync_frequency: 3600  # 1 hour
+    
+  # Signature detection integration
+  signature_detection:
+    enabled: true
+    endpoint: "http://localhost:8443/api/v1/signatures"
+    correlation_window: 300  # 5 minutes
+    
+  # SIEM integration
+  siem:
+    enabled: true
+    type: "elastic"
+    config:
+      hosts: ["elastic01.isectech.local:9200"]
+      index: "time-series-anomalies"
+      username: "${ELASTIC_USERNAME}"
+      password: "${ELASTIC_PASSWORD}"
+
+# Development and Debugging
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  log_level: "INFO"
+  
+  # Testing
+  test_mode: false
+  synthetic_data: false
+  
+  # Visualization
+  visualization:
+    enabled: false  # Enable for development
+    plot_anomalies: true
+    save_plots: false
+    plot_directory: "/tmp/ts_plots"
+  
+  # Profiling
+  profiling:
+    enabled: false
+    profile_memory: false
+    profile_cpu: false
+    
+  # Experimental features
+  experimental:
+    enable_online_learning: false
+    enable_adaptive_thresholds: true
+    enable_meta_learning: false
+
+# Security Configuration
+security:
+  # API security
+  api_security:
+    enable_authentication: true
+    api_key_header: "X-API-Key"
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 1000
+      
+  # Data encryption
+  encryption:
+    encrypt_stored_data: true
+    encryption_key_file: "/etc/nsm/ts_encryption.key"
+    
+  # Audit logging
+  audit:
+    enabled: true
+    log_file: "/var/log/nsm/ts_audit.log"
+    log_level: "INFO"
+    include_data_access: false
+
+# Backup and Recovery
+backup:
+  # Model backups
+  models:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    backup_path: "/var/backups/nsm/ts_models"
+    
+  # Data backups
+  data:
+    enabled: true
+    frequency: "weekly"
+    retention_weeks: 12
+    backup_path: "/var/backups/nsm/ts_data"
+    compression: true
+
+# Resource Management
+resources:
+  # Memory management
+  memory:
+    max_model_size_mb: 512
+    enable_memory_mapping: true
+    garbage_collection_frequency: 300
+    
+  # Disk management
+  disk:
+    max_disk_usage_gb: 10
+    cleanup_old_data: true
+    data_retention_days: 90
+    
+  # CPU management
+  cpu:
+    max_cpu_cores: 8
+    cpu_affinity: []  # Empty = use all available
+    priority: "normal"

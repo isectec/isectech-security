@@ -1,0 +1,364 @@
+# Security Compliance Alerting Rules for iSECTECH
+# Prometheus rules for monitoring Pod Security Standards and container security compliance
+
+groups:
+- name: security.compliance
+  interval: 30s
+  rules:
+  
+  # Recording rules for compliance metrics
+  - record: security:compliance_percentage
+    expr: |
+      round(
+        (security_compliant_pods / security_total_pods) * 100
+      )
+    labels:
+      metric_type: "compliance"
+
+  - record: security:violation_rate
+    expr: |
+      rate(security_context_violations_total[5m])
+    labels:
+      metric_type: "violations"
+
+  - record: security:privileged_container_count
+    expr: |
+      sum(security_privileged_containers_total)
+    labels:
+      metric_type: "privileged"
+
+  # Critical Security Alerts
+  - alert: PrivilegedContainerUnauthorized
+    expr: security_privileged_containers_total > 3
+    for: 0m
+    labels:
+      severity: critical
+      category: security
+      component: containers
+    annotations:
+      summary: "Unauthorized privileged containers detected"
+      description: "{{ $value }} privileged containers are running. Only Falco (1) and approved SIEM agents (2) should run privileged."
+      runbook_url: "https://docs.isectech.com/security/privileged-containers"
+      action_required: "Immediately investigate and remove unauthorized privileged containers"
+
+  - alert: SecurityContextViolationCritical
+    expr: security_context_violations_total > 10
+    for: 1m
+    labels:
+      severity: critical
+      category: security
+      component: pod-security
+    annotations:
+      summary: "Critical number of security context violations"
+      description: "{{ $value }} pods are running with security context violations"
+      runbook_url: "https://docs.isectech.com/security/security-context-violations"
+      action_required: "Review and remediate non-compliant pods immediately"
+
+  - alert: ComplianceScoreCritical
+    expr: security:compliance_percentage < 75
+    for: 5m
+    labels:
+      severity: critical
+      category: security
+      component: compliance
+    annotations:
+      summary: "Security compliance score critically low"
+      description: "Overall compliance score is {{ $value }}%, below critical threshold of 75%"
+      runbook_url: "https://docs.isectech.com/security/compliance-remediation"
+      action_required: "Immediate remediation required to improve compliance score"
+
+  - alert: GatekeeperPolicyViolation
+    expr: increase(gatekeeper_constraint_violations[5m]) > 0
+    for: 0m
+    labels:
+      severity: warning
+      category: security
+      component: gatekeeper
+    annotations:
+      summary: "OPA Gatekeeper policy violations detected"
+      description: "{{ $value }} new policy violations in the last 5 minutes"
+      runbook_url: "https://docs.isectech.com/security/gatekeeper-violations"
+      action_required: "Review and address policy violations"
+
+  # High Priority Alerts
+  - alert: SecurityContextViolationHigh
+    expr: security_context_violations_total > 5
+    for: 2m
+    labels:
+      severity: warning
+      category: security
+      component: pod-security
+    annotations:
+      summary: "Multiple security context violations detected"
+      description: "{{ $value }} pods have security context violations"
+      action_required: "Review and remediate non-compliant pods"
+
+  - alert: ResourceLimitViolations
+    expr: resource_limit_violations_total > 0
+    for: 5m
+    labels:
+      severity: warning
+      category: security
+      component: resources
+    annotations:
+      summary: "Resource limit violations detected"
+      description: "{{ $value }} pods are running without proper resource limits"
+      action_required: "Add resource limits to non-compliant pods"
+
+  - alert: ReadOnlyRootFilesystemViolation
+    expr: readonly_filesystem_violations_total > 2
+    for: 5m
+    labels:
+      severity: warning
+      category: security
+      component: filesystem
+    annotations:
+      summary: "ReadOnlyRootFilesystem violations detected"
+      description: "{{ $value }} application pods are not using read-only root filesystem"
+      action_required: "Enable read-only root filesystem for application containers"
+
+  - alert: CapabilityViolation
+    expr: capability_violations_total > 0
+    for: 2m
+    labels:
+      severity: warning
+      category: security
+      component: capabilities
+    annotations:
+      summary: "Container capability violations detected"
+      description: "{{ $value }} containers have excessive capabilities"
+      action_required: "Review and minimize container capabilities"
+
+  # Medium Priority Alerts
+  - alert: ComplianceScoreDecline
+    expr: |
+      (
+        security:compliance_percentage - 
+        security:compliance_percentage offset 1h
+      ) < -10
+    for: 10m
+    labels:
+      severity: warning
+      category: security
+      component: compliance
+    annotations:
+      summary: "Security compliance score declining"
+      description: "Compliance score decreased by {{ $value }}% in the last hour"
+      action_required: "Investigate cause of compliance score decline"
+
+  - alert: NonRootUserViolation
+    expr: non_root_user_violations_total > 0
+    for: 10m
+    labels:
+      severity: warning
+      category: security
+      component: users
+    annotations:
+      summary: "Non-root user violations detected"
+      description: "{{ $value }} application pods are running as root user"
+      action_required: "Configure pods to run as non-root user"
+
+  - alert: SeccompProfileMissing
+    expr: seccomp_profile_missing_total > 3
+    for: 10m
+    labels:
+      severity: warning
+      category: security
+      component: seccomp
+    annotations:
+      summary: "Seccomp profiles missing from containers"
+      description: "{{ $value }} containers are missing seccomp profiles"
+      action_required: "Add RuntimeDefault seccomp profiles to containers"
+
+  # Informational Alerts
+  - alert: NewPrivilegedContainer
+    expr: increase(security_privileged_containers_total[5m]) > 0
+    for: 0m
+    labels:
+      severity: info
+      category: security
+      component: containers
+    annotations:
+      summary: "New privileged container started"
+      description: "A new privileged container was started"
+      action_required: "Verify this is an approved privileged workload"
+
+  - alert: SecurityAuditRecommended
+    expr: |
+      time() - security_last_audit_timestamp > 604800  # 7 days
+    for: 0m
+    labels:
+      severity: info
+      category: security
+      component: audit
+    annotations:
+      summary: "Security audit recommended"
+      description: "Last security audit was more than 7 days ago"
+      action_required: "Run security compliance audit: ./scripts/audit-security-context.sh"
+
+  # Namespace-specific alerts
+  - alert: ProductionNamespaceViolation
+    expr: |
+      security_namespace_violations{namespace=~"production|isectech-.*"} > 0
+    for: 1m
+    labels:
+      severity: critical
+      category: security
+      component: namespace
+    annotations:
+      summary: "Security violations in production namespace"
+      description: "{{ $labels.namespace }} namespace has {{ $value }} security violations"
+      action_required: "Immediately remediate violations in production namespace"
+
+  - alert: NamespaceComplianceDecline
+    expr: |
+      security_namespace_compliance{namespace=~"production|isectech-.*"} < 90
+    for: 5m
+    labels:
+      severity: warning
+      category: security
+      component: namespace
+    annotations:
+      summary: "Production namespace compliance below threshold"
+      description: "{{ $labels.namespace }} compliance is {{ $value }}%, below 90% threshold"
+      action_required: "Improve compliance in production namespace"
+
+# Runtime Security Alerts (Falco Integration)
+- name: security.runtime
+  interval: 30s
+  rules:
+
+  - alert: ContainerEscapeAttempt
+    expr: increase(falco_events{rule_name=~".*escape.*"}[5m]) > 0
+    for: 0m
+    labels:
+      severity: critical
+      category: security
+      component: runtime
+    annotations:
+      summary: "Container escape attempt detected"
+      description: "Falco detected {{ $value }} container escape attempts"
+      action_required: "Immediately investigate and isolate affected containers"
+
+  - alert: PrivilegeEscalationDetected
+    expr: increase(falco_events{rule_name=~".*privilege.*"}[5m]) > 0
+    for: 0m
+    labels:
+      severity: critical
+      category: security
+      component: runtime
+    annotations:
+      summary: "Privilege escalation detected"
+      description: "Falco detected {{ $value }} privilege escalation attempts"
+      action_required: "Investigate and contain privilege escalation attempt"
+
+  - alert: SensitiveFileAccess
+    expr: increase(falco_events{rule_name=~".*sensitive.*|.*secret.*"}[5m]) > 0
+    for: 0m
+    labels:
+      severity: warning
+      category: security
+      component: runtime
+    annotations:
+      summary: "Sensitive file access detected"
+      description: "{{ $value }} accesses to sensitive files detected"
+      action_required: "Review sensitive file access patterns"
+
+  - alert: SuspiciousProcessExecution
+    expr: increase(falco_events{rule_name=~".*shell.*|.*process.*"}[5m]) > 5
+    for: 2m
+    labels:
+      severity: warning
+      category: security
+      component: runtime
+    annotations:
+      summary: "Suspicious process execution detected"
+      description: "{{ $value }} suspicious process executions in containers"
+      action_required: "Investigate unusual process activity"
+
+# OPA Gatekeeper Specific Alerts
+- name: security.gatekeeper
+  interval: 30s
+  rules:
+
+  - alert: GatekeeperControllerDown
+    expr: up{job="gatekeeper-controller-manager"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      category: security
+      component: gatekeeper
+    annotations:
+      summary: "OPA Gatekeeper controller is down"
+      description: "Gatekeeper controller is not responding"
+      action_required: "Restart Gatekeeper controller immediately"
+
+  - alert: ConstraintTemplateError
+    expr: increase(gatekeeper_constraint_template_errors[5m]) > 0
+    for: 0m
+    labels:
+      severity: warning
+      category: security
+      component: gatekeeper
+    annotations:
+      summary: "Gatekeeper constraint template errors"
+      description: "{{ $value }} constraint template errors detected"
+      action_required: "Review and fix constraint template errors"
+
+  - alert: ConstraintEvaluationLatencyHigh
+    expr: |
+      histogram_quantile(0.99, 
+        rate(gatekeeper_constraint_evaluation_duration_seconds_bucket[5m])
+      ) > 1
+    for: 5m
+    labels:
+      severity: warning
+      category: performance
+      component: gatekeeper
+    annotations:
+      summary: "Gatekeeper constraint evaluation latency high"
+      description: "99th percentile evaluation latency is {{ $value }}s"
+      action_required: "Optimize constraint templates or scale Gatekeeper"
+
+# Pod Security Standards Specific Alerts
+- name: security.pod-security-standards
+  interval: 30s
+  rules:
+
+  - alert: PodSecurityStandardViolation
+    expr: increase(pod_security_standard_violations[5m]) > 0
+    for: 0m
+    labels:
+      severity: warning
+      category: security
+      component: pod-security-standards
+    annotations:
+      summary: "Pod Security Standards violations detected"
+      description: "{{ $value }} PSS violations in the last 5 minutes"
+      action_required: "Review and remediate PSS violations"
+
+  - alert: RestrictedProfileViolation
+    expr: |
+      pod_security_violations{profile="restricted"} > 0
+    for: 1m
+    labels:
+      severity: critical
+      category: security
+      component: pod-security-standards
+    annotations:
+      summary: "Restricted profile violations in production"
+      description: "{{ $value }} violations of restricted security profile"
+      action_required: "Immediately fix restricted profile violations"
+
+  - alert: BaselineProfileViolation
+    expr: |
+      pod_security_violations{profile="baseline"} > 5
+    for: 5m
+    labels:
+      severity: warning
+      category: security
+      component: pod-security-standards
+    annotations:
+      summary: "Multiple baseline profile violations"
+      description: "{{ $value }} violations of baseline security profile"
+      action_required: "Review and fix baseline profile violations"

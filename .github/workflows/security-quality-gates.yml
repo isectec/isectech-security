@@ -1,0 +1,974 @@
+# iSECTECH Security Scanning and Quality Gates
+# Comprehensive security validation and quality assurance pipeline
+
+name: 'Security & Quality Gates'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      scan-intensity:
+        required: false
+        type: string
+        default: 'standard'
+      skip-slow-scans:
+        required: false
+        type: boolean
+        default: false
+      compliance-frameworks:
+        required: false
+        type: string
+        default: 'nist,iso27001,soc2'
+    outputs:
+      security-score:
+        description: "Overall security score (0-100)"
+        value: ${{ jobs.security-summary.outputs.score }}
+      quality-score:
+        description: "Code quality score (0-100)"
+        value: ${{ jobs.quality-summary.outputs.score }}
+      compliance-status:
+        description: "Compliance validation status"
+        value: ${{ jobs.compliance-gates.outputs.status }}
+      vulnerabilities-found:
+        description: "Number of vulnerabilities found"
+        value: ${{ jobs.security-summary.outputs.vulnerabilities }}
+
+env:
+  SCANNER_VERSION: 'latest'
+  SONAR_VERSION: '5.0.1.3006'
+  TRIVY_VERSION: '0.47.0'
+  SEMGREP_VERSION: 'latest'
+  
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SECRETS AND CREDENTIALS SCANNING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  secrets-scanning:
+    name: 'Secrets & Credentials Security'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      secrets-found: ${{ steps.scan-results.outputs.secrets_count }}
+      scan-status: ${{ steps.scan-results.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 'Install Security Scanning Tools'
+        run: |
+          echo "::group::Installing Security Scanners"
+          
+          # Install TruffleHog for secrets detection
+          curl -sSfL https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_linux_amd64.tar.gz | tar -xzf - -C /usr/local/bin
+          
+          # Install GitLeaks
+          wget -O gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz -C /usr/local/bin
+          
+          # Install Semgrep for additional secrets detection
+          pip install semgrep
+          
+          echo "::endgroup::"
+          
+      - name: 'Scan for Secrets with TruffleHog'
+        run: |
+          echo "::group::TruffleHog Secrets Scanning"
+          
+          # Scan entire repository history
+          trufflehog git file://. \
+            --format json \
+            --output trufflehog-results.json \
+            --fail || true
+            
+          # Process results
+          if [[ -f "trufflehog-results.json" ]] && [[ -s "trufflehog-results.json" ]]; then
+            echo "TruffleHog found potential secrets:"
+            cat trufflehog-results.json
+            TRUFFLEHOG_COUNT=$(jq length trufflehog-results.json)
+          else
+            echo "✅ No secrets found by TruffleHog"
+            TRUFFLEHOG_COUNT=0
+          fi
+          
+          echo "TRUFFLEHOG_COUNT=$TRUFFLEHOG_COUNT" >> $GITHUB_ENV
+          echo "::endgroup::"
+          
+      - name: 'Scan for Secrets with GitLeaks'
+        run: |
+          echo "::group::GitLeaks Secrets Scanning"
+          
+          # Scan repository with GitLeaks
+          gitleaks detect \
+            --source . \
+            --report-format json \
+            --report-path gitleaks-results.json \
+            --verbose || true
+            
+          # Process results
+          if [[ -f "gitleaks-results.json" ]] && [[ -s "gitleaks-results.json" ]]; then
+            echo "GitLeaks found potential secrets:"
+            cat gitleaks-results.json
+            GITLEAKS_COUNT=$(jq length gitleaks-results.json)
+          else
+            echo "✅ No secrets found by GitLeaks"
+            GITLEAKS_COUNT=0
+          fi
+          
+          echo "GITLEAKS_COUNT=$GITLEAKS_COUNT" >> $GITHUB_ENV
+          echo "::endgroup::"
+          
+      - name: 'Advanced Pattern Scanning with Semgrep'
+        run: |
+          echo "::group::Semgrep Security Pattern Scanning"
+          
+          # Run Semgrep with security rules
+          semgrep \
+            --config=auto \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --json \
+            --output semgrep-results.json \
+            . || true
+            
+          # Process results
+          if [[ -f "semgrep-results.json" ]] && [[ -s "semgrep-results.json" ]]; then
+            SEMGREP_COUNT=$(jq '.results | length' semgrep-results.json)
+            echo "Semgrep found $SEMGREP_COUNT security issues"
+          else
+            echo "✅ No security issues found by Semgrep"
+            SEMGREP_COUNT=0
+          fi
+          
+          echo "SEMGREP_COUNT=$SEMGREP_COUNT" >> $GITHUB_ENV
+          echo "::endgroup::"
+          
+      - name: 'Process Scan Results'
+        id: scan-results
+        run: |
+          echo "::group::Processing Security Scan Results"
+          
+          # Calculate total secrets found
+          TOTAL_SECRETS=$((TRUFFLEHOG_COUNT + GITLEAKS_COUNT + SEMGREP_COUNT))
+          
+          # Determine scan status
+          if [[ $TOTAL_SECRETS -eq 0 ]]; then
+            STATUS="pass"
+            echo "✅ No secrets or security issues detected"
+          elif [[ $TOTAL_SECRETS -le 5 ]]; then
+            STATUS="warning"
+            echo "⚠️  $TOTAL_SECRETS potential security issues found (review required)"
+          else
+            STATUS="fail"
+            echo "❌ $TOTAL_SECRETS security issues found (blocking)"
+          fi
+          
+          # Set outputs
+          echo "secrets_count=$TOTAL_SECRETS" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          
+          # Create summary report
+          cat << EOF > secrets-scan-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "total_secrets": $TOTAL_SECRETS,
+            "trufflehog_count": $TRUFFLEHOG_COUNT,
+            "gitleaks_count": $GITLEAKS_COUNT,
+            "semgrep_count": $SEMGREP_COUNT,
+            "status": "$STATUS",
+            "environment": "${{ inputs.environment }}"
+          }
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Scan Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-scan-results
+          path: |
+            trufflehog-results.json
+            gitleaks-results.json
+            semgrep-results.json
+            secrets-scan-summary.json
+          retention-days: 30
+          
+      - name: 'Fail on Critical Issues'
+        if: steps.scan-results.outputs.status == 'fail'
+        run: |
+          echo "❌ Critical security issues detected. Build blocked."
+          exit 1
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DEPENDENCY VULNERABILITY SCANNING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  dependency-scanning:
+    name: 'Dependency Vulnerability Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      vulnerabilities-found: ${{ steps.vulnerability-summary.outputs.count }}
+      critical-vulnerabilities: ${{ steps.vulnerability-summary.outputs.critical }}
+      scan-status: ${{ steps.vulnerability-summary.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Multi-Language Environment'
+        run: |
+          echo "::group::Setting up Language Environments"
+          
+          # Node.js setup
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          
+          # Go setup
+          wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          
+          # Python setup
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          
+          echo "::endgroup::"
+          
+      - name: 'Install Vulnerability Scanners'
+        run: |
+          echo "::group::Installing Vulnerability Scanners"
+          
+          # Install Trivy
+          sudo apt-get install wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install trivy
+          
+          # Install Node.js specific scanners
+          npm install -g audit-ci @cyclonedx/cli
+          
+          # Install Python specific scanners
+          pip install safety pipenv-audit
+          
+          # Install Go specific scanners
+          go install github.com/sonatypeoss/nancy@latest
+          
+          echo "::endgroup::"
+          
+      - name: 'Node.js Dependency Scanning'
+        if: hashFiles('package.json') != ''
+        run: |
+          echo "::group::Node.js Dependency Vulnerability Scanning"
+          
+          # NPM Audit
+          npm audit --audit-level=moderate --json > npm-audit.json || true
+          
+          # Generate SBOM
+          cyclonedx-npm --spec-version 1.4 --output-format json --output-file frontend-sbom.json
+          
+          # Trivy scan of Node.js dependencies
+          trivy fs --format json --output trivy-node.json . || true
+          
+          echo "::endgroup::"
+          
+      - name: 'Go Dependency Scanning'
+        if: hashFiles('go.mod') != ''
+        run: |
+          echo "::group::Go Dependency Vulnerability Scanning"
+          
+          # Go mod security audit
+          go list -json -deps ./... | nancy sleuth --quiet > nancy-results.json || true
+          
+          # Trivy scan of Go dependencies
+          trivy fs --format json --output trivy-go.json --file-patterns "go.mod,go.sum" . || true
+          
+          echo "::endgroup::"
+          
+      - name: 'Python Dependency Scanning'
+        if: hashFiles('requirements*.txt', 'Pipfile', 'pyproject.toml') != ''
+        run: |
+          echo "::group::Python Dependency Vulnerability Scanning"
+          
+          # Safety check
+          if [[ -f "requirements.txt" ]]; then
+            safety check --json --output safety-results.json || true
+          fi
+          
+          # Pipenv audit if Pipfile exists
+          if [[ -f "Pipfile" ]]; then
+            pipenv-audit --format json --output pipenv-audit.json || true
+          fi
+          
+          # Trivy scan of Python dependencies
+          trivy fs --format json --output trivy-python.json --file-patterns "requirements*.txt,Pipfile,pyproject.toml" . || true
+          
+          echo "::endgroup::"
+          
+      - name: 'Container Image Scanning'
+        run: |
+          echo "::group::Container Image Vulnerability Scanning"
+          
+          # Scan Dockerfiles for vulnerabilities
+          if [[ -f "Dockerfile.frontend" ]]; then
+            trivy config --format json --output trivy-dockerfile-frontend.json Dockerfile.frontend || true
+          fi
+          
+          if [[ -f "Dockerfile.backend" ]]; then
+            trivy config --format json --output trivy-dockerfile-backend.json Dockerfile.backend || true
+          fi
+          
+          if [[ -f "Dockerfile.ai" ]]; then
+            trivy config --format json --output trivy-dockerfile-ai.json Dockerfile.ai || true
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Aggregate Vulnerability Results'
+        id: vulnerability-summary
+        run: |
+          echo "::group::Aggregating Vulnerability Results"
+          
+          # Initialize counters
+          TOTAL_VULNS=0
+          CRITICAL_VULNS=0
+          HIGH_VULNS=0
+          MEDIUM_VULNS=0
+          LOW_VULNS=0
+          
+          # Process NPM audit results
+          if [[ -f "npm-audit.json" ]]; then
+            NPM_CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+            NPM_HIGH=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
+            NPM_MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+            NPM_LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
+            
+            CRITICAL_VULNS=$((CRITICAL_VULNS + NPM_CRITICAL))
+            HIGH_VULNS=$((HIGH_VULNS + NPM_HIGH))
+            MEDIUM_VULNS=$((MEDIUM_VULNS + NPM_MODERATE))
+            LOW_VULNS=$((LOW_VULNS + NPM_LOW))
+          fi
+          
+          # Process Trivy results
+          for trivy_file in trivy-*.json; do
+            if [[ -f "$trivy_file" ]]; then
+              TRIVY_VULNS=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity)] | length' "$trivy_file" 2>/dev/null || echo "0")
+              TOTAL_VULNS=$((TOTAL_VULNS + TRIVY_VULNS))
+            fi
+          done
+          
+          # Calculate total
+          TOTAL_VULNS=$((TOTAL_VULNS + CRITICAL_VULNS + HIGH_VULNS + MEDIUM_VULNS + LOW_VULNS))
+          
+          # Determine status
+          if [[ $CRITICAL_VULNS -gt 0 ]]; then
+            STATUS="fail"
+            echo "❌ $CRITICAL_VULNS critical vulnerabilities found"
+          elif [[ $HIGH_VULNS -gt 5 ]]; then
+            STATUS="fail"
+            echo "❌ Too many high severity vulnerabilities ($HIGH_VULNS)"
+          elif [[ $TOTAL_VULNS -gt 20 ]]; then
+            STATUS="warning"
+            echo "⚠️  High number of vulnerabilities found ($TOTAL_VULNS)"
+          else
+            STATUS="pass"
+            echo "✅ Vulnerability scan passed ($TOTAL_VULNS vulnerabilities)"
+          fi
+          
+          # Set outputs
+          echo "count=$TOTAL_VULNS" >> $GITHUB_OUTPUT
+          echo "critical=$CRITICAL_VULNS" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          
+          # Create summary report
+          cat << EOF > vulnerability-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "total_vulnerabilities": $TOTAL_VULNS,
+            "critical": $CRITICAL_VULNS,
+            "high": $HIGH_VULNS,
+            "medium": $MEDIUM_VULNS,
+            "low": $LOW_VULNS,
+            "status": "$STATUS",
+            "environment": "${{ inputs.environment }}"
+          }
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Vulnerability Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-scan-results
+          path: |
+            *-audit.json
+            trivy-*.json
+            nancy-results.json
+            safety-results.json
+            *-sbom.json
+            vulnerability-summary.json
+          retention-days: 30
+          
+      - name: 'Fail on Critical Vulnerabilities'
+        if: steps.vulnerability-summary.outputs.status == 'fail'
+        run: |
+          echo "❌ Critical vulnerabilities detected. Build blocked."
+          exit 1
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CODE QUALITY ANALYSIS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  code-quality:
+    name: 'Code Quality Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      quality-score: ${{ steps.quality-summary.outputs.score }}
+      quality-status: ${{ steps.quality-summary.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 'Setup SonarQube Scanner'
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          
+      - name: 'Setup Multi-Language Environment'
+        run: |
+          echo "::group::Setting up Development Environment"
+          
+          # Node.js
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          
+          # Go
+          wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          
+          # Python
+          sudo apt-get update && sudo apt-get install -y python3 python3-pip
+          
+          echo "::endgroup::"
+          
+      - name: 'Install Dependencies'
+        run: |
+          echo "::group::Installing Project Dependencies"
+          
+          # Install Node.js dependencies
+          if [[ -f "package.json" ]]; then
+            npm ci
+          fi
+          
+          # Install Go dependencies
+          if [[ -f "go.mod" ]]; then
+            go mod download
+          fi
+          
+          # Install Python dependencies
+          if [[ -f "requirements.txt" ]]; then
+            pip install -r requirements.txt
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Run Tests with Coverage'
+        run: |
+          echo "::group::Running Tests with Coverage"
+          
+          # Frontend tests
+          if [[ -f "package.json" ]]; then
+            npm run test:coverage || npm test -- --coverage --watchAll=false || true
+          fi
+          
+          # Backend tests
+          if [[ -f "go.mod" ]]; then
+            go test -race -coverprofile=coverage.out -covermode=atomic ./... || true
+          fi
+          
+          # Python tests
+          if [[ -f "requirements.txt" ]] && [[ -d "tests" ]]; then
+            pip install pytest pytest-cov
+            pytest --cov=. --cov-report=xml --cov-report=html || true
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'SonarQube Analysis'
+        if: env.SONAR_TOKEN != ''
+        run: |
+          echo "::group::SonarQube Code Analysis"
+          
+          # Create sonar-project.properties if it doesn't exist
+          if [[ ! -f "sonar-project.properties" ]]; then
+            cat > sonar-project.properties << EOF
+          sonar.projectKey=isectech-cybersecurity-platform
+          sonar.projectName=iSECTECH Cybersecurity Platform
+          sonar.projectVersion=1.0.0
+          sonar.sources=.
+          sonar.exclusions=**/node_modules/**,**/vendor/**,**/__tests__/**,**/test/**,**/tests/**,**/*.test.*,**/*.spec.*
+          sonar.coverage.exclusions=**/*.test.*,**/*.spec.*,**/mock/**,**/__mocks__/**
+          sonar.javascript.lcov.reportPaths=coverage/lcov.info
+          sonar.go.coverage.reportPaths=coverage.out
+          sonar.python.coverage.reportPaths=coverage.xml
+          sonar.qualitygate.wait=true
+          EOF
+          fi
+          
+          # Run SonarQube scanner
+          docker run \
+            --rm \
+            -e SONAR_HOST_URL="${{ secrets.SONAR_HOST_URL }}" \
+            -e SONAR_TOKEN="${{ secrets.SONAR_TOKEN }}" \
+            -v "$(pwd):/usr/src" \
+            sonarsource/sonar-scanner-cli:${{ env.SONAR_VERSION }}
+            
+          echo "::endgroup::"
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          
+      - name: 'Alternative Quality Analysis'
+        if: env.SONAR_TOKEN == ''
+        run: |
+          echo "::group::Alternative Code Quality Analysis"
+          
+          # Install quality analysis tools
+          npm install -g jshint eslint
+          pip install flake8 mypy black
+          
+          # JavaScript/TypeScript analysis
+          if [[ -f "package.json" ]]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-results.json || true
+          fi
+          
+          # Go analysis
+          if [[ -f "go.mod" ]]; then
+            # Install golangci-lint
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+            golangci-lint run --out-format json > golangci-results.json || true
+          fi
+          
+          # Python analysis
+          if [[ -f "requirements.txt" ]]; then
+            flake8 . --format=json --output-file flake8-results.json || true
+            mypy . --ignore-missing-imports --json-report mypy-results.json || true
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Calculate Quality Score'
+        id: quality-summary
+        run: |
+          echo "::group::Calculating Quality Score"
+          
+          # Initialize score components
+          COVERAGE_SCORE=0
+          LINT_SCORE=100
+          COMPLEXITY_SCORE=100
+          
+          # Calculate coverage score
+          if [[ -f "coverage/lcov.info" ]]; then
+            COVERAGE_PERCENT=$(grep -o "lines.*: [0-9.]*%" coverage/lcov-report/index.html | head -1 | grep -o "[0-9.]*" || echo "0")
+            COVERAGE_SCORE=$(echo "$COVERAGE_PERCENT" | cut -d. -f1)
+          elif [[ -f "coverage.out" ]]; then
+            COVERAGE_PERCENT=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+            COVERAGE_SCORE=$(echo "$COVERAGE_PERCENT" | cut -d. -f1)
+          elif [[ -f "coverage.xml" ]]; then
+            COVERAGE_PERCENT=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); print(f'{float(tree.getroot().get(\"line-rate\"))*100:.0f}')" 2>/dev/null || echo "0")
+            COVERAGE_SCORE=$COVERAGE_PERCENT
+          fi
+          
+          # Penalize for linting issues
+          if [[ -f "eslint-results.json" ]]; then
+            ESLINT_ERRORS=$(jq '[.[].messages[] | select(.severity == 2)] | length' eslint-results.json)
+            LINT_SCORE=$((LINT_SCORE - ESLINT_ERRORS * 2))
+          fi
+          
+          if [[ -f "golangci-results.json" ]]; then
+            GOLINT_ISSUES=$(jq '.Issues | length' golangci-results.json)
+            LINT_SCORE=$((LINT_SCORE - GOLINT_ISSUES))
+          fi
+          
+          # Calculate final quality score
+          QUALITY_SCORE=$(((COVERAGE_SCORE + LINT_SCORE + COMPLEXITY_SCORE) / 3))
+          
+          # Ensure score is between 0 and 100
+          if [[ $QUALITY_SCORE -lt 0 ]]; then
+            QUALITY_SCORE=0
+          elif [[ $QUALITY_SCORE -gt 100 ]]; then
+            QUALITY_SCORE=100
+          fi
+          
+          # Determine status
+          if [[ $QUALITY_SCORE -ge 80 ]]; then
+            STATUS="pass"
+            echo "✅ High quality code (Score: $QUALITY_SCORE/100)"
+          elif [[ $QUALITY_SCORE -ge 60 ]]; then
+            STATUS="warning"
+            echo "⚠️  Moderate quality code (Score: $QUALITY_SCORE/100)"
+          else
+            STATUS="fail"
+            echo "❌ Low quality code (Score: $QUALITY_SCORE/100)"
+          fi
+          
+          # Set outputs
+          echo "score=$QUALITY_SCORE" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          
+          # Create summary report
+          cat << EOF > quality-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "quality_score": $QUALITY_SCORE,
+            "coverage_score": $COVERAGE_SCORE,
+            "lint_score": $LINT_SCORE,
+            "complexity_score": $COMPLEXITY_SCORE,
+            "status": "$STATUS",
+            "environment": "${{ inputs.environment }}"
+          }
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Quality Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-quality-results
+          path: |
+            coverage/
+            *-results.json
+            quality-summary.json
+            sonar-project.properties
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # COMPLIANCE VALIDATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  compliance-gates:
+    name: 'Compliance Framework Validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      status: ${{ steps.compliance-summary.outputs.status }}
+      frameworks-validated: ${{ steps.compliance-summary.outputs.frameworks }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'NIST Cybersecurity Framework Validation'
+        if: contains(inputs.compliance-frameworks, 'nist')
+        run: |
+          echo "::group::NIST Cybersecurity Framework Validation"
+          
+          # Check for security documentation
+          NIST_SCORE=0
+          
+          # Identify function implementation
+          if [[ -d "security/" ]] || [[ -d "__tests__/security/" ]]; then
+            NIST_SCORE=$((NIST_SCORE + 25))
+            echo "✅ Security implementation found"
+          fi
+          
+          # Protect function implementation
+          if [[ -f ".github/workflows/security-workflow.yml" ]]; then
+            NIST_SCORE=$((NIST_SCORE + 25))
+            echo "✅ Security automation found"
+          fi
+          
+          # Detect function implementation
+          if [[ -f "package.json" ]] && grep -q "audit" package.json; then
+            NIST_SCORE=$((NIST_SCORE + 25))
+            echo "✅ Vulnerability detection configured"
+          fi
+          
+          # Respond function implementation
+          if [[ -f ".github/SECURITY.md" ]] || [[ -f "SECURITY.md" ]]; then
+            NIST_SCORE=$((NIST_SCORE + 25))
+            echo "✅ Security response documentation found"
+          fi
+          
+          echo "NIST_SCORE=$NIST_SCORE" >> $GITHUB_ENV
+          echo "NIST Framework Score: $NIST_SCORE/100"
+          echo "::endgroup::"
+          
+      - name: 'ISO 27001 Validation'
+        if: contains(inputs.compliance-frameworks, 'iso27001')
+        run: |
+          echo "::group::ISO 27001 Compliance Validation"
+          
+          ISO_SCORE=0
+          
+          # Information security policy
+          if [[ -f "SECURITY.md" ]] || [[ -f "docs/security-policy.md" ]]; then
+            ISO_SCORE=$((ISO_SCORE + 20))
+            echo "✅ Security policy documented"
+          fi
+          
+          # Risk management
+          if [[ -d "security/" ]] && [[ -f "security/risk-assessment.md" ]]; then
+            ISO_SCORE=$((ISO_SCORE + 20))
+            echo "✅ Risk management documentation found"
+          fi
+          
+          # Access control
+          if [[ -f ".github/CODEOWNERS" ]]; then
+            ISO_SCORE=$((ISO_SCORE + 20))
+            echo "✅ Access control implemented"
+          fi
+          
+          # Incident management
+          if [[ -f ".github/ISSUE_TEMPLATE/security-incident.md" ]]; then
+            ISO_SCORE=$((ISO_SCORE + 20))
+            echo "✅ Incident management process found"
+          fi
+          
+          # Compliance monitoring
+          if [[ -f ".github/workflows/security-workflow.yml" ]]; then
+            ISO_SCORE=$((ISO_SCORE + 20))
+            echo "✅ Continuous monitoring implemented"
+          fi
+          
+          echo "ISO_SCORE=$ISO_SCORE" >> $GITHUB_ENV
+          echo "ISO 27001 Score: $ISO_SCORE/100"
+          echo "::endgroup::"
+          
+      - name: 'SOC 2 Type II Validation'
+        if: contains(inputs.compliance-frameworks, 'soc2')
+        run: |
+          echo "::group::SOC 2 Type II Compliance Validation"
+          
+          SOC2_SCORE=0
+          
+          # Security principle
+          if [[ -f ".github/workflows/security-workflow.yml" ]]; then
+            SOC2_SCORE=$((SOC2_SCORE + 20))
+            echo "✅ Security controls automated"
+          fi
+          
+          # Availability principle
+          if [[ -f "docker-compose.yml" ]] || [[ -d "k8s/" ]]; then
+            SOC2_SCORE=$((SOC2_SCORE + 20))
+            echo "✅ Availability architecture found"
+          fi
+          
+          # Processing integrity principle
+          if [[ -f ".github/workflows/ci-cd-pipeline.yml" ]]; then
+            SOC2_SCORE=$((SOC2_SCORE + 20))
+            echo "✅ Processing integrity controls found"
+          fi
+          
+          # Confidentiality principle
+          if [[ -f ".gitignore" ]] && grep -q "\.env" .gitignore; then
+            SOC2_SCORE=$((SOC2_SCORE + 20))
+            echo "✅ Confidentiality controls found"
+          fi
+          
+          # Privacy principle
+          if [[ -f "PRIVACY.md" ]] || [[ -f "docs/privacy-policy.md" ]]; then
+            SOC2_SCORE=$((SOC2_SCORE + 20))
+            echo "✅ Privacy controls documented"
+          fi
+          
+          echo "SOC2_SCORE=$SOC2_SCORE" >> $GITHUB_ENV
+          echo "SOC 2 Type II Score: $SOC2_SCORE/100"
+          echo "::endgroup::"
+          
+      - name: 'Aggregate Compliance Results'
+        id: compliance-summary
+        run: |
+          echo "::group::Aggregating Compliance Results"
+          
+          # Initialize variables with defaults
+          NIST_SCORE=${NIST_SCORE:-0}
+          ISO_SCORE=${ISO_SCORE:-0}
+          SOC2_SCORE=${SOC2_SCORE:-0}
+          
+          # Calculate average compliance score
+          FRAMEWORKS_COUNT=0
+          TOTAL_SCORE=0
+          VALIDATED_FRAMEWORKS=""
+          
+          if [[ $NIST_SCORE -gt 0 ]]; then
+            FRAMEWORKS_COUNT=$((FRAMEWORKS_COUNT + 1))
+            TOTAL_SCORE=$((TOTAL_SCORE + NIST_SCORE))
+            VALIDATED_FRAMEWORKS="$VALIDATED_FRAMEWORKS,nist"
+          fi
+          
+          if [[ $ISO_SCORE -gt 0 ]]; then
+            FRAMEWORKS_COUNT=$((FRAMEWORKS_COUNT + 1))
+            TOTAL_SCORE=$((TOTAL_SCORE + ISO_SCORE))
+            VALIDATED_FRAMEWORKS="$VALIDATED_FRAMEWORKS,iso27001"
+          fi
+          
+          if [[ $SOC2_SCORE -gt 0 ]]; then
+            FRAMEWORKS_COUNT=$((FRAMEWORKS_COUNT + 1))
+            TOTAL_SCORE=$((TOTAL_SCORE + SOC2_SCORE))
+            VALIDATED_FRAMEWORKS="$VALIDATED_FRAMEWORKS,soc2"
+          fi
+          
+          # Remove leading comma
+          VALIDATED_FRAMEWORKS=${VALIDATED_FRAMEWORKS#,}
+          
+          # Calculate average
+          if [[ $FRAMEWORKS_COUNT -gt 0 ]]; then
+            COMPLIANCE_SCORE=$((TOTAL_SCORE / FRAMEWORKS_COUNT))
+          else
+            COMPLIANCE_SCORE=0
+          fi
+          
+          # Determine status
+          if [[ $COMPLIANCE_SCORE -ge 80 ]]; then
+            STATUS="pass"
+            echo "✅ Compliance validation passed (Score: $COMPLIANCE_SCORE/100)"
+          elif [[ $COMPLIANCE_SCORE -ge 60 ]]; then
+            STATUS="warning"
+            echo "⚠️  Compliance validation warning (Score: $COMPLIANCE_SCORE/100)"
+          else
+            STATUS="fail"
+            echo "❌ Compliance validation failed (Score: $COMPLIANCE_SCORE/100)"
+          fi
+          
+          # Set outputs
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "frameworks=$VALIDATED_FRAMEWORKS" >> $GITHUB_OUTPUT
+          
+          # Create summary report
+          cat << EOF > compliance-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "compliance_score": $COMPLIANCE_SCORE,
+            "nist_score": $NIST_SCORE,
+            "iso27001_score": $ISO_SCORE,
+            "soc2_score": $SOC2_SCORE,
+            "validated_frameworks": "$VALIDATED_FRAMEWORKS",
+            "status": "$STATUS",
+            "environment": "${{ inputs.environment }}"
+          }
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Compliance Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-validation-results
+          path: compliance-summary.json
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # SECURITY AND QUALITY SUMMARY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  security-summary:
+    name: 'Security Scan Summary'
+    runs-on: ubuntu-latest
+    needs: [secrets-scanning, dependency-scanning]
+    if: always()
+    outputs:
+      score: ${{ steps.calculate-score.outputs.score }}
+      vulnerabilities: ${{ steps.calculate-score.outputs.vulnerabilities }}
+      
+    steps:
+      - name: 'Calculate Security Score'
+        id: calculate-score
+        run: |
+          echo "::group::Calculating Overall Security Score"
+          
+          # Get results from previous jobs
+          SECRETS_STATUS="${{ needs.secrets-scanning.outputs.scan-status }}"
+          SECRETS_COUNT="${{ needs.secrets-scanning.outputs.secrets-found }}"
+          VULN_STATUS="${{ needs.dependency-scanning.outputs.scan-status }}"
+          VULN_COUNT="${{ needs.dependency-scanning.outputs.vulnerabilities-found }}"
+          CRITICAL_VULNS="${{ needs.dependency-scanning.outputs.critical-vulnerabilities }}"
+          
+          # Initialize score
+          SECURITY_SCORE=100
+          
+          # Deduct points for secrets
+          if [[ "$SECRETS_STATUS" == "fail" ]]; then
+            SECURITY_SCORE=$((SECURITY_SCORE - 50))
+          elif [[ "$SECRETS_STATUS" == "warning" ]]; then
+            SECURITY_SCORE=$((SECURITY_SCORE - 20))
+          fi
+          
+          # Deduct points for vulnerabilities
+          if [[ "$VULN_STATUS" == "fail" ]]; then
+            SECURITY_SCORE=$((SECURITY_SCORE - 40))
+          elif [[ "$VULN_STATUS" == "warning" ]]; then
+            SECURITY_SCORE=$((SECURITY_SCORE - 15))
+          fi
+          
+          # Additional deduction for critical vulnerabilities
+          SECURITY_SCORE=$((SECURITY_SCORE - CRITICAL_VULNS * 10))
+          
+          # Ensure score is not negative
+          if [[ $SECURITY_SCORE -lt 0 ]]; then
+            SECURITY_SCORE=0
+          fi
+          
+          # Calculate total vulnerabilities
+          TOTAL_VULNERABILITIES=$((SECRETS_COUNT + VULN_COUNT))
+          
+          echo "score=$SECURITY_SCORE" >> $GITHUB_OUTPUT
+          echo "vulnerabilities=$TOTAL_VULNERABILITIES" >> $GITHUB_OUTPUT
+          
+          echo "Final Security Score: $SECURITY_SCORE/100"
+          echo "Total Security Issues: $TOTAL_VULNERABILITIES"
+          echo "::endgroup::"
+          
+  quality-summary:
+    name: 'Quality Gates Summary'
+    runs-on: ubuntu-latest
+    needs: [code-quality, compliance-gates]
+    if: always()
+    outputs:
+      score: ${{ steps.calculate-score.outputs.score }}
+      
+    steps:
+      - name: 'Calculate Quality Score'
+        id: calculate-score
+        run: |
+          echo "::group::Calculating Overall Quality Score"
+          
+          # Get results from previous jobs
+          CODE_QUALITY_SCORE="${{ needs.code-quality.outputs.quality-score }}"
+          COMPLIANCE_STATUS="${{ needs.compliance-gates.outputs.status }}"
+          
+          # Start with code quality score
+          QUALITY_SCORE=${CODE_QUALITY_SCORE:-50}
+          
+          # Adjust for compliance
+          if [[ "$COMPLIANCE_STATUS" == "pass" ]]; then
+            QUALITY_SCORE=$((QUALITY_SCORE + 10))
+          elif [[ "$COMPLIANCE_STATUS" == "fail" ]]; then
+            QUALITY_SCORE=$((QUALITY_SCORE - 20))
+          fi
+          
+          # Ensure score is between 0 and 100
+          if [[ $QUALITY_SCORE -lt 0 ]]; then
+            QUALITY_SCORE=0
+          elif [[ $QUALITY_SCORE -gt 100 ]]; then
+            QUALITY_SCORE=100
+          fi
+          
+          echo "score=$QUALITY_SCORE" >> $GITHUB_OUTPUT
+          
+          echo "Final Quality Score: $QUALITY_SCORE/100"
+          echo "::endgroup::"

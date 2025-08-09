@@ -1,0 +1,55 @@
+# Palo Alto Networks Threat Log Format
+# Custom format for PAN-OS threat logs with enhanced security analysis
+
+name: "palo_alto_threat"
+pattern: '^(?P<timestamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}),(?P<serial>[^,]*),(?P<type>[^,]*),(?P<threat_content_type>[^,]*),(?P<config_version>[^,]*),(?P<generate_time>[^,]*),(?P<source_address>[^,]*),(?P<destination_address>[^,]*),(?P<nat_source_ip>[^,]*),(?P<nat_destination_ip>[^,]*),(?P<rule_name>[^,]*),(?P<source_user>[^,]*),(?P<destination_user>[^,]*),(?P<application>[^,]*),(?P<virtual_system>[^,]*),(?P<source_zone>[^,]*),(?P<destination_zone>[^,]*),(?P<inbound_interface>[^,]*),(?P<outbound_interface>[^,]*),(?P<log_action>[^,]*),(?P<time_logged>[^,]*),(?P<session_id>[^,]*),(?P<repeat_count>[^,]*),(?P<source_port>[^,]*),(?P<destination_port>[^,]*),(?P<nat_source_port>[^,]*),(?P<nat_destination_port>[^,]*),(?P<flags>[^,]*),(?P<protocol>[^,]*),(?P<action>[^,]*),(?P<misc>[^,]*),(?P<threat_id>[^,]*),(?P<category>[^,]*),(?P<severity>[^,]*),(?P<direction>[^,]*),(?P<sequence_number>[^,]*),(?P<action_flags>[^,]*),(?P<source_country>[^,]*),(?P<destination_country>[^,]*),(?P<content_type>[^,]*),(?P<pcap_id>[^,]*),(?P<file_digest>[^,]*),(?P<cloud>[^,]*),(?P<url_index>[^,]*),(?P<user_agent>[^,]*),(?P<file_type>[^,]*),(?P<xff>[^,]*),(?P<referer>[^,]*),(?P<sender>[^,]*),(?P<subject>[^,]*),(?P<recipient>[^,]*),(?P<report_id>[^,]*),(?P<device_group_hierarchy1>[^,]*),(?P<device_group_hierarchy2>[^,]*),(?P<device_group_hierarchy3>[^,]*),(?P<device_group_hierarchy4>[^,]*),(?P<virtual_system_name>[^,]*),(?P<device_name>[^,]*),(?P<virtual_system_id>[^,]*),(?P<http_method>[^,]*),(?P<tunnel_id_imsi>[^,]*),(?P<monitor_tag_imei>[^,]*),(?P<parent_session_id>[^,]*),(?P<parent_start_time>[^,]*),(?P<tunnel_type>[^,]*),(?P<threat_category>[^,]*),(?P<content_version>[^,]*),(?P<sig_flags>[^,]*),(?P<sctp_association_id>[^,]*),(?P<payload_protocol_id>[^,]*),(?P<http_headers>[^,]*),(?P<url_category_list>[^,]*),(?P<rule_uuid>[^,]*),(?P<http2_connection>[^,]*),(?P<dynamic_user_group_name>[^,]*),(?P<x_forwarded_for_ip>[^,]*),(?P<source_device_category>[^,]*),(?P<source_device_profile>[^,]*),(?P<source_device_model>[^,]*),(?P<source_device_vendor>[^,]*),(?P<source_device_os_family>[^,]*),(?P<source_device_os_version>[^,]*),(?P<source_hostname>[^,]*),(?P<source_mac_address>[^,]*),(?P<destination_device_category>[^,]*),(?P<destination_device_profile>[^,]*),(?P<destination_device_model>[^,]*),(?P<destination_device_vendor>[^,]*),(?P<destination_device_os_family>[^,]*),(?P<destination_device_os_version>[^,]*),(?P<destination_hostname>[^,]*),(?P<destination_mac_address>[^,]*),(?P<container_id>[^,]*),(?P<pod_namespace>[^,]*),(?P<pod_name>[^,]*),(?P<source_external_dynamic_list>[^,]*),(?P<destination_external_dynamic_list>[^,]*),(?P<host_id>[^,]*),(?P<serial_number>[^,]*),(?P<source_dynamic_address_group>[^,]*),(?P<destination_dynamic_address_group>[^,]*),(?P<session_owner>[^,]*),(?P<high_res_timestamp>[^,]*),(?P<a_slice_service_type>[^,]*),(?P<a_slice_differentiator>[^,]*),(?P<nssp_rule_uuid>[^,]*),(?P<subcategory_of_app>[^,]*),(?P<category_of_app>[^,]*),(?P<technology_of_app>[^,]*),(?P<risk_of_app>[^,]*),(?P<characteristic_of_app>[^,]*),(?P<container_of_app>[^,]*),(?P<tunneled_app>[^,]*),(?P<is_saas_of_app>[^,]*),(?P<sanctioned_state_of_app>[^,]*),(?P<offloaded>[^,]*)$'
+pattern_type: "regex"
+
+field_mappings:
+  timestamp: "timestamp"
+  source_address: "source.ip"
+  destination_address: "destination.ip"
+  source_port: "source.port"
+  destination_port: "destination.port"
+  application: "network.application"
+  protocol: "network.protocol"
+  action: "event.action"
+  threat_id: "threat.technique.id"
+  category: "threat.tactic.name"
+  severity: "event.severity"
+  rule_name: "rule.name"
+  source_user: "source.user.name"
+  destination_user: "destination.user.name"
+  source_zone: "source.network.zone"
+  destination_zone: "destination.network.zone"
+  file_digest: "file.hash.sha256"
+  user_agent: "user_agent.original"
+  url_index: "url.original"
+  threat_category: "threat.technique.name"
+  source_country: "source.geo.country_iso_code"
+  destination_country: "destination.geo.country_iso_code"
+
+timestamp_field: "timestamp"
+timestamp_format: "%Y/%m/%d %H:%M:%S"
+severity_field: "severity"
+message_field: "threat_id"
+source_field: "source_address"
+
+preprocessing_rules:
+  - "strip_quotes"
+  - "normalize_severity"
+
+validation_rules:
+  - "require_source_ip"
+  - "require_threat_id"
+  - "validate_timestamp"
+
+enabled: true
+priority: 50
+
+tags:
+  - "palo_alto"
+  - "threat"
+  - "security"
+  - "firewall"
+  - "threat_detection"

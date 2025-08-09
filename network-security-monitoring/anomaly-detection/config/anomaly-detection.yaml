@@ -1,0 +1,697 @@
+# iSECTECH Anomaly Detection Configuration
+# Production-grade anomaly and behavioral detection settings
+
+# Redis Configuration for Real-time Processing
+redis:
+  host: "redis-nsm.isectech.local"
+  port: 6379
+  db: 3  # Dedicated DB for anomaly detection
+  password: "${REDIS_PASSWORD}"
+  connection_pool_size: 50
+  socket_timeout: 30
+  socket_connect_timeout: 30
+  retry_on_timeout: true
+  max_connections: 100
+
+# Network Baseline Engine Configuration
+baseline:
+  # Minimum samples required to establish baseline
+  min_baseline_samples: 500
+  
+  # Baseline update frequency (seconds)
+  update_frequency: 3600  # 1 hour
+  
+  # Maximum historical data points to maintain
+  max_history_size: 50000
+  
+  # Baseline recalculation schedule
+  recalculation_schedule: "0 2 * * *"  # Daily at 2 AM
+  
+  # Confidence intervals
+  confidence_level: 0.95
+  
+  # Categories of metrics to baseline
+  categories:
+    traffic_volume:
+      enabled: true
+      metrics:
+        - bytes_per_hour
+        - packets_per_hour
+        - flows_per_hour
+        - connections_per_hour
+      weights:
+        bytes_per_hour: 1.0
+        packets_per_hour: 0.8
+        flows_per_hour: 0.7
+        connections_per_hour: 0.6
+    
+    communication_patterns:
+      enabled: true
+      metrics:
+        - unique_destinations
+        - unique_sources
+        - port_diversity
+        - protocol_diversity
+      weights:
+        unique_destinations: 1.0
+        unique_sources: 0.9
+        port_diversity: 0.7
+        protocol_diversity: 0.8
+    
+    protocol_distribution:
+      enabled: true
+      metrics:
+        - tcp_ratio
+        - udp_ratio
+        - icmp_ratio
+        - dns_ratio
+        - http_ratio
+        - https_ratio
+      weights:
+        tcp_ratio: 1.0
+        udp_ratio: 0.9
+        icmp_ratio: 0.5
+        dns_ratio: 0.8
+        http_ratio: 0.9
+        https_ratio: 1.0
+    
+    temporal_patterns:
+      enabled: true
+      metrics:
+        - hourly_traffic
+        - daily_traffic
+        - weekly_patterns
+        - peak_hours
+      weights:
+        hourly_traffic: 1.0
+        daily_traffic: 0.9
+        weekly_patterns: 0.8
+        peak_hours: 0.7
+    
+    service_behavior:
+      enabled: true
+      metrics:
+        - service_response_time
+        - service_availability
+        - service_errors
+        - service_capacity
+      weights:
+        service_response_time: 1.0
+        service_availability: 1.0
+        service_errors: 0.9
+        service_capacity: 0.8
+
+# Statistical Anomaly Detection Configuration
+statistical:
+  # Global threshold for statistical anomalies (sigma)
+  threshold_sigma: 3.0
+  
+  # Detection methods to use
+  methods:
+    - zscore
+    - iqr
+    - mad
+    - grubbs
+    - percentile
+  
+  # Method-specific parameters
+  method_params:
+    zscore:
+      threshold: 3.0
+      
+    iqr:
+      k_factor: 1.5
+      
+    mad:
+      threshold: 3.5
+      
+    grubbs:
+      alpha: 0.05
+      
+    percentile:
+      lower_percentile: 1
+      upper_percentile: 99
+  
+  # Ensemble detection settings
+  ensemble:
+    enabled: true
+    consensus_threshold: 2  # Minimum methods that must agree
+    confidence_boost: 0.2   # Confidence boost for ensemble detection
+  
+  # Time series specific settings
+  time_series:
+    enabled: true
+    window_size: 100
+    trend_detection: true
+    seasonality_detection: true
+    residual_analysis: true
+
+# Machine Learning Configuration
+ml:
+  # General ML settings
+  contamination_rate: 0.1  # Expected proportion of outliers
+  random_state: 42
+  
+  # Model update frequency (seconds)
+  model_update_frequency: 86400  # 24 hours
+  
+  # Minimum training samples
+  minimum_training_samples: 1000
+  
+  # Feature engineering
+  features:
+    # Network flow features
+    flow_features:
+      enabled: true
+      include_derived: true
+      include_temporal: true
+      include_statistical: true
+      
+    # Protocol-specific features
+    protocol_features:
+      enabled: true
+      tcp_features: true
+      udp_features: true
+      dns_features: true
+      http_features: true
+      
+    # Behavioral features
+    behavioral_features:
+      enabled: true
+      session_patterns: true
+      communication_graphs: true
+      temporal_sequences: true
+  
+  # Isolation Forest Configuration
+  isolation_forest:
+    enabled: true
+    n_estimators: 200
+    max_samples: "auto"
+    max_features: 1.0
+    bootstrap: false
+    behaviour: "new"  # For sklearn compatibility
+    
+  # Local Outlier Factor Configuration
+  local_outlier_factor:
+    enabled: true
+    n_neighbors: 20
+    algorithm: "auto"
+    leaf_size: 30
+    metric: "minkowski"
+    p: 2
+    
+  # DBSCAN Clustering Configuration
+  dbscan:
+    enabled: true
+    eps: 0.5
+    min_samples: 5
+    metric: "euclidean"
+    algorithm: "auto"
+    
+  # Autoencoder Configuration
+  autoencoder:
+    enabled: true
+    input_dim: 25  # Will be determined dynamically
+    encoding_dims: [20, 15, 10, 15, 20]  # Hidden layer dimensions
+    activation: "relu"
+    output_activation: "sigmoid"
+    optimizer: "adam"
+    loss: "mse"
+    epochs: 150
+    batch_size: 64
+    validation_split: 0.2
+    early_stopping: true
+    patience: 10
+    learning_rate: 0.001
+    dropout_rate: 0.1
+    
+  # One-Class SVM Configuration
+  one_class_svm:
+    enabled: false  # Computationally expensive
+    kernel: "rbf"
+    gamma: "scale"
+    nu: 0.1
+    
+  # Deep Learning Models
+  deep_learning:
+    # LSTM for sequence anomaly detection
+    lstm:
+      enabled: true
+      sequence_length: 50
+      hidden_units: [64, 32]
+      dropout_rate: 0.2
+      recurrent_dropout: 0.1
+      
+    # Variational Autoencoder
+    vae:
+      enabled: false  # Advanced feature
+      latent_dim: 10
+      beta: 1.0
+
+# User and Entity Behavior Analytics (UEBA)
+ueba:
+  # Profile update frequency
+  profile_update_frequency: 3600  # 1 hour
+  
+  # Risk scoring thresholds
+  risk_thresholds:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    critical: 0.9
+  
+  # Profile retention period (days)
+  profile_retention: 365
+  
+  # Minimum activity for profile creation
+  min_activity_threshold: 50
+  
+  # Peer group analysis
+  peer_groups:
+    enabled: true
+    group_size_range: [5, 50]
+    similarity_threshold: 0.8
+    update_frequency: 86400  # 24 hours
+  
+  # Entity types to analyze
+  entity_types:
+    users:
+      enabled: true
+      profile_attributes:
+        - login_patterns
+        - access_patterns
+        - data_access
+        - privilege_usage
+        - location_patterns
+        
+    hosts:
+      enabled: true
+      profile_attributes:
+        - communication_patterns
+        - service_usage
+        - data_transfer
+        - protocol_usage
+        - temporal_patterns
+        
+    services:
+      enabled: true
+      profile_attributes:
+        - usage_patterns
+        - performance_metrics
+        - error_rates
+        - capacity_utilization
+        - dependency_patterns
+  
+  # Behavioral modeling
+  behavioral_models:
+    # Markov Chain for sequence modeling
+    markov_chain:
+      enabled: true
+      order: 2  # 2nd order Markov chain
+      smoothing: "laplace"
+      
+    # Hidden Markov Model
+    hmm:
+      enabled: false  # Advanced feature
+      n_components: 5
+      covariance_type: "full"
+      
+    # Graph-based models
+    graph_models:
+      enabled: true
+      community_detection: true
+      centrality_measures: true
+      anomaly_propagation: true
+
+# Alerting Configuration
+alerting:
+  # Minimum confidence for alert generation
+  min_confidence: 0.6
+  
+  # Severity determination thresholds
+  severity_thresholds:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    critical: 0.9
+  
+  # Alert suppression
+  suppression:
+    enabled: true
+    duplicate_window: 300  # 5 minutes
+    similar_threshold: 0.8
+    
+  # Alert enrichment
+  enrichment:
+    enabled: true
+    threat_intelligence: true
+    asset_context: true
+    vulnerability_context: true
+    historical_context: true
+    
+  # Alert correlation
+  correlation:
+    enabled: true
+    time_window: 1800  # 30 minutes
+    similarity_threshold: 0.7
+    max_correlated_alerts: 10
+  
+  # Notification channels
+  channels:
+    - type: "webhook"
+      name: "siem_integration"
+      url: "http://siem.isectech.local:8080/api/v1/anomaly-alerts"
+      method: "POST"
+      headers:
+        Authorization: "Bearer ${SIEM_API_TOKEN}"
+        Content-Type: "application/json"
+      enabled: true
+      severity_filter: ["medium", "high", "critical"]
+      
+    - type: "email"
+      name: "security_team"
+      smtp_server: "smtp.isectech.local:587"
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+      recipients:
+        - "security-alerts@isectech.local"
+        - "anomaly-detection@isectech.local"
+      enabled: true
+      severity_filter: ["high", "critical"]
+      
+    - type: "slack"
+      name: "security_channel"
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#anomaly-alerts"
+      username: "iSECTECH-Anomaly-Detection"
+      enabled: true
+      severity_filter: ["critical"]
+      
+    - type: "syslog"
+      name: "central_logging"
+      server: "syslog.isectech.local:514"
+      facility: "local2"
+      severity_mapping:
+        critical: "alert"
+        high: "crit"
+        medium: "warning"
+        low: "info"
+      enabled: true
+
+# Performance and Resource Management
+performance:
+  # Resource limits
+  max_memory_usage_mb: 8192
+  max_cpu_usage_percent: 80
+  processing_timeout: 60
+  queue_size_limit: 100000
+  
+  # Processing optimization
+  batch_processing: true
+  batch_size: 1000
+  batch_timeout: 10
+  parallel_workers: 16
+  
+  # Caching
+  enable_caching: true
+  cache_ttl: 7200  # 2 hours
+  max_cache_size: 50000
+  
+  # Database optimization
+  db_connection_pool_size: 50
+  db_query_timeout: 45
+  enable_db_indexing: true
+  
+  # Memory management
+  gc_frequency: 300  # 5 minutes
+  memory_profiling: true
+  enable_memory_alerts: true
+  
+  # Feature processing optimization
+  feature_caching: true
+  feature_preprocessing_batch: 5000
+  parallel_feature_extraction: true
+
+# Data Sources Configuration
+data_sources:
+  # Network flows
+  network_flows:
+    enabled: true
+    sources:
+      - type: "zeek_logs"
+        path: "/var/log/zeek/conn.log"
+        format: "json"
+        
+      - type: "suricata_eve"
+        path: "/var/log/suricata/eve.json"
+        format: "json"
+        filter: "event_type:flow"
+        
+      - type: "netflow"
+        host: "collector.isectech.local"
+        port: 2055
+        format: "netflow_v9"
+        
+    # Flow aggregation settings
+    aggregation:
+      time_window: 300  # 5 minutes
+      group_by: ["source_ip", "destination_ip", "destination_port", "protocol"]
+      
+  # Authentication logs
+  authentication:
+    enabled: true
+    sources:
+      - type: "windows_events"
+        path: "/var/log/windows/security.log"
+        event_ids: [4624, 4625, 4648, 4672]
+        
+      - type: "linux_auth"
+        path: "/var/log/auth.log"
+        
+      - type: "ldap_logs"
+        path: "/var/log/ldap/access.log"
+  
+  # DNS logs
+  dns_logs:
+    enabled: true
+    sources:
+      - type: "bind_logs"
+        path: "/var/log/named/query.log"
+        
+      - type: "zeek_dns"
+        path: "/var/log/zeek/dns.log"
+        
+  # HTTP/HTTPS logs
+  web_logs:
+    enabled: true
+    sources:
+      - type: "apache_access"
+        path: "/var/log/apache2/access.log"
+        
+      - type: "nginx_access"
+        path: "/var/log/nginx/access.log"
+        
+      - type: "zeek_http"
+        path: "/var/log/zeek/http.log"
+
+# Threat Intelligence Integration
+threat_intelligence:
+  enabled: true
+  
+  # Indicator enrichment
+  indicator_enrichment:
+    enabled: true
+    cache_ttl: 3600
+    
+  # TI sources
+  sources:
+    - name: "misp"
+      enabled: true
+      api_url: "https://misp.isectech.local"
+      api_key: "${MISP_API_KEY}"
+      categories: ["ip", "domain", "hash", "url"]
+      
+    - name: "otx"
+      enabled: true
+      api_key: "${OTX_API_KEY}"
+      categories: ["ip", "domain", "hash"]
+      
+  # Contextual analysis
+  context_analysis:
+    enabled: true
+    geo_ip_analysis: true
+    reputation_scoring: true
+    malware_family_mapping: true
+
+# Data Retention and Archival
+data_retention:
+  # Anomaly alerts
+  anomaly_alerts:
+    hot_retention: 90  # days
+    warm_retention: 365  # days
+    cold_retention: 2555  # 7 years
+    compression: true
+    
+  # Baseline data
+  baseline_data:
+    retention: 365  # days
+    compression: true
+    
+  # Model data
+  model_data:
+    training_data_retention: 180  # days
+    model_version_retention: 20
+    
+  # Historical metrics
+  historical_metrics:
+    retention: 180  # days
+    aggregation_levels:
+      - interval: "1h"
+        retention: 30  # days
+      - interval: "1d"
+        retention: 180  # days
+
+# Compliance and Audit
+compliance:
+  # Regulatory frameworks
+  frameworks:
+    - "SOC2"
+    - "ISO27001"
+    - "NIST"
+    - "GDPR"
+    
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: "info"
+    log_file: "/var/log/nsm/anomaly-detection-audit.log"
+    rotation: "daily"
+    retention: 2555  # 7 years
+    
+  # Data privacy
+  data_privacy:
+    anonymize_ips: false  # Disable for security monitoring
+    encrypt_sensitive_data: true
+    pii_detection: true
+    data_masking: false
+
+# API Configuration
+api:
+  # REST API settings
+  rest_api:
+    enabled: true
+    host: "0.0.0.0"
+    port: 8444
+    ssl_enabled: true
+    ssl_cert: "/etc/ssl/certs/anomaly-api.crt"
+    ssl_key: "/etc/ssl/private/anomaly-api.key"
+    
+  # Authentication
+  authentication:
+    method: "jwt"
+    secret_key: "${JWT_SECRET_KEY}"
+    token_expiry: 3600  # 1 hour
+    refresh_token_expiry: 86400  # 24 hours
+    
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    default_limit: 1000  # requests per hour
+    burst_limit: 100
+    
+  # API endpoints
+  endpoints:
+    anomaly_alerts: "/api/v1/anomalies/alerts"
+    baselines: "/api/v1/baselines"
+    models: "/api/v1/models"
+    statistics: "/api/v1/statistics"
+    health: "/api/v1/health"
+
+# Integration with External Systems
+integrations:
+  # SIEM platforms
+  siem:
+    - name: "splunk"
+      type: "splunk"
+      host: "splunk.isectech.local"
+      port: 8089
+      username: "${SPLUNK_USERNAME}"
+      password: "${SPLUNK_PASSWORD}"
+      index: "anomaly_detection"
+      enabled: true
+      
+    - name: "qradar"
+      type: "qradar"
+      host: "qradar.isectech.local"
+      api_token: "${QRADAR_API_TOKEN}"
+      enabled: false
+      
+  # SOAR platforms
+  soar:
+    - name: "phantom"
+      type: "phantom"
+      host: "phantom.isectech.local"
+      api_token: "${PHANTOM_API_TOKEN}"
+      playbooks:
+        - "anomaly_investigation"
+        - "baseline_validation"
+      enabled: true
+      
+  # Orchestration
+  orchestration:
+    - name: "ansible"
+      type: "ansible"
+      host: "ansible.isectech.local"
+      username: "${ANSIBLE_USERNAME}"
+      ssh_key: "/etc/ssh/ansible_key"
+      playbooks:
+        - "baseline_recalculation"
+        - "model_retraining"
+      enabled: true
+
+# Development and Testing
+development:
+  # Debug settings
+  debug_mode: false
+  verbose_logging: false
+  profile_performance: true
+  
+  # Testing
+  test_mode: false
+  synthetic_data: false
+  simulation_mode: false
+  
+  # Experimental features
+  experimental:
+    enable_quantum_ml: false
+    enable_federated_learning: false
+    enable_adversarial_detection: true
+    enable_graph_neural_networks: false
+
+# Monitoring and Health Checks
+monitoring:
+  # Health checks
+  health_checks:
+    enabled: true
+    interval: 60  # seconds
+    timeout: 30
+    
+  # Metrics collection
+  metrics:
+    enabled: true
+    prometheus_endpoint: "http://prometheus.isectech.local:9090"
+    grafana_dashboard: "http://grafana.isectech.local:3000/d/anomaly-detection"
+    
+  # System monitoring
+  system_monitoring:
+    cpu_threshold: 85
+    memory_threshold: 90
+    disk_threshold: 95
+    network_threshold: 80
+    
+  # Application monitoring
+  application_monitoring:
+    detection_rate_threshold: 0.1
+    false_positive_threshold: 0.05
+    model_drift_threshold: 0.2
+    baseline_stability_threshold: 0.15

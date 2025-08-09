@@ -1,0 +1,84 @@
+# SOC Automation - Incident Response Orchestration
+# Python Dependencies
+
+# Core framework
+asyncio-mqtt==0.13.0
+aiohttp==3.8.6
+aiofiles==23.2.1
+pydantic==2.4.2
+structlog==23.1.0
+
+# Data processing and validation
+pyyaml==6.0.1
+jsonschema==4.19.1
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Database and storage
+redis[hiredis]==5.0.1
+elasticsearch[async]==8.10.0
+sqlalchemy==2.0.23
+aiosqlite==0.19.0
+
+# Security and cryptography
+cryptography==41.0.7
+pyjwt==2.8.0
+bcrypt==4.1.0
+pyotp==2.9.0
+
+# HTTP client and API integration
+requests==2.31.0
+urllib3==2.0.7
+certifi==2023.7.22
+
+# TheHive integration
+thehive4py==1.13.0
+
+# Monitoring and metrics
+prometheus-client==0.18.0
+psutil==5.9.6
+
+# Data serialization
+msgpack==1.0.7
+orjson==3.9.10
+
+# Network and communication
+dnspython==2.4.2
+ipaddress==1.0.23
+
+# File processing
+python-magic==0.4.27
+pillow==10.1.0
+pypdf==3.17.0
+
+# Forensics and analysis (optional)
+volatility3==2.5.0
+yara-python==4.3.1
+pefile==2023.2.7
+
+# Testing and development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+factory-boy==3.3.0
+
+# Code quality
+black==23.10.0
+flake8==6.1.0
+isort==5.12.0
+mypy==1.6.1
+
+# Documentation
+sphinx==7.2.6
+sphinx-rtd-theme==1.3.0
+
+# Deployment
+gunicorn==21.2.0
+uvicorn[standard]==0.24.0
+
+# Utilities
+click==8.1.7
+rich==13.6.0
+tqdm==4.66.1
+python-dotenv==1.0.0

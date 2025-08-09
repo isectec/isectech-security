@@ -1,0 +1,450 @@
+# iSECTECH SIEM Cloud Service Log Integration Docker Compose
+# Production-ready deployment for AWS, Azure, and GCP security event collection
+
+version: '3.8'
+
+networks:
+  isectech-siem:
+    external: true
+  monitoring:
+    external: true
+
+volumes:
+  aws-config:
+    driver: local
+  azure-config:
+    driver: local
+  gcp-config:
+    driver: local
+  gcp-service-accounts:
+    driver: local
+  cloud-certs:
+    driver: local
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AWS CLOUDTRAIL COLLECTOR SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  aws-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.aws
+    container_name: isectech-aws-collector
+    hostname: aws-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9164:9164/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./aws-cloudtrail-collector.py:/app/aws-cloudtrail-collector.py:ro
+      - ./config/aws-collector.yaml:/etc/isectech-siem/aws-collector.yaml:ro
+      - aws-config:/etc/isectech-siem
+      - cloud-certs:/etc/ssl/certs:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=4
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      # AWS credentials (use IAM roles in production)
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    
+    depends_on:
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9164/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=aws-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AZURE ACTIVITY LOG COLLECTOR SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  azure-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.azure
+    container_name: isectech-azure-collector
+    hostname: azure-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9165:9165/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./azure-activity-collector.py:/app/azure-activity-collector.py:ro
+      - ./config/azure-collector.yaml:/etc/isectech-siem/azure-collector.yaml:ro
+      - azure-config:/etc/isectech-siem
+      - cloud-certs:/etc/ssl/certs:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=5
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      # Azure credentials (use managed identity in production)
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+    
+    depends_on:
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9165/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=azure-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # GCP AUDIT LOG COLLECTOR SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  gcp-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.gcp
+    container_name: isectech-gcp-collector
+    hostname: gcp-collector.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "9166:9166/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./gcp-audit-collector.py:/app/gcp-audit-collector.py:ro
+      - ./config/gcp-collector.yaml:/etc/isectech-siem/gcp-collector.yaml:ro
+      - gcp-config:/etc/isectech-siem
+      - gcp-service-accounts:/etc/isectech-siem/gcp-keys:ro
+      - cloud-certs:/etc/ssl/certs:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - REDIS_HOST=redis.isectech.local
+      - REDIS_PORT=6379
+      - REDIS_DB=6
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      # GCP credentials (service account key files mounted as volumes)
+      - GOOGLE_APPLICATION_CREDENTIALS=/etc/isectech-siem/gcp-keys/default-service-account.json
+    
+    depends_on:
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:9166/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=gcp-collector"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # REDIS CACHE SERVICE (SHARED)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  redis-cache:
+    image: redis:7.2.4-alpine
+    container_name: isectech-cloud-redis-cache
+    hostname: cloud-redis-cache.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "6380:6379/tcp"  # Use different port to avoid conflict
+    
+    volumes:
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    
+    command: redis-server /usr/local/etc/redis/redis.conf
+    
+    environment:
+      - TZ=UTC
+    
+    sysctls:
+      - net.core.somaxconn=65535
+    
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=cloud-redis-cache"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CLOUD INTEGRATION API GATEWAY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  cloud-api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: isectech-cloud-api-gateway
+    hostname: cloud-api-gateway.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - isectech-siem
+      - monitoring
+    
+    ports:
+      - "8080:8080/tcp"  # API Gateway
+      - "9167:9167/tcp"  # Prometheus metrics
+    
+    volumes:
+      - ./gateway/cloud-api-gateway.py:/app/cloud-api-gateway.py:ro
+      - ./config/gateway.yaml:/etc/isectech-siem/gateway.yaml:ro
+      - cloud-certs:/etc/ssl/certs:ro
+      - /var/log/siem:/var/log/siem
+    
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - KAFKA_BROKERS=kafka-1.isectech.local:9092,kafka-2.isectech.local:9092
+      - TENANT_ID=isectech
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - API_PORT=8080
+      - METRICS_PORT=9167
+    
+    depends_on:
+      - aws-collector
+      - azure-collector
+      - gcp-collector
+      - redis-cache
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=512m
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    labels:
+      - "com.isectech.service=siem"
+      - "com.isectech.component=cloud-api-gateway"
+      - "com.isectech.environment=production"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PROMETHEUS METRICS EXPORTER
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  prometheus-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: isectech-cloud-exporter
+    hostname: cloud-exporter.isectech.local
+    restart: unless-stopped
+    
+    networks:
+      - monitoring
+    
+    ports:
+      - "9168:9100/tcp"
+    
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--web.listen-address=0.0.0.0:9100'
+    
+    volumes:
+      - /:/host:ro,rslave
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    
+    labels:
+      - "com.isectech.service=monitoring"
+      - "com.isectech.component=cloud-prometheus-exporter"
+      - "com.isectech.environment=production"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEPLOYMENT NOTES AND CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Production Deployment Commands:
+#
+# 1. Create external networks:
+#    docker network create isectech-siem
+#    docker network create monitoring
+#
+# 2. Set environment variables:
+#    export AWS_ACCESS_KEY_ID=your_aws_key
+#    export AWS_SECRET_ACCESS_KEY=your_aws_secret
+#    export AZURE_CLIENT_ID=your_azure_client_id
+#    export AZURE_CLIENT_SECRET=your_azure_secret
+#    export AZURE_TENANT_ID=your_azure_tenant_id
+#
+# 3. Deploy services:
+#    docker-compose -f docker-compose.cloud-integrations.yml up -d
+#
+# 4. Monitor deployment:
+#    docker-compose -f docker-compose.cloud-integrations.yml logs -f
+#
+# 5. Health checks:
+#    docker-compose -f docker-compose.cloud-integrations.yml ps
+#
+# 6. Scale services:
+#    docker-compose -f docker-compose.cloud-integrations.yml up -d --scale aws-collector=2
+#
+# Performance Tuning:
+#   - Adjust collection intervals based on log volume
+#   - Scale collector instances horizontally for high throughput
+#   - Tune Kafka producer settings for optimal batching
+#   - Configure Redis memory limits appropriately
+#
+# Security Considerations:
+#   - Use IAM roles and managed identities in production
+#   - Encrypt all traffic with TLS certificates
+#   - Implement network segmentation and access controls
+#   - Regular security updates for base images
+#   - Monitor for security events and anomalies
+#
+# Monitoring and Alerting:
+#   - Prometheus metrics on ports 9164-9168
+#   - Health check endpoints for all services
+#   - Log aggregation through centralized logging
+#   - Alert on collection failures and API errors

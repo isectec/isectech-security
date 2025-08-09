@@ -1,0 +1,208 @@
+# Elasticsearch Configuration for iSECTECH Development Environment
+# This configuration uses a single Elasticsearch instance for local development
+
+elasticsearch:
+  # Connection settings
+  addresses:
+    - "${ELASTICSEARCH_HOST:-http://localhost:9200}"
+  username: "${ELASTICSEARCH_USERNAME:-elastic}"
+  password: "${ELASTICSEARCH_PASSWORD:-changeme}"
+  api_key: "${ELASTICSEARCH_API_KEY}"
+  cloud_id: "${ELASTICSEARCH_CLOUD_ID}"
+  
+  # Connection timeouts (relaxed for development)
+  dial_timeout: 30s
+  request_timeout: 60s
+  keep_alive: 30s
+  max_idle_conns: 25
+  max_idle_conns_per_host: 5
+  
+  # Cluster configuration
+  cluster:
+    name: "isectech-development"
+    discover_nodes_on_start: false
+    discover_nodes_interval: 5m
+    enable_sniffer: false
+    enable_healthcheck: true
+    healthcheck_interval: 60s
+  
+  # Index configuration (smaller for development)
+  indices:
+    default_shards: 1
+    default_replicas: 0  # No replicas for development
+    refresh_interval: "1s"
+    max_result_window: 10000
+    templates:
+      security-events:
+        index_patterns: ["security-events-*"]
+        priority: 100
+        version: 1
+        composed_of: ["security-events-mappings", "security-events-settings"]
+        metadata:
+          description: "Template for iSECTECH security events (dev)"
+          version: "1.0.0"
+      threat-intelligence:
+        index_patterns: ["threat-intel-*"]
+        priority: 100
+        version: 1
+        composed_of: ["threat-intel-mappings", "threat-intel-settings"]
+        metadata:
+          description: "Template for iSECTECH threat intelligence (dev)"
+          version: "1.0.0"
+      audit-logs:
+        index_patterns: ["audit-logs-*"]
+        priority: 100
+        version: 1
+        composed_of: ["audit-logs-mappings", "audit-logs-settings"]
+        metadata:
+          description: "Template for iSECTECH audit logs (dev)"
+          version: "1.0.0"
+      vulnerability-scans:
+        index_patterns: ["vuln-scans-*"]
+        priority: 100
+        version: 1
+        composed_of: ["vuln-scans-mappings", "vuln-scans-settings"]
+        metadata:
+          description: "Template for iSECTECH vulnerability scans (dev)"
+          version: "1.0.0"
+      compliance-reports:
+        index_patterns: ["compliance-*"]
+        priority: 100
+        version: 1
+        composed_of: ["compliance-mappings", "compliance-settings"]
+        metadata:
+          description: "Template for iSECTECH compliance reports (dev)"
+          version: "1.0.0"
+  
+  # Index Lifecycle Management (shorter cycles for development)
+  ilm:
+    enabled: true
+    poll_interval: 1m
+    policies:
+      security-events-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "100MB"
+                  max_age: "1h"
+            warm:
+              min_age: "2h"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "1d"
+            delete:
+              min_age: "7d"
+      threat-intel-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "50MB"
+                  max_age: "6h"
+            warm:
+              min_age: "12h"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "2d"
+            delete:
+              min_age: "14d"
+      audit-logs-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "200MB"
+                  max_age: "1h"
+            warm:
+              min_age: "2h"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "1d"
+            delete:
+              min_age: "30d"
+      vuln-scans-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "25MB"
+                  max_age: "12h"
+            warm:
+              min_age: "1d"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "3d"
+            delete:
+              min_age: "21d"
+      compliance-policy:
+        policy:
+          phases:
+            hot:
+              actions:
+                rollover:
+                  max_size: "10MB"
+                  max_age: "1d"
+            warm:
+              min_age: "2d"
+              actions:
+                readonly: {}
+            cold:
+              min_age: "7d"
+            delete:
+              min_age: "90d"
+  
+  # Cross-cluster replication (disabled for development)
+  ccr:
+    enabled: false
+    remote_clusters: {}
+    follower_indices: {}
+  
+  # Security settings (simplified for development)
+  security:
+    enable_tls: false
+    tls_config:
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: true
+      server_name: ""
+    enable_authentication: false
+    enable_authorization: false
+    field_level_security: false
+    document_level_security: false
+    audit_logging:
+      enabled: false
+      log_level: "warn"
+      include_requests: false
+      include_responses: false
+      excluded_users: []
+      excluded_roles: []
+  
+  # Monitoring and observability (disabled for development)
+  enable_metrics: false
+  enable_tracing: false
+  slow_query_threshold: 10s
+  
+  # Circuit breaker settings (relaxed for development)
+  circuit_breaker:
+    max_requests: 100
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 10
+  
+  # Retry settings (reduced for development)
+  retry_config:
+    max_attempts: 2
+    initial_interval: 250ms
+    max_interval: 2s
+    multiplier: 2.0
+    retry_on_status: [429, 502, 503, 504]

@@ -1,0 +1,529 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deception-management-platform
+  namespace: deception
+  labels:
+    app: deception-management-platform
+    component: control-plane
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: deception-management-platform
+  template:
+    metadata:
+      labels:
+        app: deception-management-platform
+        component: control-plane
+      annotations:
+        security.isectech.com/purpose: "deception-orchestration"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: deception-management-sa
+      containers:
+      - name: deception-manager
+        image: isectech/deception-management:v1.3.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http-api
+          protocol: TCP
+        - containerPort: 8443
+          name: https-api
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: deception-secrets
+              key: postgres.url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: deception-secrets
+              key: redis.url
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: kafka.brokers
+        - name: ELASTICSEARCH_URL
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: elasticsearch.url
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: SOAR_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: soar.endpoint
+        - name: HONEYPOT_CONFIGURATIONS
+          value: |
+            {
+              "api_honeypots": {
+                "service": "api-honeypot-service.deception.svc.cluster.local",
+                "ports": [80, 443],
+                "health_endpoint": "/health",
+                "alert_patterns": ["api_enumeration", "authentication_bypass", "privilege_escalation"]
+              },
+              "database_honeypots": {
+                "postgresql": {
+                  "service": "postgresql-honeypot-service.deception.svc.cluster.local",
+                  "port": 5432,
+                  "alert_patterns": ["brute_force", "sql_injection", "data_exfiltration"]
+                },
+                "mongodb": {
+                  "service": "mongodb-honeypot-service.deception.svc.cluster.local", 
+                  "port": 27017,
+                  "alert_patterns": ["nosql_injection", "unauthorized_query", "collection_enumeration"]
+                },
+                "redis": {
+                  "service": "redis-honeypot-service.deception.svc.cluster.local",
+                  "port": 6379,
+                  "alert_patterns": ["unauthorized_access", "command_injection", "key_enumeration"]
+                }
+              },
+              "ssh_honeypots": {
+                "service": "ssh-honeypot-service.deception.svc.cluster.local",
+                "port": 22,
+                "alert_patterns": ["brute_force", "key_theft", "lateral_movement", "privilege_escalation"]
+              },
+              "web_honeypots": {
+                "admin_panels": {
+                  "service": "admin-panel-honeypot-service.deception.svc.cluster.local",
+                  "ports": [80, 443, 8080],
+                  "alert_patterns": ["admin_access", "credential_theft", "configuration_disclosure"]
+                }
+              }
+            }
+        - name: THREAT_INTELLIGENCE_CONFIG
+          value: |
+            {
+              "mitre_attack_mapping": {
+                "enabled": true,
+                "update_interval": "6h",
+                "techniques_db": "/etc/mitre/enterprise-attack.json"
+              },
+              "ioc_extraction": {
+                "enabled": true,
+                "ip_addresses": true,
+                "domains": true,
+                "file_hashes": true,
+                "user_agents": true,
+                "attack_signatures": true
+              },
+              "attribution_analysis": {
+                "enabled": true,
+                "ttp_correlation": true,
+                "campaign_tracking": true,
+                "threat_actor_profiling": true
+              }
+            }
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/deception
+          readOnly: true
+        - name: mitre-attack-data
+          mountPath: /etc/mitre
+          readOnly: true
+        - name: logs-volume
+          mountPath: /var/log/deception
+        - name: tmp-volume
+          mountPath: /tmp
+      - name: threat-intelligence-analyzer
+        image: isectech/threat-intelligence-analyzer:v1.1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+          name: analyzer-api
+        env:
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: kafka.brokers
+        - name: ELASTICSEARCH_URL
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: elasticsearch.url
+        - name: THREAT_INTEL_SOURCES
+          value: |
+            {
+              "internal_feeds": [
+                "http://threat-intelligence.isectech.svc.cluster.local:8080/api/v1/indicators"
+              ],
+              "commercial_feeds": [
+                {
+                  "name": "crowdstrike",
+                  "endpoint": "https://api.crowdstrike.com/intel/combined/indicators/v1",
+                  "auth_header": "Authorization: Bearer ${CROWDSTRIKE_TOKEN}"
+                }
+              ],
+              "open_source_feeds": [
+                "https://reputation.alienvault.com/reputation.snort",
+                "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+              ]
+            }
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        volumeMounts:
+        - name: threat-intel-cache
+          mountPath: /var/cache/threat-intel
+      volumes:
+      - name: config-volume
+        configMap:
+          name: deception-management-config
+      - name: mitre-attack-data
+        configMap:
+          name: mitre-attack-framework
+      - name: threat-intel-cache
+        emptyDir: {}
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - deception-management-platform
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deception-management-service
+  namespace: deception
+  labels:
+    app: deception-management-platform
+    service-type: control-plane
+spec:
+  selector:
+    app: deception-management-platform
+  ports:
+  - name: http-api
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: https-api
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: analyzer-api
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deception-management-sa
+  namespace: deception
+  labels:
+    app: deception-management-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deception-management-role
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: deception-management-binding
+subjects:
+- kind: ServiceAccount
+  name: deception-management-sa
+  namespace: deception
+roleRef:
+  kind: ClusterRole
+  name: deception-management-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deception-management-config
+  namespace: deception
+  labels:
+    app: deception-management-platform
+data:
+  application.yaml: |
+    server:
+      port: 8080
+      ssl:
+        enabled: true
+        key-store: /etc/ssl/deception-management.p12
+        key-store-password: "${SSL_KEYSTORE_PASSWORD}"
+        key-store-type: PKCS12
+    
+    spring:
+      application:
+        name: deception-management-platform
+      datasource:
+        url: "${DATABASE_URL}"
+        driver-class-name: org.postgresql.Driver
+        hikari:
+          maximum-pool-size: 20
+          minimum-idle: 5
+          connection-timeout: 30000
+          idle-timeout: 600000
+      
+      redis:
+        url: "${REDIS_URL}"
+        timeout: 5000ms
+        lettuce:
+          pool:
+            max-active: 20
+            max-idle: 8
+            min-idle: 0
+      
+      kafka:
+        bootstrap-servers: "${KAFKA_BROKERS}"
+        producer:
+          key-serializer: org.apache.kafka.common.serialization.StringSerializer
+          value-serializer: org.apache.kafka.common.serialization.StringSerializer
+        consumer:
+          group-id: deception-management
+          auto-offset-reset: earliest
+          key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+          value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    
+    deception:
+      honeypot:
+        health_check_interval: 30s
+        alert_processing_threads: 4
+        max_concurrent_investigations: 10
+      
+      alerting:
+        webhook_timeout: 10s
+        retry_attempts: 3
+        batch_size: 100
+        flush_interval: 5s
+      
+      threat_intelligence:
+        cache_ttl: 24h
+        update_interval: 6h
+        attribution_confidence_threshold: 0.7
+      
+      analytics:
+        session_timeout: 30m
+        interaction_aggregation_window: 5m
+        ttp_correlation_window: 1h
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+          base-path: /actuator
+        health:
+          show-details: when-authorized
+      endpoint:
+        health:
+          probes:
+            enabled: true
+    
+    logging:
+      level:
+        com.isectech.deception: INFO
+        org.springframework.kafka: WARN
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+        file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  
+  alert-rules.yaml: |
+    alert_rules:
+      api_honeypot:
+        - name: "API Enumeration Detected"
+          pattern: "multiple_endpoint_requests"
+          severity: "medium"
+          description: "Attacker attempting to enumerate API endpoints"
+          mitre_techniques: ["T1046"]
+          confidence: 0.85
+          
+        - name: "Authentication Bypass Attempt"
+          pattern: "bypass_authentication"
+          severity: "high"
+          description: "Attempt to access protected endpoints without authentication"
+          mitre_techniques: ["T1190", "T1212"]
+          confidence: 0.92
+      
+      database_honeypot:
+        - name: "SQL Injection Attack"
+          pattern: "sql_injection_pattern"
+          severity: "high"
+          description: "SQL injection attack detected against database honeypot"
+          mitre_techniques: ["T1190"]
+          confidence: 0.95
+          
+        - name: "Database Brute Force"
+          pattern: "brute_force_database"
+          severity: "medium"
+          description: "Brute force attack against database credentials"
+          mitre_techniques: ["T1110.003"]
+          confidence: 0.88
+      
+      ssh_honeypot:
+        - name: "SSH Brute Force Attack"
+          pattern: "ssh_brute_force"
+          severity: "medium"
+          description: "Brute force attack against SSH service"
+          mitre_techniques: ["T1110.001"]
+          confidence: 0.90
+          
+        - name: "Credential Theft Detected"
+          pattern: "credential_access"
+          severity: "critical"
+          description: "Attacker accessed fake credentials or keys"
+          mitre_techniques: ["T1552.004"]
+          confidence: 0.98
+      
+      web_honeypot:
+        - name: "Admin Panel Access Attempt"
+          pattern: "admin_panel_access"
+          severity: "high"
+          description: "Unauthorized access to admin interfaces"
+          mitre_techniques: ["T1190", "T1078"]
+          confidence: 0.93
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mitre-attack-framework
+  namespace: deception
+  labels:
+    app: deception-management-platform
+data:
+  enterprise-attack.json: |
+    {
+      "techniques": {
+        "T1046": {
+          "name": "Network Service Scanning",
+          "tactics": ["discovery"],
+          "description": "Adversaries may attempt to get a listing of services running on remote hosts"
+        },
+        "T1110.001": {
+          "name": "Password Guessing",
+          "tactics": ["credential-access"],
+          "description": "Adversaries with no prior knowledge of legitimate credentials may guess passwords"
+        },
+        "T1110.003": {
+          "name": "Password Spraying",
+          "tactics": ["credential-access"],
+          "description": "Adversaries may use a single or small list of commonly used passwords"
+        },
+        "T1190": {
+          "name": "Exploit Public-Facing Application",
+          "tactics": ["initial-access"],
+          "description": "Adversaries may attempt to take advantage of a weakness in an Internet-facing computer"
+        },
+        "T1212": {
+          "name": "Exploitation for Credential Access",
+          "tactics": ["credential-access"],
+          "description": "Adversaries may exploit software vulnerabilities to collect credentials"
+        },
+        "T1552.004": {
+          "name": "Private Keys",
+          "tactics": ["credential-access"],
+          "description": "Adversaries may search for private key certificate files on compromised systems"
+        },
+        "T1078": {
+          "name": "Valid Accounts",
+          "tactics": ["defense-evasion", "persistence", "privilege-escalation", "initial-access"],
+          "description": "Adversaries may obtain and abuse credentials of existing accounts"
+        }
+      },
+      "tactics": {
+        "initial-access": "The adversary is trying to get into your network",
+        "credential-access": "The adversary is trying to steal account names and passwords",
+        "discovery": "The adversary is trying to figure out your environment",
+        "defense-evasion": "The adversary is trying to avoid being detected"
+      }
+    }

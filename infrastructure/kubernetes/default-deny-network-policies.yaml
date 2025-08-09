@@ -1,0 +1,230 @@
+# Default Deny Network Policies for iSECTECH
+# Implements zero-trust network segmentation by denying all traffic by default
+# Part of Task 77: Identity-Based Network Policies
+
+---
+# Default Deny - istio-system namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: infrastructure
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - isectech-api-gateway namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: isectech-api-gateway
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: api-gateway
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - isectech-services namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: isectech-services
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: services
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - isectech-data namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: isectech-data
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: data
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - isectech-ai namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: isectech-ai
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: ai-services
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - isectech-frontend namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: isectech-frontend
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: frontend
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - production namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: production
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - staging namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: staging
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: staging
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - monitoring namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: infrastructure
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - kube-system namespace (infrastructure critical)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: infrastructure
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Default Deny - default namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: default-deny
+    security.isectech.com/tier: infrastructure
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Emergency Allow Policy for Critical Infrastructure (initially disabled)
+# This can be enabled during incidents to temporarily restore connectivity
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: emergency-allow-all
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    security.isectech.com/policy-type: emergency-allow
+    security.isectech.com/tier: infrastructure
+  annotations:
+    security.isectech.com/emergency-policy: "true"
+    security.isectech.com/usage: "Only enable during critical incidents"
+spec:
+  # Initially disabled - apply this policy only during emergencies
+  podSelector:
+    matchLabels:
+      emergency.isectech.com/allow-all: "true"  # No pods should have this label by default
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}
+  egress:
+  - {}

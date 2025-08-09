@@ -1,0 +1,240 @@
+# Additional Namespace Security Profiles for iSECTECH Pod Security Standards
+# Specialized namespaces with specific security requirements
+
+---
+# Security namespace for Falco and security monitoring tools
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security
+  labels:
+    name: security
+    security.isectech.com/tier: "security"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - baseline for security tools (need some privileged access)
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "baseline"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "baseline"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Monitoring namespace with restricted access
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    security.isectech.com/tier: "monitoring"
+    monitoring.isectech.com/enabled: "true"
+    # Pod Security Standards - baseline for monitoring stack
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Kong Gateway namespace with baseline security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kong-system
+  labels:
+    name: kong-system
+    security.isectech.com/tier: "api-gateway"
+    monitoring.isectech.com/enabled: "true"
+    # Pod Security Standards - baseline for Kong (requires specific network privileges)
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "baseline"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "baseline"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Development namespace with restricted security for testing
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+  labels:
+    name: development
+    security.isectech.com/tier: "development"
+    monitoring.isectech.com/enabled: "true"
+    istio-injection: enabled
+    istio.io/rev: 1-18-2
+    # Pod Security Standards - baseline for development (some flexibility needed for testing)
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Falco system namespace for runtime security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: falco-system
+  labels:
+    name: falco-system
+    security.isectech.com/tier: "security"
+    monitoring.isectech.com/enabled: "true"
+    # Pod Security Standards - privileged for Falco (needs kernel access)
+    # Note: Falco DaemonSet requires privileged access for kernel monitoring
+    pod-security.kubernetes.io/enforce: "privileged"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "privileged"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "baseline"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# Test namespace for Pod Security Standards validation
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pss-test
+  labels:
+    name: pss-test
+    security.isectech.com/tier: "testing"
+    monitoring.isectech.com/enabled: "false"
+    # Pod Security Standards - baseline for testing PSS configurations
+    pod-security.kubernetes.io/enforce: "baseline"
+    pod-security.kubernetes.io/enforce-version: "latest"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/audit-version: "latest"
+    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/warn-version: "latest"
+
+---
+# NetworkPolicy to isolate namespaces by security tier
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: namespace-isolation
+  namespace: security
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "production"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "staging"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "services"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "data"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "ai-services"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "frontend"
+    - namespaceSelector:
+        matchLabels:
+          security.isectech.com/tier: "api-gateway"
+  egress:
+  - {} # Allow all egress for security monitoring
+
+---
+# Pod Security Policy for privileged security tools (fallback)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: security-monitoring-psp
+  labels:
+    security.isectech.com/component: pod-security
+    security.isectech.com/tier: security
+spec:
+  privileged: true
+  allowPrivilegeEscalation: true
+  requiredDropCapabilities:
+    - MKNOD
+  allowedCapabilities:
+    - 'SYS_ADMIN'
+    - 'SYS_RESOURCE'
+    - 'SYS_PTRACE'
+    - 'SYS_TIME'
+    - 'NET_RAW'
+    - 'NET_ADMIN'
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+    - 'hostPath'
+  allowedHostPaths:
+    - pathPrefix: "/var/run/docker.sock"
+      readOnly: false
+    - pathPrefix: "/proc"
+      readOnly: true
+    - pathPrefix: "/boot"
+      readOnly: true
+    - pathPrefix: "/lib/modules"
+      readOnly: true
+    - pathPrefix: "/usr"
+      readOnly: true
+    - pathPrefix: "/etc"
+      readOnly: true
+  hostNetwork: true
+  hostIPC: false
+  hostPID: true
+  runAsUser:
+    rule: 'RunAsAny'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+
+---
+# ClusterRole for security monitoring PSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: security-monitoring-psp-user
+  labels:
+    security.isectech.com/component: pod-security
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - security-monitoring-psp
+
+---
+# ClusterRoleBinding for security monitoring PSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: security-monitoring-psp-binding
+  labels:
+    security.isectech.com/component: pod-security
+roleRef:
+  kind: ClusterRole
+  name: security-monitoring-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: falco
+  namespace: falco-system

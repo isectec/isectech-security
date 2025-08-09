@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canary Token Dashboard - iSECTECH</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f1419;
+            color: #e8eaed;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1a73e8 0%, #34a853 100%);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .header h1 {
+            color: white;
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+        
+        .header .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+        
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 2rem;
+            padding: 2rem;
+            min-height: calc(100vh - 100px);
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .card {
+            background: #1e2328;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid #303136;
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #303136;
+        }
+        
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #e8eaed;
+        }
+        
+        .card-subtitle {
+            font-size: 0.85rem;
+            color: #9aa0a6;
+            margin-top: 0.25rem;
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 0.75rem;
+            background: #2d3135;
+            border-radius: 8px;
+            border: 1px solid #404449;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1a73e8;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: #9aa0a6;
+            margin-top: 0.25rem;
+        }
+        
+        .alert-item {
+            background: #2d1b1b;
+            border: 1px solid #ea4335;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            position: relative;
+        }
+        
+        .alert-item::before {
+            content: '🚨';
+            position: absolute;
+            top: 0.5rem;
+            right: 0.75rem;
+            font-size: 1.2rem;
+        }
+        
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+        }
+        
+        .alert-title {
+            color: #f28b82;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .alert-time {
+            color: #9aa0a6;
+            font-size: 0.8rem;
+        }
+        
+        .alert-details {
+            color: #dadce0;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        
+        .token-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .token-item {
+            background: #2d3135;
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 4px solid #1a73e8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .token-item.triggered {
+            border-left-color: #ea4335;
+            background: #2d1b1b;
+        }
+        
+        .token-info {
+            flex: 1;
+        }
+        
+        .token-type {
+            font-weight: 600;
+            color: #e8eaed;
+            font-size: 0.9rem;
+        }
+        
+        .token-location {
+            color: #9aa0a6;
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+        }
+        
+        .token-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .token-status.active {
+            background: #1e3a8a;
+            color: #93c5fd;
+        }
+        
+        .token-status.triggered {
+            background: #7f1d1d;
+            color: #fca5a5;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 200px;
+            margin-top: 1rem;
+        }
+        
+        .sidebar {
+            background: #1e2328;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid #303136;
+            height: fit-content;
+            sticky: top: 2rem;
+        }
+        
+        .refresh-btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: background 0.3s ease;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        
+        .refresh-btn:hover {
+            background: #1557b0;
+        }
+        
+        .last-updated {
+            text-align: center;
+            color: #9aa0a6;
+            font-size: 0.8rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.8rem;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #9aa0a6;
+        }
+        
+        .spinner {
+            border: 2px solid #303136;
+            border-top: 2px solid #1a73e8;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .priority-high {
+            border-left-color: #ea4335 !important;
+        }
+        
+        .priority-critical {
+            border-left-color: #ff0000 !important;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
+        }
+        
+        .scroll-container {
+            max-height: 500px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        
+        .scroll-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-track {
+            background: #2d3135;
+            border-radius: 3px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: #404449;
+            border-radius: 3px;
+        }
+        
+        .scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #555a5f;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🕯️ Canary Token Dashboard</h1>
+        <div class="subtitle">Real-time monitoring and alert management for deployed canary tokens</div>
+    </div>
+
+    <div class="main-container">
+        <div class="dashboard-grid">
+            <!-- Overview Statistics -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Token Overview</div>
+                        <div class="card-subtitle">Current deployment status</div>
+                    </div>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="total-tokens">--</div>
+                        <div class="stat-label">Total Tokens</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="active-tokens">--</div>
+                        <div class="stat-label">Active</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="triggered-tokens">--</div>
+                        <div class="stat-label">Triggered</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="alert-count">--</div>
+                        <div class="stat-label">Alerts (24h)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Token Distribution Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Token Distribution</div>
+                        <div class="card-subtitle">By type and status</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+                <div class="legend" id="chart-legend"></div>
+            </div>
+
+            <!-- Recent Triggers -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Recent Triggers</div>
+                        <div class="card-subtitle">Last 24 hours</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="triggersChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Token List -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Deployed Tokens</div>
+                        <div class="card-subtitle">All active canary tokens</div>
+                    </div>
+                </div>
+                <div class="scroll-container">
+                    <div class="token-list" id="token-list">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading tokens...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar with Alerts and Controls -->
+        <div class="sidebar">
+            <button class="refresh-btn" onclick="refreshDashboard()">
+                🔄 Refresh Data
+            </button>
+            
+            <div class="last-updated">
+                Last updated: <span id="last-updated">--</span>
+            </div>
+            
+            <div class="card-header">
+                <div class="card-title">🚨 Active Alerts</div>
+            </div>
+            
+            <div class="scroll-container">
+                <div id="alerts-list">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading alerts...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dashboard state
+        let dashboardData = {
+            tokens: [],
+            alerts: [],
+            statistics: {},
+            lastUpdated: null
+        };
+        
+        let charts = {};
+        
+        // Initialize dashboard
+        async function initDashboard() {
+            console.log('Initializing Canary Token Dashboard');
+            
+            try {
+                await loadDashboardData();
+                updateOverviewStats();
+                renderTokenList();
+                renderAlertsList();
+                createCharts();
+                
+                // Set up auto-refresh
+                setInterval(refreshDashboard, 30000); // Every 30 seconds
+                
+            } catch (error) {
+                console.error('Failed to initialize dashboard:', error);
+                showError('Failed to load dashboard data');
+            }
+        }
+        
+        // Load data from API (mock data for demo)
+        async function loadDashboardData() {
+            // In production, this would fetch from actual API endpoints
+            // For demo, we'll use mock data
+            
+            dashboardData = {
+                tokens: generateMockTokens(),
+                alerts: generateMockAlerts(),
+                statistics: {
+                    totalTokens: 20,
+                    activeTokens: 18,
+                    triggeredTokens: 3,
+                    alertCount: 5
+                },
+                lastUpdated: new Date()
+            };
+            
+            // Simulate network delay
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Generate mock token data
+        function generateMockTokens() {
+            const tokenTypes = ['api_key', 'aws_key', 'database_record', 'document', 'ssh_key', 'jwt_token'];
+            const locations = ['/etc/config/', 'production-db', '/home/admin/', '/shared/docs/', 'git-repo', 'session-store'];
+            const tokens = [];
+            
+            for (let i = 0; i < 20; i++) {
+                const type = tokenTypes[Math.floor(Math.random() * tokenTypes.length)];
+                const triggered = Math.random() < 0.15; // 15% chance of being triggered
+                
+                tokens.push({
+                    id: `ct-${String(i + 1).padStart(3, '0')}`,
+                    type: type,
+                    location: locations[Math.floor(Math.random() * locations.length)],
+                    status: triggered ? 'triggered' : 'active',
+                    created: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
+                    triggerCount: triggered ? Math.floor(Math.random() * 3) + 1 : 0,
+                    lastTriggered: triggered ? new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000) : null
+                });
+            }
+            
+            return tokens;
+        }
+        
+        // Generate mock alert data
+        function generateMockAlerts() {
+            const alerts = [];
+            const alertTypes = ['Token Triggered', 'Suspicious Access', 'Multiple Triggers', 'High-Priority Token'];
+            
+            for (let i = 0; i < 5; i++) {
+                const time = new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000);
+                alerts.push({
+                    id: `alert-${i + 1}`,
+                    type: alertTypes[Math.floor(Math.random() * alertTypes.length)],
+                    tokenId: `ct-${String(Math.floor(Math.random() * 20) + 1).padStart(3, '0')}`,
+                    severity: Math.random() < 0.3 ? 'critical' : Math.random() < 0.5 ? 'high' : 'medium',
+                    message: 'Canary token accessed from unusual location',
+                    sourceIp: `192.168.1.${Math.floor(Math.random() * 255)}`,
+                    timestamp: time
+                });
+            }
+            
+            return alerts.sort((a, b) => b.timestamp - a.timestamp);
+        }
+        
+        // Update overview statistics
+        function updateOverviewStats() {
+            document.getElementById('total-tokens').textContent = dashboardData.statistics.totalTokens;
+            document.getElementById('active-tokens').textContent = dashboardData.statistics.activeTokens;
+            document.getElementById('triggered-tokens').textContent = dashboardData.statistics.triggeredTokens;
+            document.getElementById('alert-count').textContent = dashboardData.statistics.alertCount;
+            document.getElementById('last-updated').textContent = dashboardData.lastUpdated.toLocaleTimeString();
+        }
+        
+        // Render token list
+        function renderTokenList() {
+            const container = document.getElementById('token-list');
+            
+            if (dashboardData.tokens.length === 0) {
+                container.innerHTML = '<div class="loading">No tokens deployed</div>';
+                return;
+            }
+            
+            container.innerHTML = dashboardData.tokens.map(token => `
+                <div class="token-item ${token.status} ${token.triggerCount > 2 ? 'priority-critical' : token.triggerCount > 0 ? 'priority-high' : ''}">
+                    <div class="token-info">
+                        <div class="token-type">${token.type.replace('_', ' ').toUpperCase()}</div>
+                        <div class="token-location">${token.location}</div>
+                        ${token.triggerCount > 0 ? `<div class="token-location">Triggered ${token.triggerCount} times</div>` : ''}
+                    </div>
+                    <div class="token-status ${token.status}">${token.status}</div>
+                </div>
+            `).join('');
+        }
+        
+        // Render alerts list
+        function renderAlertsList() {
+            const container = document.getElementById('alerts-list');
+            
+            if (dashboardData.alerts.length === 0) {
+                container.innerHTML = '<div class="loading">No recent alerts</div>';
+                return;
+            }
+            
+            container.innerHTML = dashboardData.alerts.map(alert => `
+                <div class="alert-item">
+                    <div class="alert-header">
+                        <div class="alert-title">${alert.type}</div>
+                        <div class="alert-time">${formatTimeAgo(alert.timestamp)}</div>
+                    </div>
+                    <div class="alert-details">
+                        <strong>Token:</strong> ${alert.tokenId}<br>
+                        <strong>Source:</strong> ${alert.sourceIp}<br>
+                        <strong>Severity:</strong> ${alert.severity.toUpperCase()}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Create charts
+        function createCharts() {
+            createDistributionChart();
+            createTriggersChart();
+        }
+        
+        // Create token distribution chart
+        function createDistributionChart() {
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            
+            // Count tokens by type
+            const typeCounts = {};
+            dashboardData.tokens.forEach(token => {
+                typeCounts[token.type] = (typeCounts[token.type] || 0) + 1;
+            });
+            
+            const colors = ['#1a73e8', '#34a853', '#fbbc04', '#ea4335', '#9aa0a6', '#5f6368'];
+            
+            charts.distribution = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(typeCounts).map(type => type.replace('_', ' ')),
+                    datasets: [{
+                        data: Object.values(typeCounts),
+                        backgroundColor: colors,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+            
+            // Create custom legend
+            const legend = document.getElementById('chart-legend');
+            legend.innerHTML = Object.keys(typeCounts).map((type, index) => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: ${colors[index]}"></div>
+                    <span>${type.replace('_', ' ')}</span>
+                </div>
+            `).join('');
+        }
+        
+        // Create triggers timeline chart
+        function createTriggersChart() {
+            const ctx = document.getElementById('triggersChart').getContext('2d');
+            
+            // Generate hourly trigger data for last 24 hours
+            const hours = [];
+            const triggerCounts = [];
+            
+            for (let i = 23; i >= 0; i--) {
+                const hour = new Date(Date.now() - i * 60 * 60 * 1000);
+                hours.push(hour.getHours() + ':00');
+                
+                // Mock data - in production, this would come from actual trigger logs
+                triggerCounts.push(Math.floor(Math.random() * 3));
+            }
+            
+            charts.triggers = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hours,
+                    datasets: [{
+                        label: 'Triggers',
+                        data: triggerCounts,
+                        borderColor: '#ea4335',
+                        backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: '#303136'
+                            },
+                            ticks: {
+                                color: '#9aa0a6'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: '#303136'
+                            },
+                            ticks: {
+                                color: '#9aa0a6',
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Refresh dashboard data
+        async function refreshDashboard() {
+            const button = document.querySelector('.refresh-btn');
+            const originalText = button.textContent;
+            
+            button.textContent = '⏳ Refreshing...';
+            button.disabled = true;
+            
+            try {
+                await loadDashboardData();
+                updateOverviewStats();
+                renderTokenList();
+                renderAlertsList();
+                
+                // Update charts
+                if (charts.distribution) {
+                    charts.distribution.destroy();
+                }
+                if (charts.triggers) {
+                    charts.triggers.destroy();
+                }
+                createCharts();
+                
+                console.log('Dashboard refreshed successfully');
+                
+            } catch (error) {
+                console.error('Failed to refresh dashboard:', error);
+                showError('Failed to refresh data');
+            }
+            
+            button.textContent = originalText;
+            button.disabled = false;
+        }
+        
+        // Utility functions
+        function formatTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            
+            let interval = seconds / 31536000;
+            if (interval > 1) return Math.floor(interval) + "y ago";
+            
+            interval = seconds / 2592000;
+            if (interval > 1) return Math.floor(interval) + "mo ago";
+            
+            interval = seconds / 86400;
+            if (interval > 1) return Math.floor(interval) + "d ago";
+            
+            interval = seconds / 3600;
+            if (interval > 1) return Math.floor(interval) + "h ago";
+            
+            interval = seconds / 60;
+            if (interval > 1) return Math.floor(interval) + "m ago";
+            
+            return Math.floor(seconds) + "s ago";
+        }
+        
+        function showError(message) {
+            console.error(message);
+            // In production, show user-friendly error message
+        }
+        
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', initDashboard);
+    </script>
+</body>
+</html>

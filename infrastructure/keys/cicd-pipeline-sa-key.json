@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "isectech-protech-project",
+  "private_key_id": "61ae619424fee69c81a753996f80c4f7be26a859",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDDRz/vvIMU2zpS\ntVuETaP5ICcPnJUlrf5XfuHdl0gz/41jdVTNlTNNdOsDG2/0xPVSV1y0Q/1YAWe6\n6aCDEph5f7iTNl58kGvIYfPayz41QBNN8fRCwsEVdkeT2zbI28GysxFUXV5nZkYb\n/eHmnJfXVBLCm7RAPfqjcKBljMZDmIcBaD9sUiGUV4Uhrb9i+BJNgg2FZMkQEEW0\n3Tqi/GaMgmgD0R9DtifkmhSq67fq7ZvpXTTrOmJkCMtLtYbthDkaxbFVwSSLoOyP\nbCcdhJchLN2BbZBqGDlIoDead8ToHxxj/ahkIWs7Fjij5z8sJoLiZXJj/s7CAnBu\nmv9G7nSXAgMBAAECggEABTXqU3E+qX/AQbTUzbQ7GT/xU8UJj1WpQuaHGnWEVE9P\n9x20+oXKfZk5HiHUWKi3MmWMs9/LAPOLwjIWQNym/zoRD8+mMTpdhsgcGtCho10c\nnBbihQlMGN7JXn09j5nvxEKH8R+85S+IRmF9mTykVMyCjodbaTSI1kkOj347hMPY\nO3pL2Pu04UCNfxzvI1DTJFs6DxwqDfnfdlqTPZ8e1aUUnoi32EqCnt5+cd/1LHT5\n/x/Kfm2nBr5Xu5hP/cn+dzgCFNRWhxVKdAHJeiv6ycbOKZJjuuaVx+KruL9gBRdl\nX52QleUIsEILmZXZNbca9Uz1LIAFBlXuwoI4OIG7EQKBgQDwp4nbNRhvayvK4gip\n1iJUusrWLgQbxHixoMstGVhFrI4qa5cvlmuq3Z4xyIesjOWpuynyRH2IzyOUMQAp\nsokAlEWwWH4SjN4BRwRe4wXHtLQb72+LVD2BmrdRymQyIeGanwq0Az1TP6K6Fqtq\nGLvVyZDkyWhNFaXfNJSlt9zicQKBgQDPuvzmNDdl6Z8z+WUKlTm1XWhGLvLf6Qoy\nVAGNuXE/RPYMURZIcDOO7/eei9zV6foFaID0AaJcCFyDLkDdGxHkAFXELcdO4bJO\na5Phk6N0dctrgmj9GNVruN80L3pNQlH/ts6J2eyGAq37k4UXVWTFSjnHe+HYptRN\nblrj+PM7hwKBgQCz+VfLrCWeDdQuYmSAPzhljVxsWPWRnpl0nf/UtoOhd67KYrQq\nTqAupJbOPF3a2XRYPzTbjgUj72V4Sj0I8hArcre7bjK6xMayxd2q6LVF6QpZafNN\ni66D4qT+chIEu/nwnMhwX4vZWlnkOVfwfJbdB2Vo9IcgPvRRvQz98kcqwQKBgQC/\n3PJG4UWlkIEl7RxBCREzDWIJKMXUv5ZWY7bHotcRW+1x9NcC8vb793Ia8w12WlQ9\n+IbaWEQQgvyHgQoR7jW5BAIzXyDuH5Gj0sLUn5tiLoZC90FnOy+r/iXSOmPYxf+c\nksjzE9/c6s6tRVSw94NKocL6F9bCV1xRZDL4yvBFMwKBgG7osFYd3++VQv2q4+nI\nZrSiuWIv0ddPDL6W7mmCgrEPblpXfH/ZKTwYCausDYmzdbLry+ZpmXtG9nErKg7B\ncBo5abIqCnSh576mZI/r8+8HyyWI9ama0vVW+lyU8tQL5jN3bwUAy3lWbmpuzz/A\nnKcid0QLnvJBFa4Up50qN+ur\n-----END PRIVATE KEY-----\n",
+  "client_email": "cicd-pipeline-sa@isectech-protech-project.iam.gserviceaccount.com",
+  "client_id": "103786021668682928377",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/cicd-pipeline-sa%40isectech-protech-project.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

@@ -1,0 +1,835 @@
+# iSECTECH SIEM Security Agents Kubernetes Deployment
+# Comprehensive log collection agents for Kubernetes environments
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isectech-siem-agents
+  labels:
+    name: isectech-siem-agents
+    security.isectech.com/monitored: "true"
+
+---
+# ConfigMap for Vector configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: isectech-siem-agents
+  labels:
+    app: vector-agent
+    component: config
+data:
+  vector.toml: |
+    [api]
+    enabled = true
+    address = "127.0.0.1:8686"
+    playground = false
+    
+    # Sources
+    [sources.kubernetes_logs]
+    type = "kubernetes_logs"
+    extra_field_selector = ""
+    extra_label_selector = ""
+    max_read_bytes = 2048
+    max_line_bytes = 32768
+    glob_minimum_cooldown_ms = 1000
+    auto_partial_merge = true
+    
+    [sources.host_metrics]
+    type = "host_metrics"
+    collectors = ["cpu", "disk", "filesystem", "load", "host", "memory", "network"]
+    scrape_interval_secs = 30
+    
+    [sources.internal_metrics]
+    type = "internal_metrics"
+    scrape_interval_secs = 30
+    
+    # Security-focused transformations
+    [transforms.security_parsing]
+    type = "remap"
+    inputs = ["kubernetes_logs"]
+    source = '''
+    # Extract pod security context
+    if exists(.kubernetes.pod_labels."security.isectech.com/sensitive") {
+      .security_context = "sensitive"
+      .risk_multiplier = 1.5
+    }
+    
+    # Parse container security events
+    if match(.message, r'(?i)(unauthorized|forbidden|denied|failed)') {
+      .event_type = "security_violation"
+      .risk_score = 5
+    }
+    
+    # Detect privilege escalation attempts
+    if match(.message, r'(?i)(sudo|su|privilege|escalation|root)') {
+      .event_type = "privilege_escalation"
+      .risk_score = 7
+    }
+    
+    # Container escape attempts
+    if match(.message, r'(?i)(mount|chroot|namespace|cgroup)') {
+      .event_type = "container_escape_attempt"
+      .risk_score = 9
+    }
+    
+    # Add correlation ID
+    .correlation_id = uuid_v4()
+    .timestamp = now()
+    '''
+    
+    # Output to Kafka
+    [sinks.kafka_output]
+    type = "kafka"
+    inputs = ["security_parsing"]
+    bootstrap_servers = "kafka-cluster.isectech-siem.svc.cluster.local:9092"
+    topic = "k8s-security-events"
+    compression = "gzip"
+    
+    [sinks.kafka_output.encoding]
+    codec = "json"
+
+---
+# ConfigMap for Filebeat configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: isectech-siem-agents
+  labels:
+    app: filebeat-agent
+    component: config
+data:
+  filebeat.yml: |
+    name: "k8s-filebeat-security"
+    tags: ["kubernetes", "security", "isectech"]
+    
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          scope: cluster
+          node: ${NODE_NAME}
+          unique: true
+          identifier: container_logs_path
+          templates:
+            - condition:
+                contains:
+                  kubernetes.labels.security.isectech.com/monitored: "true"
+              config:
+                - type: container
+                  paths:
+                    - /var/log/containers/*${data.kubernetes.container.id}.log
+                  fields:
+                    log_type: "k8s_security"
+                    pod_name: "${data.kubernetes.pod.name}"
+                    namespace: "${data.kubernetes.namespace}"
+                    container_name: "${data.kubernetes.container.name}"
+                  fields_under_root: false
+                  processors:
+                    - add_kubernetes_metadata:
+                        host: ${NODE_NAME}
+                        scope: node
+                        node: ${NODE_NAME}
+                        in_cluster: true
+                        include_labels: ["app", "version", "security.isectech.com/*"]
+                        include_annotations: ["security.isectech.com/*"]
+            
+            - condition:
+                equals:
+                  kubernetes.namespace: "kube-system"
+              config:
+                - type: container
+                  paths:
+                    - /var/log/containers/*${data.kubernetes.container.id}.log
+                  fields:
+                    log_type: "k8s_system"
+                    criticality: "high"
+                  processors:
+                    - add_kubernetes_metadata: {}
+                    - script:
+                        lang: javascript
+                        id: k8s_security_analysis
+                        source: >
+                          function process(event) {
+                            var message = event.Get("message");
+                            var namespace = event.Get("kubernetes.namespace");
+                            var podName = event.Get("kubernetes.pod.name");
+                            
+                            // Detect security-relevant k8s events
+                            if (message.match(/RBAC|ClusterRole|ServiceAccount|Secret/i)) {
+                              event.Put("security.k8s_rbac_event", true);
+                              event.Put("security.risk_score", 4);
+                            }
+                            
+                            if (message.match(/error|failed|denied|unauthorized/i)) {
+                              event.Put("security.k8s_error", true);
+                              event.Put("security.risk_score", 3);
+                            }
+                            
+                            // Critical system component monitoring
+                            if (podName && (podName.match(/^(kube-apiserver|etcd|kube-controller)/))) {
+                              event.Put("security.critical_component", true);
+                              var currentScore = event.Get("security.risk_score") || 0;
+                              event.Put("security.risk_score", currentScore + 2);
+                            }
+                          }
+    
+    # System-level log collection
+    filebeat.inputs:
+    - type: log
+      paths:
+        - /var/log/audit/audit.log*
+        - /var/log/kern.log*
+        - /hostfs/var/log/auth.log*
+        - /hostfs/var/log/secure*
+      fields:
+        log_type: "host_security"
+        criticality: "critical"
+      scan_frequency: 1s
+      processors:
+        - add_host_metadata:
+            when.not.contains.tags: forwarded
+        - script:
+            lang: javascript
+            id: host_security_analysis
+            source: >
+              function process(event) {
+                var message = event.Get("message");
+                var indicators = [];
+                var riskScore = 0;
+                
+                // Authentication events
+                if (message.match(/authentication|login|logout/i)) {
+                  if (message.match(/failed|failure|denied/i)) {
+                    indicators.push("auth_failure");
+                    riskScore += 3;
+                  } else if (message.match(/success|accepted/i)) {
+                    indicators.push("auth_success");
+                    riskScore += 1;
+                  }
+                }
+                
+                // Privilege escalation
+                if (message.match(/sudo|su|privilege/i)) {
+                  indicators.push("privilege_escalation");
+                  riskScore += 5;
+                }
+                
+                // Process execution
+                if (message.match(/execve|SYSCALL/i)) {
+                  indicators.push("process_execution");
+                  riskScore += 1;
+                  
+                  // Suspicious commands
+                  if (message.match(/(wget|curl|nc|netcat|bash|sh|python|perl)/i)) {
+                    indicators.push("suspicious_command");
+                    riskScore += 3;
+                  }
+                }
+                
+                // File access
+                if (message.match(/open|openat|unlink/i)) {
+                  // Sensitive file access
+                  if (message.match(/(\/etc\/passwd|\/etc\/shadow|\/root\/|\/home\/.*\/\.ssh)/i)) {
+                    indicators.push("sensitive_file_access");
+                    riskScore += 4;
+                  }
+                }
+                
+                if (indicators.length > 0) {
+                  event.Put("security.indicators", indicators);
+                  event.Put("security.risk_score", riskScore);
+                  if (riskScore >= 6) {
+                    event.Put("alert.priority", "high");
+                  } else if (riskScore >= 3) {
+                    event.Put("alert.priority", "medium");
+                  } else {
+                    event.Put("alert.priority", "low");
+                  }
+                }
+              }
+    
+    # Output configuration
+    output.kafka:
+      hosts:
+        - "kafka-cluster.isectech-siem.svc.cluster.local:9092"
+      topic: "k8s-filebeat-security"
+      compression: gzip
+      max_message_bytes: 10000000
+      required_acks: 1
+      ssl.enabled: false  # Enable in production with proper certs
+    
+    # Monitoring
+    monitoring.enabled: true
+    http.enabled: true
+    http.host: "0.0.0.0"
+    http.port: 5066
+    
+    logging.level: info
+    logging.to_files: false
+
+---
+# ServiceAccount for security agents
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: security-agents
+  namespace: isectech-siem-agents
+  labels:
+    app: security-agents
+
+---
+# ClusterRole for reading logs and metadata
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: security-agents-reader
+  labels:
+    app: security-agents
+rules:
+- apiGroups: [""]
+  resources:
+    - nodes
+    - pods
+    - services
+    - endpoints
+    - events
+    - configmaps
+    - secrets
+    - namespaces
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+    - deployments
+    - replicasets
+    - daemonsets
+    - statefulsets
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources:
+    - jobs
+    - cronjobs
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["security.openshift.io"]
+  resources:
+    - securitycontextconstraints
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: security-agents-reader
+  labels:
+    app: security-agents
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: security-agents-reader
+subjects:
+- kind: ServiceAccount
+  name: security-agents
+  namespace: isectech-siem-agents
+
+---
+# Vector DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector-agent
+  namespace: isectech-siem-agents
+  labels:
+    app: vector-agent
+    component: log-collector
+    tier: security
+spec:
+  selector:
+    matchLabels:
+      app: vector-agent
+  template:
+    metadata:
+      labels:
+        app: vector-agent
+        component: log-collector
+        tier: security
+      annotations:
+        security.isectech.com/monitored: "true"
+        security.isectech.com/agent-type: "vector"
+    spec:
+      serviceAccountName: security-agents
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      
+      # Security context - hardened configuration
+      securityContext:
+        runAsNonRoot: false  # Security agents need root for log access
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+        seLinuxOptions:
+          type: "spc_t"
+      
+      containers:
+      - name: vector
+        image: timberio/vector:0.34.0-alpine
+        imagePullPolicy: IfNotPresent
+        
+        # Security context for container - minimized privileges
+        securityContext:
+          runAsUser: 0  # Required for log file access
+          runAsNonRoot: false
+          readOnlyRootFilesystem: false  # Vector needs write access to /tmp and data dirs
+          allowPrivilegeEscalation: false  # Prevent privilege escalation
+          capabilities:
+            add:
+              - DAC_READ_SEARCH  # Read access to restricted files
+              - DAC_OVERRIDE     # Override file permissions for logs
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        
+        # Resource limits
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        
+        # Environment variables
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: ENVIRONMENT
+          value: "production"
+        - name: TENANT_ID
+          value: "isectech"
+        
+        # Liveness and readiness probes
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8686
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8686
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Ports
+        ports:
+        - name: api
+          containerPort: 8686
+          protocol: TCP
+        - name: metrics
+          containerPort: 9598
+          protocol: TCP
+        
+        # Volume mounts
+        volumeMounts:
+        - name: config
+          mountPath: /etc/vector
+          readOnly: true
+        - name: var-log
+          mountPath: /var/log
+          readOnly: true
+        - name: var-lib-docker-containers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: var-log-pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: dev
+          mountPath: /host/dev
+          readOnly: true
+        - name: hostfs
+          mountPath: /hostfs
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      
+      # Volumes
+      volumes:
+      - name: config
+        configMap:
+          name: vector-config
+      - name: var-log
+        hostPath:
+          path: /var/log
+      - name: var-lib-docker-containers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: var-log-pods
+        hostPath:
+          path: /var/log/pods
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: hostfs
+        hostPath:
+          path: /
+      - name: tmp
+        emptyDir: {}
+      
+      # Node selector and tolerations
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      - operator: Exists
+        key: node-role.kubernetes.io/master
+      - operator: Exists
+        key: node-role.kubernetes.io/control-plane
+
+---
+# Filebeat DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat-agent
+  namespace: isectech-siem-agents
+  labels:
+    app: filebeat-agent
+    component: log-collector
+    tier: security
+spec:
+  selector:
+    matchLabels:
+      app: filebeat-agent
+  template:
+    metadata:
+      labels:
+        app: filebeat-agent
+        component: log-collector
+        tier: security
+      annotations:
+        security.isectech.com/monitored: "true"
+        security.isectech.com/agent-type: "filebeat"
+    spec:
+      serviceAccountName: security-agents
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      
+      # Security context - hardened configuration
+      securityContext:
+        runAsNonRoot: false  # Security agents need root for log access
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:8.11.0
+        imagePullPolicy: IfNotPresent
+        
+        # Security context - minimized privileges
+        securityContext:
+          runAsUser: 0  # Required for log file access
+          runAsNonRoot: false
+          privileged: false  # Removed privileged mode
+          readOnlyRootFilesystem: false  # Filebeat needs write access
+          allowPrivilegeEscalation: false  # Prevent privilege escalation
+          capabilities:
+            add:
+              - DAC_READ_SEARCH  # Read access to restricted files
+              - DAC_OVERRIDE     # Override file permissions for logs
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        
+        # Resource limits
+        resources:
+          requests:
+            memory: "200Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        # Environment variables
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: ENVIRONMENT
+          value: "production"
+        - name: TENANT_ID
+          value: "isectech"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5066
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5066
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Ports
+        ports:
+        - name: http
+          containerPort: 5066
+          protocol: TCP
+        
+        # Volume mounts
+        volumeMounts:
+        - name: config
+          mountPath: /usr/share/filebeat/filebeat.yml
+          subPath: filebeat.yml
+          readOnly: true
+        - name: data
+          mountPath: /usr/share/filebeat/data
+        - name: var-log
+          mountPath: /var/log
+          readOnly: true
+        - name: var-lib-docker-containers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: var-log-pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: hostfs
+          mountPath: /hostfs
+          readOnly: true
+        - name: proc
+          mountPath: /hostfs/proc
+          readOnly: true
+        - name: sys
+          mountPath: /hostfs/sys
+          readOnly: true
+      
+      # Volumes
+      volumes:
+      - name: config
+        configMap:
+          name: filebeat-config
+          defaultMode: 0644
+      - name: data
+        hostPath:
+          path: /var/lib/filebeat-data
+          type: DirectoryOrCreate
+      - name: var-log
+        hostPath:
+          path: /var/log
+      - name: var-lib-docker-containers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: var-log-pods
+        hostPath:
+          path: /var/log/pods
+      - name: hostfs
+        hostPath:
+          path: /
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      
+      # Node selector and tolerations
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      - operator: Exists
+        key: node-role.kubernetes.io/master
+      - operator: Exists
+        key: node-role.kubernetes.io/control-plane
+
+---
+# Service for Vector metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-metrics
+  namespace: isectech-siem-agents
+  labels:
+    app: vector-agent
+    component: metrics
+spec:
+  selector:
+    app: vector-agent
+  ports:
+  - name: metrics
+    port: 9598
+    targetPort: 9598
+    protocol: TCP
+  - name: api
+    port: 8686
+    targetPort: 8686
+    protocol: TCP
+  type: ClusterIP
+
+---
+# Service for Filebeat metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: filebeat-metrics
+  namespace: isectech-siem-agents
+  labels:
+    app: filebeat-agent
+    component: metrics
+spec:
+  selector:
+    app: filebeat-agent
+  ports:
+  - name: http
+    port: 5066
+    targetPort: 5066
+    protocol: TCP
+  type: ClusterIP
+
+---
+# ServiceMonitor for Prometheus monitoring
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: security-agents-metrics
+  namespace: isectech-siem-agents
+  labels:
+    app: security-agents
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      component: metrics
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    targetPort: 9598
+  - port: http
+    interval: 30s
+    path: /stats
+    targetPort: 5066
+
+---
+# NetworkPolicy for security agents
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-agents-network-policy
+  namespace: isectech-siem-agents
+spec:
+  podSelector:
+    matchLabels:
+      tier: security
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - namespaceSelector:
+        matchLabels:
+          name: isectech-siem
+    ports:
+    - protocol: TCP
+      port: 8686
+    - protocol: TCP
+      port: 5066
+    - protocol: TCP
+      port: 9598
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 9092  # Kafka
+    - protocol: TCP
+      port: 9200  # Elasticsearch
+    - protocol: TCP
+      port: 53    # DNS
+    - protocol: UDP
+      port: 53    # DNS
+    - protocol: TCP
+      port: 443   # HTTPS
+    - protocol: TCP
+      port: 6443  # Kubernetes API
+
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: security-agents-pdb
+  namespace: isectech-siem-agents
+spec:
+  minAvailable: 80%
+  selector:
+    matchLabels:
+      tier: security

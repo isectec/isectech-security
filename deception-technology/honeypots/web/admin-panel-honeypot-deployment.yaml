@@ -1,0 +1,517 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-panel-honeypot
+  namespace: deception
+  labels:
+    app: admin-panel-honeypot
+    honeypot-type: web
+    service-type: admin-interface
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: admin-panel-honeypot
+  template:
+    metadata:
+      labels:
+        app: admin-panel-honeypot
+        honeypot-type: web
+        service-type: admin-interface
+      annotations:
+        security.isectech.com/purpose: "admin-panel-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: admin-panel-honeypot
+        image: isectech/admin-panel-honeypot:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        - containerPort: 443
+          name: https
+          protocol: TCP
+        - containerPort: 8080
+          name: admin-port
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "admin-panel"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: ADMIN_INTERFACES_CONFIG
+          value: |
+            {
+              "grafana": {
+                "path": "/admin/grafana",
+                "login_url": "/admin/grafana/login",
+                "default_creds": [
+                  {"username": "admin", "password": "admin"},
+                  {"username": "admin", "password": "grafana"},
+                  {"username": "isectech", "password": "monitoring123"}
+                ]
+              },
+              "kibana": {
+                "path": "/admin/kibana",
+                "login_url": "/admin/kibana/app/login",
+                "default_creds": [
+                  {"username": "elastic", "password": "changeme"},
+                  {"username": "kibana", "password": "kibana"},
+                  {"username": "admin", "password": "elasticsearch123"}
+                ]
+              },
+              "portainer": {
+                "path": "/admin/portainer",
+                "login_url": "/admin/portainer/#/auth",
+                "default_creds": [
+                  {"username": "admin", "password": "portainer"},
+                  {"username": "docker", "password": "docker123"},
+                  {"username": "admin", "password": "container123"}
+                ]
+              },
+              "phpmyadmin": {
+                "path": "/admin/phpmyadmin",
+                "login_url": "/admin/phpmyadmin/index.php",
+                "default_creds": [
+                  {"username": "root", "password": ""},
+                  {"username": "root", "password": "password"},
+                  {"username": "isectech", "password": "database123"}
+                ]
+              },
+              "jenkins": {
+                "path": "/admin/jenkins", 
+                "login_url": "/admin/jenkins/login",
+                "default_creds": [
+                  {"username": "admin", "password": "password"},
+                  {"username": "jenkins", "password": "jenkins123"},
+                  {"username": "build", "password": "build123"}
+                ]
+              }
+            }
+        - name: FAKE_ADMIN_USERS
+          value: |
+            [
+              {
+                "username": "admin",
+                "email": "admin@isectech.com",
+                "role": "super_admin",
+                "last_login": "2024-01-15T09:30:00Z",
+                "permissions": ["all"],
+                "api_key": "sk_admin_live_a1b2c3d4e5f6g7h8i9j0"
+              },
+              {
+                "username": "security_admin",
+                "email": "security@isectech.com",
+                "role": "security_admin", 
+                "last_login": "2024-01-15T08:45:00Z",
+                "permissions": ["security", "monitoring", "incidents"],
+                "api_key": "sk_sec_live_b2c3d4e5f6g7h8i9j0k1"
+              },
+              {
+                "username": "devops",
+                "email": "devops@isectech.com",
+                "role": "infrastructure_admin",
+                "last_login": "2024-01-14T16:20:00Z",
+                "permissions": ["infrastructure", "deployments", "monitoring"],
+                "api_key": "sk_devops_live_c3d4e5f6g7h8i9j0k1l2"
+              }
+            ]
+        resources:
+          requests:
+            cpu: "150m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: admin-templates
+          mountPath: /etc/honeypot/templates
+          readOnly: true
+        - name: ssl-certs
+          mountPath: /etc/ssl/certs
+          readOnly: true
+        - name: logs-volume
+          mountPath: /var/log/honeypot
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: admin-templates
+        configMap:
+          name: admin-panel-templates
+      - name: ssl-certs
+        secret:
+          secretName: honeypot-ssl-certs
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - admin-panel-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-panel-honeypot-service
+  namespace: deception
+  labels:
+    app: admin-panel-honeypot
+    service-type: honeypot
+    interface-type: admin
+spec:
+  selector:
+    app: admin-panel-honeypot
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  - name: admin-port
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-panel-templates
+  namespace: deception
+  labels:
+    app: admin-panel-honeypot
+data:
+  grafana_login.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Grafana - iSECTECH Monitoring</title>
+        <link rel="icon" type="image/png" href="/public/img/fav32.png">
+        <style>
+            body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #0f1419; margin: 0; }
+            .login-container { display: flex; justify-content: center; align-items: center; height: 100vh; }
+            .login-box { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.1); width: 400px; }
+            .logo { text-align: center; margin-bottom: 30px; }
+            .form-group { margin-bottom: 20px; }
+            .form-control { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+            .btn-primary { width: 100%; padding: 12px; background: #ff6600; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+            .btn-primary:hover { background: #e55a00; }
+            .server-info { text-align: center; margin-top: 20px; color: #666; font-size: 14px; }
+            .warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="login-container">
+            <div class="login-box">
+                <div class="logo">
+                    <h2 style="color: #ff6600; margin: 0;">Grafana</h2>
+                    <p style="color: #666; margin: 5px 0 0 0;">iSECTECH Security Monitoring</p>
+                </div>
+                
+                <div class="warning">
+                    <strong>Production Environment:</strong> Authorized personnel only. All access is logged and monitored.
+                </div>
+                
+                <form method="POST" action="/admin/grafana/login">
+                    <div class="form-group">
+                        <input type="text" name="username" class="form-control" placeholder="Username" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" name="password" class="form-control" placeholder="Password" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Sign In</button>
+                </form>
+                
+                <div class="server-info">
+                    <p><strong>Server:</strong> grafana-prod-01.isectech.com</p>
+                    <p><strong>Version:</strong> Grafana v10.2.3 (Enterprise)</p>
+                    <p><strong>Uptime:</strong> 47 days, 3 hours, 12 minutes</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    
+  kibana_login.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Elastic - Log in</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f5f7fa; margin: 0; }
+            .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+            .login-card { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); padding: 48px; width: 400px; }
+            .elastic-logo { text-align: center; margin-bottom: 32px; }
+            .elastic-logo h1 { color: #005571; font-size: 28px; margin: 0; font-weight: 700; }
+            .form-field { margin-bottom: 24px; }
+            .form-field label { display: block; margin-bottom: 8px; font-weight: 500; color: #343741; }
+            .form-field input { width: 100%; padding: 12px 16px; border: 1px solid #d3dae6; border-radius: 6px; font-size: 16px; }
+            .login-button { width: 100%; background: #006bb4; color: white; border: none; border-radius: 6px; padding: 12px; font-size: 16px; font-weight: 500; cursor: pointer; }
+            .login-button:hover { background: #0077cc; }
+            .environment-badge { background: #d73502; color: white; padding: 8px 16px; border-radius: 4px; text-align: center; margin-bottom: 24px; font-weight: 500; }
+            .cluster-info { margin-top: 32px; padding: 16px; background: #f7f8fc; border-radius: 6px; }
+            .cluster-info h4 { margin: 0 0 8px 0; color: #343741; }
+            .cluster-info p { margin: 4px 0; color: #69707d; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <div class="login-wrapper">
+            <div class="login-card">
+                <div class="elastic-logo">
+                    <h1>elastic</h1>
+                    <p style="color: #69707d; margin: 0;">Security Information and Event Management</p>
+                </div>
+                
+                <div class="environment-badge">
+                    PRODUCTION CLUSTER - AUTHORIZED ACCESS ONLY
+                </div>
+                
+                <form method="POST" action="/admin/kibana/api/security/v1/login">
+                    <div class="form-field">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" required autocomplete="username">
+                    </div>
+                    <div class="form-field">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="login-button">Log in</button>
+                </form>
+                
+                <div class="cluster-info">
+                    <h4>Cluster Information</h4>
+                    <p><strong>Cluster:</strong> isectech-security-prod</p>
+                    <p><strong>Version:</strong> Elasticsearch 8.11.3</p>
+                    <p><strong>Nodes:</strong> 14 (3 master, 6 hot, 4 warm, 1 cold)</p>
+                    <p><strong>Indices:</strong> 2,847 active indices</p>
+                    <p><strong>Storage:</strong> 15.7 TB total, 12.3 TB used</p>
+                    <p><strong>Health:</strong> <span style="color: #017d73; font-weight: bold;">GREEN</span></p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    
+  phpmyadmin_login.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>phpMyAdmin - iSECTECH Database Management</title>
+        <style>
+            body { margin: 0; font-family: sans-serif; background: #e8e8e8; }
+            .header { background: #2980b9; color: white; padding: 8px 20px; }
+            .header h1 { margin: 0; font-size: 20px; display: inline; }
+            .server-info { float: right; font-size: 12px; line-height: 20px; }
+            .login-container { max-width: 400px; margin: 50px auto; background: white; border: 1px solid #ddd; border-radius: 5px; }
+            .login-header { background: #f7f7f7; padding: 15px 20px; border-bottom: 1px solid #ddd; }
+            .login-body { padding: 20px; }
+            .form-group { margin-bottom: 15px; }
+            .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+            .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+            .btn-login { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; width: 100%; }
+            .btn-login:hover { background: #2980b9; }
+            .warning-box { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 10px; margin-bottom: 15px; border-radius: 3px; }
+            .server-status { margin-top: 20px; font-size: 12px; color: #666; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>phpMyAdmin 5.2.1</h1>
+            <div class="server-info">Server: mysql-prod-cluster.internal | Version: 8.0.35</div>
+        </div>
+        
+        <div class="login-container">
+            <div class="login-header">
+                <h3 style="margin: 0; color: #2c3e50;">Database Management - Production</h3>
+            </div>
+            <div class="login-body">
+                <div class="warning-box">
+                    <strong>WARNING:</strong> This is the production database server. Unauthorized access is prohibited and monitored.
+                </div>
+                
+                <form method="POST" action="/admin/phpmyadmin/index.php">
+                    <div class="form-group">
+                        <label for="pma_servername">Server:</label>
+                        <select name="pma_servername" id="pma_servername">
+                            <option value="mysql-prod-01">mysql-prod-01.internal (Master)</option>
+                            <option value="mysql-prod-02">mysql-prod-02.internal (Replica)</option>
+                            <option value="mysql-analytics">mysql-analytics.internal (Analytics)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="pma_username">Username:</label>
+                        <input type="text" id="pma_username" name="pma_username" required autocomplete="username">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="pma_password">Password:</label>
+                        <input type="password" id="pma_password" name="pma_password" required autocomplete="current-password">
+                    </div>
+                    
+                    <button type="submit" class="btn-login">Log in</button>
+                </form>
+                
+                <div class="server-status">
+                    <p><strong>Database Status:</strong></p>
+                    <p>• Primary Server: <span style="color: green;">ONLINE</span></p>
+                    <p>• Replica Lag: 0.02s</p>
+                    <p>• Active Connections: 847/2000</p>
+                    <p>• Databases: 23 (isectech_prod, isectech_analytics, user_data, etc.)</p>
+                    <p>• Uptime: 127 days, 14:32:15</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    
+  jenkins_login.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Sign in [Jenkins - iSECTECH CI/CD]</title>
+        <style>
+            body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: #f0f0f0; }
+            .jenkins-header { background: #335061; color: white; padding: 10px 20px; }
+            .jenkins-header h1 { margin: 0; font-size: 24px; display: inline-block; }
+            .jenkins-header .breadcrumbs { float: right; line-height: 24px; font-size: 14px; }
+            .main-panel { max-width: 500px; margin: 50px auto; background: white; border: 1px solid #ccc; }
+            .panel-header { background: linear-gradient(#f0f0f0, #e0e0e0); padding: 15px 20px; border-bottom: 1px solid #ccc; }
+            .panel-body { padding: 30px; }
+            .form-row { margin-bottom: 20px; }
+            .form-row label { display: block; margin-bottom: 5px; font-weight: bold; }
+            .form-row input { width: 100%; padding: 8px; border: 1px solid #ccc; box-sizing: border-box; }
+            .login-button { background: #4a90e2; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+            .login-button:hover { background: #357abd; }
+            .security-notice { background: #fcf8e3; border: 1px solid #fbeed5; padding: 15px; margin-bottom: 20px; border-radius: 4px; }
+            .system-info { margin-top: 30px; padding: 15px; background: #f9f9f9; border-radius: 4px; }
+            .system-info table { width: 100%; font-size: 12px; }
+            .system-info table td { padding: 3px 8px; }
+            .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #5cb85c; }
+        </style>
+    </head>
+    <body>
+        <div class="jenkins-header">
+            <h1>Jenkins</h1>
+            <div class="breadcrumbs">iSECTECH Production CI/CD Pipeline</div>
+        </div>
+        
+        <div class="main-panel">
+            <div class="panel-header">
+                <h2 style="margin: 0; color: #333;">Sign in to Jenkins</h2>
+            </div>
+            <div class="panel-body">
+                <div class="security-notice">
+                    <strong>Security Notice:</strong> This Jenkins instance manages production deployments for the iSECTECH platform. Access is restricted to authorized DevOps personnel only.
+                </div>
+                
+                <form method="POST" action="/admin/jenkins/j_spring_security_check">
+                    <div class="form-row">
+                        <label for="j_username">Username</label>
+                        <input type="text" id="j_username" name="j_username" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label for="j_password">Password</label>
+                        <input type="password" id="j_password" name="j_password" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <input type="checkbox" id="remember_me" name="remember_me">
+                        <label for="remember_me" style="display: inline; font-weight: normal; margin-left: 5px;">Remember me on this computer</label>
+                    </div>
+                    
+                    <button type="submit" class="login-button">Sign in</button>
+                </form>
+                
+                <div class="system-info">
+                    <h4 style="margin-top: 0;">System Information</h4>
+                    <table>
+                        <tr><td><strong>Jenkins Version:</strong></td><td>2.426.3 LTS</td></tr>
+                        <tr><td><strong>Server:</strong></td><td>jenkins-prod-master.isectech.com</td></tr>
+                        <tr><td><strong>Java Version:</strong></td><td>OpenJDK 17.0.9</td></tr>
+                        <tr><td><strong>Build Agents:</strong></td><td><span class="status-indicator"></span> 8 online, 0 offline</td></tr>
+                        <tr><td><strong>Active Jobs:</strong></td><td>47 configured, 3 running</td></tr>
+                        <tr><td><strong>Queue:</strong></td><td>2 pending builds</td></tr>
+                        <tr><td><strong>Last Deployment:</strong></td><td>isectech-api-v2.1.4 (Success)</td></tr>
+                        <tr><td><strong>Uptime:</strong></td><td>89 days, 12:45:33</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>

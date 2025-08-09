@@ -1,0 +1,428 @@
+# iSECTECH SIEM Machine Learning Configuration
+# Production-grade ML anomaly detection configuration
+# Version: 1.0.0
+
+version: "1.0.0"
+description: "iSECTECH SIEM Machine Learning Anomaly Detection Configuration"
+last_updated: "2024-01-15T10:30:00Z"
+
+# Database configuration for storing ML results
+database:
+  host: "localhost"
+  port: 5432
+  database: "siem_ml"
+  user: "ml_user"
+  password: "${ML_DB_PASSWORD}"
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+  
+# Redis configuration for caching and real-time data
+redis:
+  host: "localhost"
+  port: 6379
+  db: 2
+  password: "${REDIS_PASSWORD}"
+  max_connections: 50
+  socket_timeout: 5
+  socket_connect_timeout: 5
+
+# Machine Learning Model Configurations
+models:
+  # Isolation Forest for outlier detection
+  isolation_forest:
+    contamination: 0.1  # Expected proportion of outliers
+    n_estimators: 100   # Number of trees
+    max_samples: "auto" # Number of samples to draw
+    max_features: 1.0   # Number of features to draw
+    bootstrap: false
+    random_state: 42
+    n_jobs: -1         # Use all available cores
+    
+    # Model update settings
+    retrain_interval_hours: 24
+    min_training_samples: 1000
+    performance_threshold: 0.8
+    
+  # DBSCAN clustering for density-based anomaly detection
+  clustering:
+    eps: 0.5           # Maximum distance between samples
+    min_samples: 5     # Minimum samples in neighborhood
+    metric: "euclidean"
+    algorithm: "auto"
+    leaf_size: 30
+    n_jobs: -1
+    
+    # Clustering parameters
+    max_clusters: 20
+    min_cluster_size: 10
+    outlier_threshold: 0.05
+    
+  # Statistical anomaly detection
+  statistical:
+    window_size: 1000    # Rolling window size
+    threshold: 2.5       # Z-score threshold
+    percentile_threshold: 95
+    mad_threshold: 3.5   # Median Absolute Deviation
+    
+    # Feature-specific thresholds
+    feature_thresholds:
+      bytes_transferred: 3.0
+      duration: 2.5
+      user_risk_score: 2.0
+      enrichment_score: 2.5
+      
+    # Adaptive thresholds
+    adaptive_threshold: true
+    threshold_decay: 0.95
+    min_threshold: 1.5
+    max_threshold: 5.0
+    
+  # Behavioral analysis model
+  behavioral:
+    learning_rate: 0.01
+    decay_factor: 0.95
+    window_size_hours: 168  # 7 days
+    min_baseline_days: 7
+    
+    # User behavior parameters
+    user_behavior:
+      normal_hours_threshold: 0.1
+      ip_frequency_threshold: 0.05
+      action_frequency_threshold: 0.02
+      session_duration_multiplier: 3.0
+      
+    # Asset behavior parameters
+    asset_behavior:
+      traffic_volume_multiplier: 5.0
+      connection_frequency_threshold: 0.1
+      service_pattern_threshold: 0.05
+      baseline_update_rate: 0.1
+      
+    # Risk scoring weights
+    risk_weights:
+      unusual_time: 0.3
+      unusual_location: 0.4
+      unusual_action: 0.2
+      unusual_volume: 0.1
+      
+  # Time series anomaly detection
+  time_series:
+    seasonality_hours: 24    # Daily seasonality
+    trend_window_hours: 168  # Weekly trend analysis
+    trend_threshold: 0.3
+    seasonal_decomposition: "additive"
+    
+    # ARIMA parameters
+    arima_order: [1, 1, 1]  # (p, d, q)
+    seasonal_order: [1, 1, 1, 24]  # (P, D, Q, s)
+    
+    # Prophet parameters (if using Prophet)
+    prophet_enabled: false
+    yearly_seasonality: false
+    weekly_seasonality: true
+    daily_seasonality: true
+    
+    # Anomaly detection parameters
+    confidence_interval: 0.95
+    anomaly_threshold: 0.05
+    min_history_points: 48  # 2 days of hourly data
+
+# Feature Engineering Configuration
+features:
+  # Numerical features for ML models
+  numerical:
+    - "event_count"
+    - "bytes_transferred"
+    - "duration"
+    - "source_port"
+    - "destination_port"
+    - "user_risk_score"
+    - "enrichment_score"
+    - "threat_detected"
+    - "asset_criticality_score"
+    - "network_security_level"
+    - "hour_of_day"
+    - "day_of_week"
+    - "is_weekend"
+    - "is_business_hours"
+    - "risk_factors_count"
+    
+  # Categorical features
+  categorical:
+    - "event_action"
+    - "source_ip"
+    - "destination_ip"
+    - "user_name"
+    - "host_name"
+    - "process_name"
+    - "event_dataset"
+    - "event_category"
+    
+  # Temporal features
+  temporal:
+    - "hour_of_day"
+    - "day_of_week"
+    - "month_of_year"
+    - "is_weekend"
+    - "is_business_hours"
+    - "is_holiday"
+    - "time_since_last_event"
+    
+  # Feature scaling configuration
+  scaling:
+    numerical_scaler: "standard"  # standard, minmax, robust
+    categorical_encoder: "label"  # label, onehot, target
+    handle_missing: "median"      # median, mean, mode, drop
+    
+  # Feature selection
+  selection:
+    enabled: true
+    method: "variance_threshold"  # variance_threshold, chi2, mutual_info
+    threshold: 0.01
+    max_features: 50
+
+# Training Configuration
+training:
+  batch_size: 1000
+  validation_split: 0.2
+  test_split: 0.1
+  cross_validation_folds: 5
+  
+  # Data sampling
+  sampling_strategy: "auto"  # auto, balanced, imbalanced
+  max_samples_per_class: 10000
+  
+  # Model persistence
+  save_models: true
+  model_versioning: true
+  backup_models: true
+  
+  # Performance monitoring
+  track_performance: true
+  performance_metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "roc_auc"
+    
+  # Hyperparameter tuning
+  hyperparameter_tuning:
+    enabled: false
+    method: "random_search"  # grid_search, random_search, bayesian
+    n_iter: 50
+    cv_folds: 3
+
+# Anomaly Detection Thresholds
+thresholds:
+  # Model-specific thresholds
+  isolation_forest: -0.1
+  clustering: 0.5
+  statistical: 2.5
+  behavioral: 0.3
+  time_series: 0.4
+  
+  # Risk level thresholds
+  risk_levels:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    critical: 0.85
+    
+  # Confidence thresholds
+  confidence_levels:
+    minimum: 0.1
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    very_high: 0.9
+
+# Real-time Processing Configuration
+realtime:
+  enabled: true
+  batch_size: 100
+  processing_interval_seconds: 30
+  max_queue_size: 10000
+  
+  # Stream processing
+  kafka_config:
+    bootstrap_servers: "${KAFKA_BROKERS:localhost:9092}"
+    topic: "ml-anomaly-events"
+    group_id: "ml-anomaly-detection"
+    auto_offset_reset: "latest"
+    max_poll_records: 500
+    
+  # Output configuration
+  output_topics:
+    anomalies: "ml-detected-anomalies"
+    alerts: "ml-high-risk-alerts"
+    metrics: "ml-performance-metrics"
+
+# Performance and Optimization
+performance:
+  # Threading configuration
+  max_workers: 4
+  thread_pool_size: 10
+  
+  # Memory management
+  max_memory_gb: 8
+  garbage_collection_threshold: 0.8
+  
+  # Caching
+  cache_enabled: true
+  cache_ttl_seconds: 3600
+  max_cache_size: 1000
+  
+  # Profiling
+  enable_profiling: false
+  profile_output_dir: "/tmp/ml_profiles"
+
+# Monitoring and Alerting
+monitoring:
+  enabled: true
+  metrics_endpoint: "/metrics"
+  health_endpoint: "/health"
+  
+  # Metrics collection
+  collect_model_metrics: true
+  collect_performance_metrics: true
+  collect_resource_metrics: true
+  
+  # Alert conditions
+  alerts:
+    model_accuracy_drop:
+      threshold: 0.1
+      enabled: true
+      
+    high_anomaly_rate:
+      threshold: 0.2
+      window_minutes: 60
+      enabled: true
+      
+    processing_lag:
+      threshold_seconds: 300
+      enabled: true
+      
+    memory_usage:
+      threshold_percent: 90
+      enabled: true
+      
+  # Notification settings
+  notifications:
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#security-ml-alerts"
+      
+    email:
+      enabled: true
+      smtp_server: "${SMTP_SERVER}"
+      from_address: "ml-alerts@isectech.com"
+      to_addresses: ["security-team@isectech.com"]
+
+# Data Storage and Retention
+storage:
+  # Result storage
+  store_results: true
+  result_retention_days: 90
+  
+  # Model storage
+  model_storage_path: "/opt/siem/models"
+  backup_storage_path: "/opt/siem/model_backups"
+  
+  # Training data storage
+  training_data_retention_days: 30
+  max_training_data_size_gb: 10
+  
+  # Compression
+  compress_historical_data: true
+  compression_method: "gzip"
+
+# Integration Settings
+integrations:
+  # Elasticsearch integration
+  elasticsearch:
+    enabled: true
+    hosts: ["${ELASTICSEARCH_HOSTS}"]
+    index_pattern: "ml-anomalies-*"
+    template_name: "ml-anomalies"
+    
+  # Kibana dashboards
+  kibana:
+    enabled: true
+    dashboard_import: true
+    dashboard_path: "/opt/siem/kibana/ml-dashboards.json"
+    
+  # SIEM platform integration
+  siem_platform:
+    enabled: true
+    api_endpoint: "${SIEM_API_ENDPOINT}"
+    api_key: "${SIEM_API_KEY}"
+    
+  # Threat intelligence feeds
+  threat_intel:
+    enabled: true
+    feed_url: "${THREAT_INTEL_FEED_URL}"
+    api_key: "${THREAT_INTEL_API_KEY}"
+    update_interval_hours: 6
+
+# Security Configuration
+security:
+  # API security
+  api_key_required: true
+  api_keys:
+    - name: "ml_service"
+      key: "${ML_API_KEY}"
+      permissions: ["read", "write"]
+      
+    - name: "admin"
+      key: "${ML_ADMIN_KEY}"
+      permissions: ["read", "write", "admin"]
+  
+  # Data encryption
+  encrypt_stored_data: true
+  encryption_key: "${DATA_ENCRYPTION_KEY}"
+  
+  # Access control
+  rbac_enabled: true
+  audit_logging: true
+  
+  # Network security
+  allowed_ips:
+    - "192.168.0.0/16"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    
+  tls_enabled: true
+  tls_cert_path: "/opt/siem/certs/ml-service.crt"
+  tls_key_path: "/opt/siem/certs/ml-service.key"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  output: "file"
+  file_path: "/var/log/siem/ml-anomaly-detection.log"
+  max_file_size_mb: 100
+  backup_count: 10
+  
+  # Audit logging
+  audit_enabled: true
+  audit_file: "/var/log/siem/ml-audit.log"
+  
+  # Performance logging
+  performance_logging: true
+  slow_query_threshold_ms: 1000
+
+# Debugging and Development
+debug:
+  enabled: false
+  verbose_logging: false
+  save_intermediate_results: false
+  profiling_enabled: false
+  
+  # Test configuration
+  test_mode: false
+  synthetic_data_enabled: false
+  mock_external_services: false

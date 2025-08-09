@@ -1,0 +1,429 @@
+# iSECTECH Cloud Armor Security Policies
+# Advanced WAF rules and security policies for cybersecurity platform
+# Author: Claude Code - iSECTECH Infrastructure Team
+# Version: 2.0.0
+
+# Main security policy for production environment
+apiVersion: compute/v1
+kind: SecurityPolicy
+metadata:
+  name: isectech-security-policy
+  description: "Comprehensive security policy for iSECTECH cybersecurity platform"
+  type: CLOUD_ARMOR
+spec:
+  # Enable adaptive protection and advanced DDoS defense
+  adaptiveProtectionConfig:
+    layer7DdosDefenseConfig:
+      enable: true
+      ruleVisibility: STANDARD
+  
+  # Advanced DDoS protection settings
+  ddosProtectionConfig:
+    ddosProtection: ADVANCED
+  
+  # Security policy rules (ordered by priority)
+  rules:
+    # Emergency IP blocking (Priority 500)
+    - priority: 500
+      action: deny-403
+      match:
+        expr: "inIpRange(origin.ip, '192.0.2.0/24') || inIpRange(origin.ip, '198.51.100.0/24')"
+      description: "Emergency block list for immediate threat response"
+      preview: false
+      
+    # Block known malicious IP ranges (Priority 1000)
+    - priority: 1000
+      action: deny-403
+      match:
+        expr: |
+          inIpRange(origin.ip, '1.2.3.0/24') ||
+          inIpRange(origin.ip, '5.6.7.0/24') ||
+          origin.asn == 12345 ||
+          origin.asn == 67890
+      description: "Block known malicious IP ranges and ASNs"
+      preview: false
+      
+    # Geographic blocking for high-risk countries (Priority 1100)
+    - priority: 1100
+      action: deny-403
+      match:
+        expr: |
+          origin.region_code == 'CN' ||
+          origin.region_code == 'RU' ||
+          origin.region_code == 'KP' ||
+          origin.region_code == 'IR'
+      description: "Block traffic from high-risk geographical regions"
+      preview: false
+      rateLimitOptions:
+        banThreshold:
+          count: 1
+          intervalSec: 86400
+      
+    # Authentication endpoint rate limiting (Priority 2000)
+    - priority: 2000
+      action: throttle
+      match:
+        expr: |
+          request.path.startsWith('/auth/') ||
+          request.path.startsWith('/login') ||
+          request.path.startsWith('/oauth/') ||
+          request.path.contains('authenticate')
+      description: "Strict rate limiting for authentication endpoints"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 100
+          intervalSec: 60
+        banThreshold:
+          count: 1000
+          intervalSec: 3600
+      
+    # API endpoint rate limiting (Priority 2100)
+    - priority: 2100
+      action: throttle
+      match:
+        expr: "request.path.startsWith('/api/')"
+      description: "Rate limiting for API endpoints"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 1000
+          intervalSec: 60
+        banThreshold:
+          count: 10000
+          intervalSec: 3600
+      
+    # Admin interface protection (Priority 2200)
+    - priority: 2200
+      action: throttle
+      match:
+        expr: |
+          request.path.startsWith('/admin/') ||
+          request.path.startsWith('/dashboard/admin') ||
+          request.path.contains('admin')
+      description: "Enhanced protection for admin interfaces"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 50
+          intervalSec: 60
+        banThreshold:
+          count: 200
+          intervalSec: 3600
+      
+    # File upload rate limiting (Priority 2300)
+    - priority: 2300
+      action: throttle
+      match:
+        expr: |
+          request.method == 'POST' &&
+          (request.path.contains('upload') || 
+           request.path.contains('/files/') ||
+           has(request.headers['content-type']) &&
+           request.headers['content-type'].startsWith('multipart/form-data'))
+      description: "Rate limiting for file upload endpoints"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 20
+          intervalSec: 60
+        banThreshold:
+          count: 100
+          intervalSec: 3600
+      
+    # SQL Injection protection (Priority 3000)
+    - priority: 3000
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('sqli-stable')"
+      description: "Block SQL injection attempts using Google's stable ruleset"
+      preview: false
+      
+    # XSS protection (Priority 3100)
+    - priority: 3100
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('xss-stable')"
+      description: "Block XSS attempts using Google's stable ruleset"
+      preview: false
+      
+    # Local File Inclusion (LFI) protection (Priority 3200)
+    - priority: 3200
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('lfi-stable')"
+      description: "Block Local File Inclusion attacks"
+      preview: false
+      
+    # Remote File Inclusion (RFI) protection (Priority 3300)
+    - priority: 3300
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('rfi-stable')"
+      description: "Block Remote File Inclusion attacks"
+      preview: false
+      
+    # Scanner/Bot detection (Priority 3400)
+    - priority: 3400
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('scannerdetection-stable')"
+      description: "Block known scanners and malicious bots"
+      preview: false
+      
+    # Protocol attacks protection (Priority 3500)
+    - priority: 3500
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('protocolattack-stable')"
+      description: "Block protocol-based attacks"
+      preview: false
+      
+    # Session fixation protection (Priority 3600)
+    - priority: 3600
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('sessionfixation-stable')"
+      description: "Block session fixation attacks"
+      preview: false
+      
+    # Custom security rules for cybersecurity platform
+    
+    # Block requests with suspicious security tool signatures (Priority 4000)
+    - priority: 4000
+      action: deny-403
+      match:
+        expr: |
+          has(request.headers['user-agent']) && (
+            request.headers['user-agent'].contains('sqlmap') ||
+            request.headers['user-agent'].contains('nikto') ||
+            request.headers['user-agent'].contains('nessus') ||
+            request.headers['user-agent'].contains('burp') ||
+            request.headers['user-agent'].contains('dirb') ||
+            request.headers['user-agent'].contains('gobuster') ||
+            request.headers['user-agent'].contains('masscan') ||
+            request.headers['user-agent'].contains('zap')
+          )
+      description: "Block requests from security scanning tools"
+      preview: false
+      
+    # Block attempts to access sensitive file patterns (Priority 4100)
+    - priority: 4100
+      action: deny-403
+      match:
+        expr: |
+          request.path.contains('..') ||
+          request.path.contains('.env') ||
+          request.path.contains('.git') ||
+          request.path.contains('.aws') ||
+          request.path.contains('config.php') ||
+          request.path.contains('wp-config') ||
+          request.path.contains('/etc/passwd') ||
+          request.path.contains('/proc/') ||
+          request.path.endsWith('.log') ||
+          request.path.endsWith('.sql') ||
+          request.path.endsWith('.bak')
+      description: "Block attempts to access sensitive files and directories"
+      preview: false
+      
+    # Block common web shell patterns (Priority 4200)
+    - priority: 4200
+      action: deny-403
+      match:
+        expr: |
+          request.path.contains('c99.php') ||
+          request.path.contains('r57.php') ||
+          request.path.contains('shell.php') ||
+          request.path.contains('webshell') ||
+          request.path.contains('cmd.php') ||
+          request.path.contains('backdoor')
+      description: "Block web shell access attempts"
+      preview: false
+      
+    # Block cryptocurrency mining attempts (Priority 4300)
+    - priority: 4300
+      action: deny-403
+      match:
+        expr: |
+          has(request.headers['user-agent']) && (
+            request.headers['user-agent'].contains('cryptonight') ||
+            request.headers['user-agent'].contains('monero') ||
+            request.headers['user-agent'].contains('coinhive')
+          ) ||
+          request.path.contains('miner.js') ||
+          request.path.contains('crypto-loot')
+      description: "Block cryptocurrency mining attempts"
+      preview: false
+      
+    # API security - Block requests without proper API headers (Priority 4400)
+    - priority: 4400
+      action: throttle
+      match:
+        expr: |
+          request.path.startsWith('/api/') &&
+          (!has(request.headers['content-type']) ||
+           !has(request.headers['user-agent']) ||
+           request.headers['user-agent'] == '' ||
+           request.headers['content-type'] == '')
+      description: "Rate limit API requests without proper headers"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 100
+          intervalSec: 60
+      
+    # Block oversized requests (Priority 4500)
+    - priority: 4500
+      action: deny-413
+      match:
+        expr: "request.size > 10485760"  # 10MB limit
+      description: "Block requests larger than 10MB"
+      preview: false
+      
+    # OWASP Top 10 - Injection attacks (Priority 5000)
+    - priority: 5000
+      action: deny-403
+      match:
+        expr: |
+          request.query.matches('(?i).*(union|select|insert|delete|update|drop|create|alter|exec|execute).*') ||
+          request.body.matches('(?i).*(union|select|insert|delete|update|drop|create|alter|exec|execute).*') ||
+          request.query.contains('<script') ||
+          request.body.contains('<script') ||
+          request.query.contains('javascript:') ||
+          request.body.contains('javascript:')
+      description: "Block common injection attack patterns"
+      preview: false
+      
+    # OWASP Top 10 - Broken authentication (Priority 5100)
+    - priority: 5100
+      action: deny-403
+      match:
+        expr: |
+          (request.path.startsWith('/auth/') || request.path.startsWith('/login')) &&
+          (request.query.contains('admin') ||
+           request.query.contains('root') ||
+           request.query.contains('password') ||
+           request.body.contains('"password":"admin"') ||
+           request.body.contains('"password":"password"') ||
+           request.body.contains('"password":"123456"'))
+      description: "Block common authentication bypass attempts"
+      preview: false
+      
+    # OWASP Top 10 - Sensitive data exposure (Priority 5200)
+    - priority: 5200
+      action: deny-403
+      match:
+        expr: |
+          request.path.contains('.git/') ||
+          request.path.contains('.svn/') ||
+          request.path.contains('.hg/') ||
+          request.path.contains('/.env') ||
+          request.path.contains('/config/') ||
+          request.path.contains('/backup/') ||
+          request.path.endsWith('.dump') ||
+          request.path.endsWith('.sql') ||
+          request.path.endsWith('.tar.gz')
+      description: "Block access to sensitive data sources"
+      preview: false
+      
+    # Allow legitimate traffic (Default rule - Priority 2147483647)
+    - priority: 2147483647
+      action: allow
+      match:
+        expr: "true"
+      description: "Default allow rule for legitimate traffic"
+      preview: false
+
+---
+# Staging environment security policy (less restrictive)
+apiVersion: compute/v1
+kind: SecurityPolicy
+metadata:
+  name: isectech-staging-security-policy
+  description: "Security policy for iSECTECH staging environment"
+  type: CLOUD_ARMOR
+spec:
+  adaptiveProtectionConfig:
+    layer7DdosDefenseConfig:
+      enable: true
+      ruleVisibility: STANDARD
+  
+  rules:
+    # Basic rate limiting for staging (Priority 2000)
+    - priority: 2000
+      action: throttle
+      match:
+        expr: "request.path.startsWith('/api/')"
+      description: "Basic rate limiting for staging API"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 2000
+          intervalSec: 60
+    
+    # Essential security protections
+    - priority: 3000
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('sqli-stable')"
+      description: "SQL injection protection for staging"
+      preview: false
+    
+    - priority: 3100
+      action: deny-403
+      match:
+        expr: "evaluatePreconfiguredExpr('xss-stable')"
+      description: "XSS protection for staging"
+      preview: false
+    
+    # Default allow
+    - priority: 2147483647
+      action: allow
+      match:
+        expr: "true"
+      description: "Default allow rule for staging"
+      preview: false
+
+---
+# Development environment security policy (minimal restrictions)
+apiVersion: compute/v1
+kind: SecurityPolicy
+metadata:
+  name: isectech-dev-security-policy
+  description: "Minimal security policy for iSECTECH development environment"
+  type: CLOUD_ARMOR
+spec:
+  rules:
+    # Very basic rate limiting for development
+    - priority: 2000
+      action: throttle
+      match:
+        expr: "true"
+      description: "Basic rate limiting for development"
+      rateLimitOptions:
+        conformAction: allow
+        exceedAction: deny-429
+        enforceOnKey: IP
+        rateLimitThreshold:
+          count: 5000
+          intervalSec: 60
+    
+    # Default allow
+    - priority: 2147483647
+      action: allow
+      match:
+        expr: "true"
+      description: "Default allow rule for development"
+      preview: false

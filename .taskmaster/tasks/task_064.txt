@@ -1,0 +1,73 @@
+# Task ID: 64
+# Title: Cloud Run Domain Mapping and Routing
+# Status: done
+# Dependencies: 62, 63
+# Priority: high
+# Description: Implement custom domain mapping to Cloud Run services with advanced routing
+# Details:
+Map all custom domains to appropriate Cloud Run services, configure domain routing rules, load balancing policies, and environment-specific traffic management
+
+# Test Strategy:
+
+
+# Subtasks:
+## 1. Map Production Frontend Domain to Cloud Run [done]
+### Dependencies: None
+### Description: Use google_cloud_run_domain_mapping to map app.isectech.org to frontend Cloud Run service
+### Details:
+Configure domain mapping with proper service association and traffic allocation for production frontend
+
+## 2. Map Production API Domain to Cloud Run [done]
+### Dependencies: None
+### Description: Configure domain mapping for api.isectech.org to API Gateway Cloud Run service
+### Details:
+Setup domain mapping for API endpoints with proper routing and load balancing configuration
+
+## 3. Map Documentation Domain to Cloud Run [done]
+### Dependencies: None
+### Description: Configure domain mapping for docs.isectech.org to documentation Cloud Run service
+### Details:
+Setup domain mapping for documentation site with static content optimization
+
+## 4. Map Staging Environment Domains to Cloud Run [done]
+### Dependencies: None
+### Description: Configure domain mappings for all staging.isectech.org subdomains to staging Cloud Run services
+### Details:
+Setup complete staging environment domain mappings with environment-specific service associations
+
+## 5. Map Development Environment Domains to Cloud Run [done]
+### Dependencies: None
+### Description: Configure domain mappings for all dev.isectech.org subdomains to development Cloud Run services
+### Details:
+Setup development environment domain mappings with proper service isolation and testing support
+
+## 6. Configure Advanced Domain Routing Rules [done]
+### Dependencies: 64.1, 64.2, 64.3
+### Description: Implement advanced routing logic for path-based and subdomain-based traffic management
+### Details:
+Setup Cloud Load Balancer with URL maps for sophisticated routing patterns and traffic distribution
+
+## 7. Implement Load Balancing Policies [done]
+### Dependencies: 64.6
+### Description: Configure load balancing policies for multi-service and multi-environment traffic management
+### Details:
+Setup traffic splitting, health checks, and failover mechanisms for optimal service distribution
+
+## 8. Configure Environment-Specific Traffic Management [done]
+### Dependencies: 64.4, 64.5, 64.7
+### Description: Setup environment-specific traffic management and scaling policies
+### Details:
+Configure auto-scaling, traffic allocation, and resource management for each environment
+
+## 9. Implement Domain Verification and Health Checks [done]
+### Dependencies: 64.1, 64.2, 64.3, 64.4, 64.5
+### Description: Setup domain verification through Google Cloud Console and comprehensive health checks
+### Details:
+Configure domain ownership verification and health check endpoints for all mapped services
+
+## 10. Test and Validate Domain Mappings [done]
+### Dependencies: 64.8, 64.9
+### Description: Perform comprehensive testing of all domain mappings and routing configurations
+### Details:
+Execute end-to-end tests for all domains, environments, and routing scenarios with performance validation
+

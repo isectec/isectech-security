@@ -1,0 +1,233 @@
+# Pod Security Standards (PSS) Admission Controller Configuration for iSECTECH
+# Kubernetes 1.25+ Pod Security Standards implementation for enhanced cluster security
+# This configuration enforces Pod Security Standards at the admission controller level
+
+---
+# AdmissionConfiguration for Pod Security Standards
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1beta1
+    kind: PodSecurityConfiguration
+    # Apply defaults when no explicit configuration is found on namespaces
+    defaults:
+      enforce: "baseline"
+      enforce-version: "latest"
+      audit: "restricted"
+      audit-version: "latest"
+      warn: "restricted"
+      warn-version: "latest"
+    # Namespace exemptions for system components
+    exemptions:
+      # Exempt system namespaces that require privileged access
+      usernames: []
+      runtimeClasses: []
+      namespaces: 
+        - kube-system
+        - kube-public
+        - kube-node-lease
+        - local-path-storage
+        - istio-system
+        - istio-proxy
+        - monitoring
+        - falco-system
+        # Allow Kong Gateway to run with baseline privileges for now
+        - kong-system
+
+---
+# ClusterRole for Pod Security Standards validation
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-security-validator
+  labels:
+    app.kubernetes.io/name: pod-security-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ServiceAccount for Pod Security Standards operations
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-security-validator
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: pod-security-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+
+---
+# ClusterRoleBinding for Pod Security Standards
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-security-validator
+  labels:
+    app.kubernetes.io/name: pod-security-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pod-security-validator
+subjects:
+- kind: ServiceAccount
+  name: pod-security-validator
+  namespace: kube-system
+
+---
+# ConfigMap for Pod Security Standards validation script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-security-validation-script
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: pod-security-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+data:
+  validate-pod-security.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    
+    echo "=================================="
+    echo "Pod Security Standards Validation"
+    echo "=================================="
+    
+    # Function to check namespace PSS labels
+    check_namespace_pss() {
+        local ns=$1
+        echo "Checking namespace: $ns"
+        
+        # Check enforce label
+        enforce=$(kubectl get namespace "$ns" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' 2>/dev/null || echo "none")
+        audit=$(kubectl get namespace "$ns" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/audit}' 2>/dev/null || echo "none")
+        warn=$(kubectl get namespace "$ns" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/warn}' 2>/dev/null || echo "none")
+        
+        echo "  Enforce: $enforce"
+        echo "  Audit: $audit"
+        echo "  Warn: $warn"
+        echo ""
+    }
+    
+    # Function to test Pod Security Standards enforcement
+    test_pod_security_enforcement() {
+        local ns=$1
+        echo "Testing PSS enforcement in namespace: $ns"
+        
+        # Create a test pod that violates restricted policy
+        cat <<EOF | kubectl apply -n "$ns" --dry-run=server -o yaml || echo "  ✓ Enforcement working - privileged pod rejected"
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: test-privileged-pod
+      namespace: $ns
+    spec:
+      containers:
+      - name: test
+        image: busybox:1.35
+        command: ["sleep", "3600"]
+        securityContext:
+          privileged: true
+    EOF
+        echo ""
+    }
+    
+    # Check all namespaces
+    echo "Checking Pod Security Standards labels on all namespaces:"
+    namespaces=$(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}')
+    for ns in $namespaces; do
+        check_namespace_pss "$ns"
+    done
+    
+    # Test enforcement in iSECTECH namespaces
+    echo "Testing Pod Security Standards enforcement:"
+    for ns in isectech-api-gateway isectech-services isectech-data isectech-ai isectech-frontend production staging; do
+        if kubectl get namespace "$ns" >/dev/null 2>&1; then
+            test_pod_security_enforcement "$ns"
+        fi
+    done
+    
+    echo "Pod Security Standards validation completed"
+
+---
+# Job to validate Pod Security Standards configuration
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pod-security-validation
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: pod-security-validator
+    app.kubernetes.io/component: security
+    security.isectech.com/component: pod-security
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pod-security-validator
+        app.kubernetes.io/component: security
+        security.isectech.com/component: pod-security
+    spec:
+      serviceAccountName: pod-security-validator
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: validator
+        image: bitnami/kubectl:1.28
+        command: ["/bin/bash"]
+        args: ["/scripts/validate-pod-security.sh"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: validation-script
+          mountPath: /scripts
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+      volumes:
+      - name: validation-script
+        configMap:
+          name: pod-security-validation-script
+          defaultMode: 0755
+      - name: tmp
+        emptyDir: {}

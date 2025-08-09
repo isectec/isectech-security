@@ -1,0 +1,44 @@
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: isectech-services-telemetry
+  namespace: isectech-services
+spec:
+  accessLogging:
+    - providers:
+        - name: envoy
+      disabled: false
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_DURATION
+          disabled: false
+        - match:
+            metric: REQUEST_COUNT
+          disabled: false
+  tracing:
+    - providers:
+        - name: zipkin
+      randomSamplingPercentage: 5
+---
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: isectech-data-telemetry
+  namespace: isectech-data
+spec:
+  accessLogging:
+    - providers:
+        - name: envoy
+      disabled: false
+  metrics:
+    - providers:
+        - name: prometheus
+  tracing:
+    - providers:
+        - name: zipkin
+      randomSamplingPercentage: 2
+
+

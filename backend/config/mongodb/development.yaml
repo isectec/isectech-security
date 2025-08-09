@@ -1,0 +1,135 @@
+# MongoDB Configuration for iSECTECH Development Environment
+# This configuration uses a single MongoDB instance for local development
+
+mongodb:
+  # Connection settings
+  uri: "${MONGODB_URI:-mongodb://localhost:27017/isectech_dev}"
+  database: "${MONGODB_DATABASE:-isectech_dev}"
+  connect_timeout: 30s
+  server_selection_timeout: 30s
+  socket_timeout: 60s
+  
+  # Connection pool settings (smaller for development)
+  max_pool_size: 25
+  min_pool_size: 5
+  max_idle_time: 30m
+  max_conn_idle_time: 30m
+  
+  # Replica set configuration (disabled for development)
+  replica_set: ""
+  read_preference: "primary"
+  read_concern: "local"
+  write_concern:
+    w: 1
+    wtimeout: 5s
+    journal: false
+  
+  # Sharding configuration (disabled for development)
+  sharding:
+    enabled: false
+    shard_key: "tenant_id"
+    chunks:
+      size: 64
+      max_chunk_size: 1024
+      split_threshold: 512
+    balancer:
+      enabled: false
+      active_window:
+        start: "02:00"
+        stop: "06:00"
+      chunk_migrations: 5
+    config_servers: []
+    mongos: []
+  
+  # Security settings (simplified for development)
+  security:
+    enable_encryption: false
+    encryption_key_file: ""
+    tls:
+      enabled: false
+      certificate_file: ""
+      private_key_file: ""
+      ca_file: ""
+      allow_invalid_certs: true
+    authentication:
+      mechanism: ""
+      source: ""
+      username: ""
+      password: ""
+    authorization:
+      enable_rbac: false
+      tenant_isolation: true
+      default_roles: ["readWrite"]
+  
+  # Time-series collections configuration
+  time_series:
+    collections:
+      security_events:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "minutes"
+        bucket_max_span: 1h
+        bucket_rounding: "minutes"
+        expire_after_seconds: 86400  # 1 day for development
+        indexes:
+          - keys:
+              metadata.tenant_id: 1
+              timestamp: 1
+            options:
+              name: "tenant_time_idx"
+              background: true
+          - keys:
+              metadata.severity: 1
+            options:
+              name: "severity_idx"
+              background: true
+      
+      performance_metrics:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "seconds"
+        bucket_max_span: 1h
+        bucket_rounding: "seconds"
+        expire_after_seconds: 3600  # 1 hour for development
+        indexes:
+          - keys:
+              metadata.service: 1
+              timestamp: 1
+            options:
+              name: "service_time_idx"
+              background: true
+      
+      audit_events:
+        time_field: "timestamp"
+        meta_field: "metadata"
+        granularity: "minutes"
+        bucket_max_span: 24h
+        bucket_rounding: "minutes"
+        expire_after_seconds: 86400  # 1 day for development
+        indexes:
+          - keys:
+              metadata.tenant_id: 1
+              metadata.user_id: 1
+              timestamp: 1
+            options:
+              name: "tenant_user_time_idx"
+              background: true
+  
+  # Monitoring and observability (disabled for development)
+  enable_metrics: false
+  enable_tracing: false
+  slow_query_threshold: 2s
+  
+  # Circuit breaker settings (relaxed for development)
+  circuit_breaker:
+    max_requests: 100
+    interval: 30s
+    timeout: 60s
+    failure_threshold: 10
+  
+  # Retry settings (reduced for development)
+  retry_config:
+    max_attempts: 2
+    initial_interval: 50ms
+    max_interval: 1s
+    multiplier: 2.0

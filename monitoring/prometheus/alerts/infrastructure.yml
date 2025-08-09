@@ -1,0 +1,242 @@
+# iSECTECH Infrastructure Alerting Rules
+# Critical monitoring alerts for infrastructure components
+
+groups:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # NODE AND SYSTEM ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  - name: infrastructure.alerts
+    rules:
+      # High CPU usage alert
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: performance
+        annotations:
+          summary: "High CPU usage detected on {{ $labels.instance }}"
+          description: "CPU usage is above 80% for more than 5 minutes on {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/high-cpu"
+
+      # Critical CPU usage alert
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: performance
+        annotations:
+          summary: "Critical CPU usage detected on {{ $labels.instance }}"
+          description: "CPU usage is above 95% for more than 2 minutes on {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-cpu"
+
+      # High memory usage alert
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: performance
+        annotations:
+          summary: "High memory usage detected on {{ $labels.instance }}"
+          description: "Memory usage is above 80% for more than 5 minutes on {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/high-memory"
+
+      # Critical memory usage alert
+      - alert: CriticalMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: performance
+        annotations:
+          summary: "Critical memory usage detected on {{ $labels.instance }}"
+          description: "Memory usage is above 95% for more than 2 minutes on {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-memory"
+
+      # Disk space alert
+      - alert: HighDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: storage
+        annotations:
+          summary: "High disk usage detected on {{ $labels.instance }}"
+          description: "Disk usage is above 85% on {{ $labels.device }} ({{ $labels.mountpoint }}) for {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/high-disk"
+
+      # Critical disk space alert
+      - alert: CriticalDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 95
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: storage
+        annotations:
+          summary: "Critical disk usage detected on {{ $labels.instance }}"
+          description: "Disk usage is above 95% on {{ $labels.device }} ({{ $labels.mountpoint }}) for {{ $labels.instance }}. Current value: {{ $value }}%"
+          runbook_url: "https://docs.isectech.com/runbooks/critical-disk"
+
+      # Node down alert
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: availability
+        annotations:
+          summary: "Node {{ $labels.instance }} is down"
+          description: "Node {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.isectech.com/runbooks/node-down"
+
+      # High network traffic
+      - alert: HighNetworkTraffic
+        expr: rate(node_network_receive_bytes_total[5m]) > 100 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: network
+        annotations:
+          summary: "High network traffic on {{ $labels.instance }}"
+          description: "Network interface {{ $labels.device }} on {{ $labels.instance }} is receiving more than 100MB/s for 10 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/high-network"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # KUBERNETES CLUSTER ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: kubernetes.alerts
+    rules:
+      # Pod crash looping
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          category: reliability
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently"
+          runbook_url: "https://docs.isectech.com/runbooks/pod-crash-loop"
+
+      # Pod pending
+      - alert: PodPending
+        expr: kube_pod_status_phase{phase="Pending"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          category: scheduling
+        annotations:
+          summary: "Pod {{ $labels.pod }} is pending"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been pending for more than 10 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/pod-pending"
+
+      # Node not ready
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: availability
+        annotations:
+          summary: "Node {{ $labels.node }} is not ready"
+          description: "Node {{ $labels.node }} has been in NotReady state for more than 5 minutes"
+          runbook_url: "https://docs.isectech.com/runbooks/node-not-ready"
+
+      # High pod CPU usage
+      - alert: HighPodCPU
+        expr: rate(container_cpu_usage_seconds_total{container!="POD",container!=""}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          category: performance
+        annotations:
+          summary: "High CPU usage in pod {{ $labels.pod }}"
+          description: "Container {{ $labels.container }} in pod {{ $labels.pod }} ({{ $labels.namespace }}) is using more than 80% CPU"
+          runbook_url: "https://docs.isectech.com/runbooks/high-pod-cpu"
+
+      # High pod memory usage
+      - alert: HighPodMemory
+        expr: container_memory_usage_bytes{container!="POD",container!=""} / container_spec_memory_limit_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          category: performance
+        annotations:
+          summary: "High memory usage in pod {{ $labels.pod }}"
+          description: "Container {{ $labels.container }} in pod {{ $labels.pod }} ({{ $labels.namespace }}) is using more than 80% of its memory limit"
+          runbook_url: "https://docs.isectech.com/runbooks/high-pod-memory"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DATABASE ALERTS
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  - name: database.alerts
+    rules:
+      # PostgreSQL down
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: database
+          category: availability
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL database {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.isectech.com/runbooks/postgresql-down"
+
+      # High database connections
+      - alert: HighDatabaseConnections
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+          category: performance
+        annotations:
+          summary: "High database connection usage"
+          description: "Database {{ $labels.datname }} on {{ $labels.instance }} is using more than 80% of available connections"
+          runbook_url: "https://docs.isectech.com/runbooks/high-db-connections"
+
+      # Redis down
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: database
+          category: availability
+        annotations:
+          summary: "Redis server is down"
+          description: "Redis server {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.isectech.com/runbooks/redis-down"
+
+      # High Redis memory usage
+      - alert: HighRedisMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+          category: performance
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis server {{ $labels.instance }} is using more than 90% of its allocated memory"
+          runbook_url: "https://docs.isectech.com/runbooks/high-redis-memory"

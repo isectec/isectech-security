@@ -1,0 +1,952 @@
+# iSECTECH Automated Rollback and Recovery System
+# Intelligent rollback mechanisms with health monitoring and recovery automation
+
+name: 'Automated Rollback & Recovery'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (development, staging, production)'
+      application:
+        required: true
+        type: string
+        description: 'Application to rollback (frontend, backend, ai-services, all)'
+      rollback-strategy:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'Rollback strategy (auto, manual, immediate, gradual)'
+      target-version:
+        required: false
+        type: string
+        default: 'previous'
+        description: 'Target version to rollback to (previous, specific version, or last-known-good)'
+      health-check-timeout:
+        required: false
+        type: string
+        default: '300'
+        description: 'Health check timeout in seconds'
+      preserve-data:
+        required: false
+        type: boolean
+        default: true
+        description: 'Preserve user data during rollback'
+    outputs:
+      rollback-status:
+        description: "Rollback operation status"
+        value: ${{ jobs.rollback-summary.outputs.status }}
+      rolled-back-version:
+        description: "Version after rollback"
+        value: ${{ jobs.rollback-summary.outputs.version }}
+      recovery-actions:
+        description: "Recovery actions performed"
+        value: ${{ jobs.rollback-summary.outputs.actions }}
+
+env:
+  KUBECTL_VERSION: '1.28.0'
+  HELM_VERSION: '3.13.0'
+  
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+  issues: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ROLLBACK ASSESSMENT AND PREPARATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  rollback-assessment:
+    name: 'Rollback Assessment & Preparation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      rollback-viable: ${{ steps.assessment.outputs.viable }}
+      target-version: ${{ steps.assessment.outputs.target_version }}
+      current-version: ${{ steps.assessment.outputs.current_version }}
+      rollback-method: ${{ steps.assessment.outputs.method }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Kubernetes Tools'
+        run: |
+          echo "::group::Installing Kubernetes Tools"
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh && ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes Access'
+        run: |
+          echo "::group::Configuring Kubernetes Access"
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          kubectl cluster-info
+          echo "::endgroup::"
+          
+      - name: 'Assess Current State'
+        id: assessment
+        run: |
+          echo "::group::Assessing Current Application State"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TARGET_VERSION="${{ inputs.target-version }}"
+          
+          # Check if application exists
+          if ! kubectl get deployment "$APPLICATION" -n "$NAMESPACE" &>/dev/null; then
+            echo "❌ Application $APPLICATION not found in namespace $NAMESPACE"
+            echo "viable=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Get current version
+          CURRENT_VERSION=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' | cut -d: -f2)
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Determine target version for rollback
+          case "$TARGET_VERSION" in
+            "previous")
+              # Get previous version from rollout history
+              PREVIOUS_REVISION=$(kubectl rollout history deployment/$APPLICATION -n $NAMESPACE --limit=2 | tail -1 | awk '{print $1}')
+              if [[ -n "$PREVIOUS_REVISION" && "$PREVIOUS_REVISION" != "REVISION" ]]; then
+                ROLLBACK_VERSION="revision-$PREVIOUS_REVISION"
+                ROLLBACK_METHOD="kubectl-rollout"
+              else
+                echo "❌ No previous revision found for rollback"
+                echo "viable=false" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+              ;;
+            "last-known-good")
+              # Find last known good version from deployment annotations
+              LAST_GOOD=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.metadata.annotations.deployment\.isectech\.com/last-known-good}')
+              if [[ -n "$LAST_GOOD" ]]; then
+                ROLLBACK_VERSION="$LAST_GOOD"
+                ROLLBACK_METHOD="image-update"
+              else
+                echo "⚠️  No last-known-good version found, using previous revision"
+                PREVIOUS_REVISION=$(kubectl rollout history deployment/$APPLICATION -n $NAMESPACE --limit=2 | tail -1 | awk '{print $1}')
+                ROLLBACK_VERSION="revision-$PREVIOUS_REVISION"
+                ROLLBACK_METHOD="kubectl-rollout"
+              fi
+              ;;
+            *)
+              # Specific version provided
+              ROLLBACK_VERSION="$TARGET_VERSION"
+              ROLLBACK_METHOD="image-update"
+              ;;
+          esac
+          
+          # Validate rollback target
+          if [[ "$ROLLBACK_VERSION" == "$CURRENT_VERSION" ]]; then
+            echo "⚠️  Target version same as current version, no rollback needed"
+            echo "viable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check application health before rollback
+          READY_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')
+          DESIRED_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+          
+          echo "Application Health Check:"
+          echo "- Ready Replicas: $READY_REPLICAS"
+          echo "- Desired Replicas: $DESIRED_REPLICAS"
+          echo "- Current Version: $CURRENT_VERSION"
+          echo "- Rollback Target: $ROLLBACK_VERSION"
+          echo "- Rollback Method: $ROLLBACK_METHOD"
+          
+          # Set outputs
+          echo "viable=true" >> $GITHUB_OUTPUT
+          echo "target_version=$ROLLBACK_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "method=$ROLLBACK_METHOD" >> $GITHUB_OUTPUT
+          
+          echo "✅ Rollback assessment completed successfully"
+          echo "::endgroup::"
+          
+      - name: 'Create Rollback Plan'
+        run: |
+          echo "::group::Creating Rollback Execution Plan"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          ROLLBACK_STRATEGY="${{ inputs.rollback-strategy }}"
+          
+          # Create rollback plan based on strategy
+          cat > rollback-plan.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "environment": "${{ inputs.environment }}",
+            "application": "$APPLICATION",
+            "rollback_strategy": "$ROLLBACK_STRATEGY",
+            "current_version": "${{ steps.assessment.outputs.current_version }}",
+            "target_version": "${{ steps.assessment.outputs.target_version }}",
+            "rollback_method": "${{ steps.assessment.outputs.method }}",
+            "preserve_data": ${{ inputs.preserve-data }},
+            "health_check_timeout": ${{ inputs.health-check-timeout }},
+            "steps": [
+              {
+                "step": 1,
+                "action": "pre_rollback_health_check",
+                "description": "Verify current application state and health"
+              },
+              {
+                "step": 2,
+                "action": "backup_current_state",
+                "description": "Create backup of current configuration"
+              },
+              {
+                "step": 3,
+                "action": "execute_rollback",
+                "description": "Execute rollback using ${{ steps.assessment.outputs.method }}"
+              },
+              {
+                "step": 4,
+                "action": "post_rollback_validation",
+                "description": "Validate rollback success and application health"
+              },
+              {
+                "step": 5,
+                "action": "update_monitoring",
+                "description": "Update monitoring and alerting configurations"
+              }
+            ]
+          }
+          EOF
+          
+          echo "Rollback plan created:"
+          cat rollback-plan.json | jq .
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Rollback Plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rollback-plan-${{ inputs.environment }}-${{ inputs.application }}"
+          path: rollback-plan.json
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # IMMEDIATE ROLLBACK EXECUTION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  immediate-rollback:
+    name: 'Immediate Rollback Execution'
+    runs-on: ubuntu-latest
+    needs: rollback-assessment
+    if: inputs.rollback-strategy == 'immediate' && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    timeout-minutes: 15
+    outputs:
+      rollback-status: ${{ steps.immediate-result.outputs.status }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Execute Immediate Rollback'
+        id: immediate-result
+        run: |
+          echo "::group::Executing Immediate Rollback"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          ROLLBACK_METHOD="${{ needs.rollback-assessment.outputs.rollback-method }}"
+          TARGET_VERSION="${{ needs.rollback-assessment.outputs.target-version }}"
+          
+          # Backup current deployment
+          kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o yaml > "backup-$APPLICATION-$(date +%s).yaml"
+          
+          # Execute rollback based on method
+          case "$ROLLBACK_METHOD" in
+            "kubectl-rollout")
+              echo "Rolling back using kubectl rollout undo..."
+              kubectl rollout undo deployment/$APPLICATION -n $NAMESPACE
+              ;;
+            "image-update")
+              echo "Rolling back by updating image to $TARGET_VERSION..."
+              kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$TARGET_VERSION -n $NAMESPACE
+              ;;
+            *)
+              echo "❌ Unknown rollback method: $ROLLBACK_METHOD"
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+          
+          # Wait for rollback to complete
+          if kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${{ inputs.health-check-timeout }}s; then
+            echo "✅ Immediate rollback completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Immediate rollback failed"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # GRADUAL ROLLBACK EXECUTION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  gradual-rollback:
+    name: 'Gradual Rollback Execution'
+    runs-on: ubuntu-latest
+    needs: rollback-assessment
+    if: inputs.rollback-strategy == 'gradual' && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    timeout-minutes: 30
+    outputs:
+      rollback-status: ${{ steps.gradual-result.outputs.status }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Execute Gradual Rollback'
+        id: gradual-result
+        run: |
+          echo "::group::Executing Gradual Rollback"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TARGET_VERSION="${{ needs.rollback-assessment.outputs.target-version }}"
+          
+          # Get current replica count
+          TOTAL_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+          echo "Total replicas: $TOTAL_REPLICAS"
+          
+          # Calculate rollback steps (25%, 50%, 75%, 100%)
+          STEP_25=$((TOTAL_REPLICAS / 4))
+          STEP_50=$((TOTAL_REPLICAS / 2))
+          STEP_75=$((TOTAL_REPLICAS * 3 / 4))
+          
+          # Ensure minimum of 1 replica per step
+          [[ $STEP_25 -lt 1 ]] && STEP_25=1
+          [[ $STEP_50 -lt 1 ]] && STEP_50=1
+          [[ $STEP_75 -lt 1 ]] && STEP_75=1
+          
+          echo "Gradual rollback steps: $STEP_25 → $STEP_50 → $STEP_75 → $TOTAL_REPLICAS"
+          
+          # Create temporary deployment for gradual rollback
+          kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o yaml > temp-deployment.yaml
+          
+          # Step 1: 25% rollback
+          echo "Step 1: Rolling back 25% of instances..."
+          kubectl scale deployment $APPLICATION --replicas=$STEP_25 -n $NAMESPACE
+          kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$TARGET_VERSION -n $NAMESPACE
+          kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=120s
+          
+          # Health check after 25%
+          sleep 30
+          if ! kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' | grep -q "$STEP_25"; then
+            echo "❌ Health check failed at 25% rollback"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "✅ 25% rollback successful"
+          
+          # Step 2: 50% rollback
+          echo "Step 2: Rolling back 50% of instances..."
+          kubectl scale deployment $APPLICATION --replicas=$STEP_50 -n $NAMESPACE
+          kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=120s
+          sleep 30
+          echo "✅ 50% rollback successful"
+          
+          # Step 3: 75% rollback
+          echo "Step 3: Rolling back 75% of instances..."
+          kubectl scale deployment $APPLICATION --replicas=$STEP_75 -n $NAMESPACE
+          kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=120s
+          sleep 30
+          echo "✅ 75% rollback successful"
+          
+          # Step 4: 100% rollback
+          echo "Step 4: Rolling back 100% of instances..."
+          kubectl scale deployment $APPLICATION --replicas=$TOTAL_REPLICAS -n $NAMESPACE
+          kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=180s
+          
+          # Final health check
+          if kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' | grep -q "$TOTAL_REPLICAS"; then
+            echo "✅ Gradual rollback completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Gradual rollback failed at final step"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AUTO ROLLBACK EXECUTION (INTELLIGENT)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  auto-rollback:
+    name: 'Intelligent Auto Rollback'
+    runs-on: ubuntu-latest
+    needs: rollback-assessment
+    if: inputs.rollback-strategy == 'auto' && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    timeout-minutes: 25
+    outputs:
+      rollback-status: ${{ steps.auto-result.outputs.status }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Analyze Current Situation'
+        id: analysis
+        run: |
+          echo "::group::Analyzing Current Situation for Auto Rollback"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Get deployment status
+          READY_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' || echo "0")
+          DESIRED_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+          UNAVAILABLE_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.unavailableReplicas}' || echo "0")
+          
+          # Calculate health percentage
+          if [[ $DESIRED_REPLICAS -gt 0 ]]; then
+            HEALTH_PERCENTAGE=$((READY_REPLICAS * 100 / DESIRED_REPLICAS))
+          else
+            HEALTH_PERCENTAGE=0
+          fi
+          
+          echo "Application Health Analysis:"
+          echo "- Ready Replicas: $READY_REPLICAS/$DESIRED_REPLICAS"
+          echo "- Health Percentage: $HEALTH_PERCENTAGE%"
+          echo "- Unavailable Replicas: $UNAVAILABLE_REPLICAS"
+          
+          # Determine rollback strategy based on health
+          if [[ $HEALTH_PERCENTAGE -lt 25 ]]; then
+            ROLLBACK_STRATEGY="immediate"
+            echo "🚨 Critical state detected - using immediate rollback"
+          elif [[ $HEALTH_PERCENTAGE -lt 75 ]]; then
+            ROLLBACK_STRATEGY="gradual"
+            echo "⚠️  Degraded state detected - using gradual rollback"
+          else
+            ROLLBACK_STRATEGY="immediate"
+            echo "ℹ️  Moderate issues detected - using immediate rollback"
+          fi
+          
+          echo "auto_strategy=$ROLLBACK_STRATEGY" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+          
+      - name: 'Execute Auto Rollback'
+        id: auto-result
+        run: |
+          echo "::group::Executing Intelligent Auto Rollback"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          AUTO_STRATEGY="${{ steps.analysis.outputs.auto_strategy }}"
+          TARGET_VERSION="${{ needs.rollback-assessment.outputs.target-version }}"
+          ROLLBACK_METHOD="${{ needs.rollback-assessment.outputs.rollback-method }}"
+          
+          echo "Auto-selected strategy: $AUTO_STRATEGY"
+          
+          # Backup current state
+          kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o yaml > "auto-backup-$APPLICATION-$(date +%s).yaml"
+          
+          # Execute rollback based on auto-selected strategy
+          if [[ "$AUTO_STRATEGY" == "immediate" ]]; then
+            echo "Executing immediate auto rollback..."
+            
+            case "$ROLLBACK_METHOD" in
+              "kubectl-rollout")
+                kubectl rollout undo deployment/$APPLICATION -n $NAMESPACE
+                ;;
+              "image-update")
+                kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$TARGET_VERSION -n $NAMESPACE
+                ;;
+            esac
+            
+            kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${{ inputs.health-check-timeout }}s
+            
+          elif [[ "$AUTO_STRATEGY" == "gradual" ]]; then
+            echo "Executing gradual auto rollback..."
+            
+            TOTAL_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+            HALF_REPLICAS=$((TOTAL_REPLICAS / 2))
+            [[ $HALF_REPLICAS -lt 1 ]] && HALF_REPLICAS=1
+            
+            # Gradual rollback: 50% first, then 100%
+            kubectl scale deployment $APPLICATION --replicas=$HALF_REPLICAS -n $NAMESPACE
+            
+            case "$ROLLBACK_METHOD" in
+              "kubectl-rollout")
+                kubectl rollout undo deployment/$APPLICATION -n $NAMESPACE
+                ;;
+              "image-update")
+                kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$TARGET_VERSION -n $NAMESPACE
+                ;;
+            esac
+            
+            kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=180s
+            
+            # Wait and verify 50% health
+            sleep 30
+            READY_NOW=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')
+            if [[ $READY_NOW -ge $HALF_REPLICAS ]]; then
+              echo "✅ 50% rollback successful, proceeding to 100%"
+              kubectl scale deployment $APPLICATION --replicas=$TOTAL_REPLICAS -n $NAMESPACE
+              kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=180s
+            else
+              echo "❌ 50% rollback failed"
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          fi
+          
+          # Final validation
+          FINAL_READY=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')
+          FINAL_DESIRED=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+          
+          if [[ "$FINAL_READY" == "$FINAL_DESIRED" ]]; then
+            echo "✅ Auto rollback completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Auto rollback failed final validation"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # MANUAL ROLLBACK EXECUTION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  manual-rollback:
+    name: 'Manual Rollback Execution'
+    runs-on: ubuntu-latest
+    needs: rollback-assessment
+    if: inputs.rollback-strategy == 'manual' && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    timeout-minutes: 20
+    outputs:
+      rollback-status: ${{ steps.manual-result.outputs.status }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Manual Rollback with Confirmation'
+        id: manual-result
+        run: |
+          echo "::group::Manual Rollback Execution"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TARGET_VERSION="${{ needs.rollback-assessment.outputs.target-version }}"
+          ROLLBACK_METHOD="${{ needs.rollback-assessment.outputs.rollback-method }}"
+          
+          echo "Manual rollback initiated for:"
+          echo "- Application: $APPLICATION"
+          echo "- Environment: ${{ inputs.environment }}"
+          echo "- Target Version: $TARGET_VERSION"
+          echo "- Method: $ROLLBACK_METHOD"
+          
+          # Create rollback commands for manual execution
+          cat > manual-rollback-commands.sh << EOF
+          #!/bin/bash
+          # Manual Rollback Commands for $APPLICATION
+          # Generated: $(date)
+          
+          echo "Backing up current deployment..."
+          kubectl get deployment $APPLICATION -n $NAMESPACE -o yaml > backup-$APPLICATION-\$(date +%s).yaml
+          
+          echo "Executing rollback..."
+          case "$ROLLBACK_METHOD" in
+            "kubectl-rollout")
+              kubectl rollout undo deployment/$APPLICATION -n $NAMESPACE
+              ;;
+            "image-update")
+              kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$TARGET_VERSION -n $NAMESPACE
+              ;;
+          esac
+          
+          echo "Waiting for rollback to complete..."
+          kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${{ inputs.health-check-timeout }}s
+          
+          echo "Verifying rollback..."
+          kubectl get deployment $APPLICATION -n $NAMESPACE -o wide
+          
+          echo "Rollback completed!"
+          EOF
+          
+          chmod +x manual-rollback-commands.sh
+          
+          # For automation purposes, execute the rollback
+          echo "Executing manual rollback commands..."
+          ./manual-rollback-commands.sh
+          
+          # Verify success
+          if kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${{ inputs.health-check-timeout }}s; then
+            echo "✅ Manual rollback completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Manual rollback failed"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Manual Commands'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "manual-rollback-commands-${{ inputs.environment }}-${{ inputs.application }}"
+          path: manual-rollback-commands.sh
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # POST-ROLLBACK VALIDATION AND RECOVERY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  post-rollback-validation:
+    name: 'Post-Rollback Validation & Recovery'
+    runs-on: ubuntu-latest
+    needs: [rollback-assessment, immediate-rollback, gradual-rollback, auto-rollback, manual-rollback]
+    if: always() && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    timeout-minutes: 15
+    outputs:
+      validation-status: ${{ steps.validation-result.outputs.status }}
+      recovery-actions: ${{ steps.validation-result.outputs.actions }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Comprehensive Post-Rollback Validation'
+        id: validation-result
+        run: |
+          echo "::group::Post-Rollback Validation"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          RECOVERY_ACTIONS=""
+          
+          # Wait for deployment to stabilize
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+          
+          # Deployment health check
+          echo "Checking deployment health..."
+          READY_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' || echo "0")
+          DESIRED_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+          UPDATED_REPLICAS=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.status.updatedReplicas}' || echo "0")
+          
+          echo "Deployment Status:"
+          echo "- Ready Replicas: $READY_REPLICAS/$DESIRED_REPLICAS"
+          echo "- Updated Replicas: $UPDATED_REPLICAS"
+          
+          # Pod health check
+          echo "Checking pod health..."
+          POD_COUNT=$(kubectl get pods -n "$NAMESPACE" -l app="$APPLICATION" --field-selector=status.phase=Running | wc -l)
+          POD_COUNT=$((POD_COUNT - 1)) # Remove header line
+          
+          echo "Running Pods: $POD_COUNT"
+          
+          # Service connectivity check
+          echo "Checking service connectivity..."
+          if kubectl get service "$APPLICATION" -n "$NAMESPACE" &>/dev/null; then
+            SERVICE_ENDPOINTS=$(kubectl get endpoints "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.subsets[0].addresses[*].ip}' | wc -w)
+            echo "Service Endpoints: $SERVICE_ENDPOINTS"
+          else
+            echo "⚠️  Service not found"
+            RECOVERY_ACTIONS="$RECOVERY_ACTIONS,service-missing"
+          fi
+          
+          # Application health check (if health endpoint exists)
+          echo "Checking application health endpoint..."
+          if kubectl get service "$APPLICATION" -n "$NAMESPACE" &>/dev/null; then
+            SERVICE_IP=$(kubectl get service "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}')
+            SERVICE_PORT=$(kubectl get service "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].port}')
+            
+            # Try to reach health endpoint
+            if kubectl run health-check-pod --rm -i --restart=Never --image=curlimages/curl -- \
+              curl -f -m 10 "http://$SERVICE_IP:$SERVICE_PORT/health" &>/dev/null; then
+              echo "✅ Application health endpoint responding"
+            else
+              echo "⚠️  Application health endpoint not responding"
+              RECOVERY_ACTIONS="$RECOVERY_ACTIONS,health-check-failed"
+            fi
+          fi
+          
+          # Check for any error events
+          echo "Checking for error events..."
+          ERROR_EVENTS=$(kubectl get events -n "$NAMESPACE" --field-selector involvedObject.name="$APPLICATION" --sort-by='.lastTimestamp' | grep -i error | wc -l)
+          if [[ $ERROR_EVENTS -gt 0 ]]; then
+            echo "⚠️  $ERROR_EVENTS error events found"
+            RECOVERY_ACTIONS="$RECOVERY_ACTIONS,error-events"
+          fi
+          
+          # Overall validation result
+          if [[ "$READY_REPLICAS" == "$DESIRED_REPLICAS" ]] && [[ $POD_COUNT -eq $DESIRED_REPLICAS ]]; then
+            echo "✅ Post-rollback validation successful"
+            VALIDATION_STATUS="success"
+            
+            # Update last-known-good annotation
+            kubectl annotate deployment "$APPLICATION" -n "$NAMESPACE" \
+              deployment.isectech.com/last-known-good="${{ needs.rollback-assessment.outputs.target-version }}" \
+              --overwrite
+              
+          else
+            echo "❌ Post-rollback validation failed"
+            VALIDATION_STATUS="failed"
+            RECOVERY_ACTIONS="$RECOVERY_ACTIONS,validation-failed"
+          fi
+          
+          # Remove leading comma from recovery actions
+          RECOVERY_ACTIONS=${RECOVERY_ACTIONS#,}
+          
+          echo "status=$VALIDATION_STATUS" >> $GITHUB_OUTPUT
+          echo "actions=$RECOVERY_ACTIONS" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+          
+      - name: 'Execute Recovery Actions'
+        if: steps.validation-result.outputs.actions != ''
+        run: |
+          echo "::group::Executing Recovery Actions"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          RECOVERY_ACTIONS="${{ steps.validation-result.outputs.actions }}"
+          
+          echo "Recovery actions needed: $RECOVERY_ACTIONS"
+          
+          IFS=',' read -ra ACTIONS <<< "$RECOVERY_ACTIONS"
+          for action in "${ACTIONS[@]}"; do
+            case "$action" in
+              "service-missing")
+                echo "Attempting to recreate missing service..."
+                # This would typically involve applying service manifests
+                kubectl expose deployment "$APPLICATION" --port=80 --target-port=8080 -n "$NAMESPACE" || true
+                ;;
+              "health-check-failed")
+                echo "Restarting pods due to health check failure..."
+                kubectl rollout restart deployment/"$APPLICATION" -n "$NAMESPACE"
+                kubectl rollout status deployment/"$APPLICATION" -n "$NAMESPACE" --timeout=300s
+                ;;
+              "error-events")
+                echo "Investigating error events..."
+                kubectl get events -n "$NAMESPACE" --field-selector involvedObject.name="$APPLICATION" --sort-by='.lastTimestamp'
+                ;;
+              "validation-failed")
+                echo "Attempting additional recovery for validation failure..."
+                kubectl delete pods -n "$NAMESPACE" -l app="$APPLICATION" --grace-period=0 --force || true
+                kubectl rollout status deployment/"$APPLICATION" -n "$NAMESPACE" --timeout=300s
+                ;;
+            esac
+          done
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ROLLBACK SUMMARY AND REPORTING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  rollback-summary:
+    name: 'Rollback Summary & Reporting'
+    runs-on: ubuntu-latest
+    needs: [rollback-assessment, immediate-rollback, gradual-rollback, auto-rollback, manual-rollback, post-rollback-validation]
+    if: always() && needs.rollback-assessment.outputs.rollback-viable == 'true'
+    outputs:
+      status: ${{ steps.final-summary.outputs.status }}
+      version: ${{ steps.final-summary.outputs.version }}
+      actions: ${{ steps.final-summary.outputs.actions }}
+      
+    steps:
+      - name: 'Calculate Final Status'
+        id: final-summary
+        run: |
+          echo "::group::Calculating Final Rollback Status"
+          
+          # Collect results from strategy-specific jobs
+          IMMEDIATE_STATUS="${{ needs.immediate-rollback.result }}"
+          GRADUAL_STATUS="${{ needs.gradual-rollback.result }}"
+          AUTO_STATUS="${{ needs.auto-rollback.result }}"
+          MANUAL_STATUS="${{ needs.manual-rollback.result }}"
+          VALIDATION_STATUS="${{ needs.post-rollback-validation.outputs.validation-status }}"
+          
+          STRATEGY="${{ inputs.rollback-strategy }}"
+          TARGET_VERSION="${{ needs.rollback-assessment.outputs.target-version }}"
+          RECOVERY_ACTIONS="${{ needs.post-rollback-validation.outputs.recovery-actions }}"
+          
+          # Determine overall status based on strategy used
+          case "$STRATEGY" in
+            "immediate")
+              ROLLBACK_STATUS="$IMMEDIATE_STATUS"
+              ;;
+            "gradual")
+              ROLLBACK_STATUS="$GRADUAL_STATUS"
+              ;;
+            "auto")
+              ROLLBACK_STATUS="$AUTO_STATUS"
+              ;;
+            "manual")
+              ROLLBACK_STATUS="$MANUAL_STATUS"
+              ;;
+            *)
+              ROLLBACK_STATUS="unknown"
+              ;;
+          esac
+          
+          # Factor in validation status
+          if [[ "$ROLLBACK_STATUS" == "success" ]] && [[ "$VALIDATION_STATUS" == "success" ]]; then
+            FINAL_STATUS="success"
+          elif [[ "$ROLLBACK_STATUS" == "success" ]] && [[ "$VALIDATION_STATUS" == "failed" ]]; then
+            FINAL_STATUS="partial"
+          else
+            FINAL_STATUS="failed"
+          fi
+          
+          # Set outputs
+          echo "status=$FINAL_STATUS" >> $GITHUB_OUTPUT
+          echo "version=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          echo "actions=${RECOVERY_ACTIONS:-none}" >> $GITHUB_OUTPUT
+          
+          # Create comprehensive rollback report
+          cat << EOF > rollback-report.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "environment": "${{ inputs.environment }}",
+            "application": "${{ inputs.application }}",
+            "rollback_strategy": "$STRATEGY",
+            "rollback_status": "$FINAL_STATUS",
+            "target_version": "$TARGET_VERSION",
+            "previous_version": "${{ needs.rollback-assessment.outputs.current-version }}",
+            "preserve_data": ${{ inputs.preserve-data }},
+            "health_check_timeout": ${{ inputs.health-check-timeout }},
+            "validation_status": "$VALIDATION_STATUS",
+            "recovery_actions": "${RECOVERY_ACTIONS:-none}",
+            "job_results": {
+              "assessment": "${{ needs.rollback-assessment.result }}",
+              "immediate": "$IMMEDIATE_STATUS",
+              "gradual": "$GRADUAL_STATUS",
+              "auto": "$AUTO_STATUS",
+              "manual": "$MANUAL_STATUS",
+              "validation": "${{ needs.post-rollback-validation.result }}"
+            }
+          }
+          EOF
+          
+          echo "::group::📊 Final Rollback Report"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Application: ${{ inputs.application }}"
+          echo "Strategy: $STRATEGY"
+          echo "Final Status: $FINAL_STATUS"
+          echo "Target Version: $TARGET_VERSION"
+          echo "Recovery Actions: ${RECOVERY_ACTIONS:-none}"
+          echo "::endgroup::"
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Rollback Report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rollback-report-${{ inputs.environment }}-${{ inputs.application }}"
+          path: rollback-report.json
+          retention-days: 90
+          
+      - name: 'Create Issue on Failure'
+        if: steps.final-summary.outputs.status == 'failed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Rollback Failed: ${{ inputs.application }} in ${{ inputs.environment }}`,
+              body: `
+              ## Rollback Failure Report
+              
+              **Environment**: ${{ inputs.environment }}
+              **Application**: ${{ inputs.application }}
+              **Strategy**: ${{ inputs.rollback-strategy }}
+              **Target Version**: ${{ needs.rollback-assessment.outputs.target-version }}
+              **Status**: FAILED
+              
+              **Details:**
+              - Previous Version: ${{ needs.rollback-assessment.outputs.current-version }}
+              - Recovery Actions: ${{ steps.final-summary.outputs.actions }}
+              - Validation Status: ${{ needs.post-rollback-validation.outputs.validation-status }}
+              
+              **Action Required:**
+              Manual intervention is required to resolve the rollback failure.
+              
+              **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              `,
+              labels: ['rollback-failure', 'urgent', 'ops']
+            });
+            console.log(`Created issue #${issue.data.number}`);

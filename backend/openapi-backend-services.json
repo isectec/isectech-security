@@ -1,0 +1,2177 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "iSECTECH Backend Services API",
+    "description": "Comprehensive API specification for iSECTECH backend microservices including authentication, asset management, threat detection, vulnerability scanning, and other security services",
+    "version": "1.0.0",
+    "contact": {
+      "name": "iSECTECH Backend Team",
+      "email": "backend@isectech.com"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://isectech.com/license"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api-services.isectech.com/v1",
+      "description": "Production backend services"
+    },
+    {
+      "url": "https://api-services-staging.isectech.com/v1",
+      "description": "Staging backend services"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "serviceApiKey": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth Service",
+      "description": "User authentication, MFA, and session management"
+    },
+    {
+      "name": "Asset Discovery",
+      "description": "Network asset discovery and scanning"
+    },
+    {
+      "name": "Asset Inventory",
+      "description": "Asset inventory management and classification"
+    },
+    {
+      "name": "Event Processing",
+      "description": "Security event processing and correlation"
+    },
+    {
+      "name": "Threat Detection",
+      "description": "Threat detection and intelligence processing"
+    },
+    {
+      "name": "Vulnerability Scanner",
+      "description": "Vulnerability scanning and assessment"
+    },
+    {
+      "name": "Mobile Notification",
+      "description": "Push notification delivery to mobile devices"
+    },
+    {
+      "name": "Security Agent",
+      "description": "Security agent management and communication"
+    },
+    {
+      "name": "Billing Service",
+      "description": "Billing, subscriptions, and payment processing"
+    },
+    {
+      "name": "Migration Service",
+      "description": "Data migration from legacy SIEM systems"
+    },
+    {
+      "name": "Security Training",
+      "description": "Security awareness training management"
+    },
+    {
+      "name": "Security Benchmarking",
+      "description": "Security scoring and benchmarking"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth Service"],
+        "summary": "Authenticate user",
+        "description": "Authenticate user credentials and return access tokens with MFA support",
+        "operationId": "authLogin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginRequest"
+              },
+              "examples": {
+                "basic_login": {
+                  "summary": "Basic username/password login",
+                  "value": {
+                    "username": "admin@company.com",
+                    "password": "SecurePass123!",
+                    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "session_type": "web"
+                  }
+                },
+                "mfa_login": {
+                  "summary": "Login with MFA verification",
+                  "value": {
+                    "username": "admin@company.com",
+                    "password": "SecurePass123!",
+                    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "mfa_token": "123456",
+                    "session_type": "web"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth Service"],
+        "summary": "Logout user session",
+        "description": "Invalidate user session and tokens",
+        "operationId": "authLogout",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLogoutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logout successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/mfa/enroll": {
+      "post": {
+        "tags": ["Auth Service"],
+        "summary": "Enroll MFA device",
+        "description": "Enroll a new MFA device for the authenticated user",
+        "operationId": "enrollMFADevice",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MFAEnrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MFA device enrolled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MFAEnrollResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/session/validate": {
+      "post": {
+        "tags": ["Auth Service"],
+        "summary": "Validate session token",
+        "description": "Validate a session token and return user context",
+        "operationId": "validateSession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionValidateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionValidateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/assets/discover": {
+      "post": {
+        "tags": ["Asset Discovery"],
+        "summary": "Start asset discovery scan",
+        "description": "Initiate a network asset discovery scan with specified parameters",
+        "operationId": "startAssetDiscovery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetDiscoveryRequest"
+              },
+              "examples": {
+                "network_scan": {
+                  "summary": "Network subnet discovery",
+                  "value": {
+                    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "scan_type": "network",
+                    "targets": ["192.168.1.0/24", "10.0.0.0/16"],
+                    "scan_options": {
+                      "port_scan": true,
+                      "service_detection": true,
+                      "os_detection": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Asset discovery scan started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDiscoveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/assets/discover/{scanId}": {
+      "get": {
+        "tags": ["Asset Discovery"],
+        "summary": "Get asset discovery scan status",
+        "description": "Retrieve the status and results of an asset discovery scan",
+        "operationId": "getAssetDiscoveryStatus",
+        "parameters": [
+          {
+            "name": "scanId",
+            "in": "path",
+            "required": true,
+            "description": "Asset discovery scan ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset discovery scan status retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDiscoveryScanStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Scan not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/assets/inventory": {
+      "get": {
+        "tags": ["Asset Inventory"],
+        "summary": "Get asset inventory",
+        "description": "Retrieve paginated list of discovered assets with filtering options",
+        "operationId": "getAssetInventory",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "description": "Tenant ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "asset_type",
+            "in": "query",
+            "description": "Filter by asset type",
+            "schema": {
+              "type": "string",
+              "enum": ["server", "workstation", "network_device", "mobile", "iot"]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by asset status",
+            "schema": {
+              "type": "string",
+              "enum": ["active", "inactive", "unknown"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of assets to return",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of assets to skip",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset inventory retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetInventoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/events/process": {
+      "post": {
+        "tags": ["Event Processing"],
+        "summary": "Process security event",
+        "description": "Submit a security event for processing, correlation, and analysis",
+        "operationId": "processSecurityEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecurityEventRequest"
+              },
+              "examples": {
+                "login_event": {
+                  "summary": "User login event",
+                  "value": {
+                    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "event_type": "authentication",
+                    "event_source": "webapp",
+                    "timestamp": "2024-01-01T12:00:00Z",
+                    "user_id": "user_123",
+                    "ip_address": "192.168.1.100",
+                    "user_agent": "Mozilla/5.0...",
+                    "event_data": {
+                      "action": "login",
+                      "result": "success",
+                      "mfa_used": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Event accepted for processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProcessingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/threats/analyze": {
+      "post": {
+        "tags": ["Threat Detection"],
+        "summary": "Analyze potential threat",
+        "description": "Submit data for threat analysis and receive threat intelligence assessment",
+        "operationId": "analyzeThreat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreatAnalysisRequest"
+              },
+              "examples": {
+                "file_hash_analysis": {
+                  "summary": "File hash threat analysis",
+                  "value": {
+                    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "analysis_type": "file_hash",
+                    "indicators": [
+                      {
+                        "type": "sha256",
+                        "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                      }
+                    ],
+                    "context": {
+                      "source": "email_attachment",
+                      "filename": "document.pdf"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Threat analysis completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreatAnalysisResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/vulnerabilities/scan": {
+      "post": {
+        "tags": ["Vulnerability Scanner"],
+        "summary": "Start vulnerability scan",
+        "description": "Initiate a vulnerability scan on specified targets",
+        "operationId": "startVulnerabilityScan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VulnerabilityScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Vulnerability scan started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VulnerabilityScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/notifications/send": {
+      "post": {
+        "tags": ["Mobile Notification"],
+        "summary": "Send push notification",
+        "description": "Send push notification to mobile devices",
+        "operationId": "sendPushNotification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushNotificationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Notification queued for delivery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushNotificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/agents/register": {
+      "post": {
+        "tags": ["Security Agent"],
+        "summary": "Register security agent",
+        "description": "Register a new security agent with the management platform",
+        "operationId": "registerSecurityAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRegistrationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Agent registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRegistrationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/billing/subscriptions": {
+      "get": {
+        "tags": ["Billing Service"],
+        "summary": "Get tenant subscriptions",
+        "description": "Retrieve subscription information for a tenant",
+        "operationId": "getTenantSubscriptions",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "description": "Tenant ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscription information retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/migration/start": {
+      "post": {
+        "tags": ["Migration Service"],
+        "summary": "Start data migration",
+        "description": "Initiate data migration from a legacy SIEM system",
+        "operationId": "startDataMigration",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Migration started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationStartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT bearer token for service authentication"
+      },
+      "serviceApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Service-Key",
+        "description": "Service-to-service API key"
+      }
+    },
+    "schemas": {
+      "AuthLoginRequest": {
+        "type": "object",
+        "required": ["username", "password", "tenant_id"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "format": "email",
+            "example": "admin@company.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "example": "SecurePass123!"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "session_type": {
+            "type": "string",
+            "enum": ["web", "mobile", "api"],
+            "default": "web"
+          },
+          "mfa_token": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "description": "6-digit MFA token"
+          }
+        }
+      },
+      "AuthLoginResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string",
+            "example": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Token expiration in seconds"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "security_clearance": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "requires_mfa": {
+            "type": "boolean"
+          },
+          "mfa_challenge": {
+            "$ref": "#/components/schemas/MFAChallenge"
+          },
+          "failure_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthLogoutRequest": {
+        "type": "object",
+        "required": ["session_token"],
+        "properties": {
+          "session_token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logout_all": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "MFAEnrollRequest": {
+        "type": "object",
+        "required": ["user_id", "tenant_id", "device_type"],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_type": {
+            "type": "string",
+            "enum": ["totp", "sms", "email", "webauthn"]
+          },
+          "device_name": {
+            "type": "string",
+            "example": "iPhone 15"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Device-specific metadata"
+          }
+        }
+      },
+      "MFAEnrollResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "qr_code": {
+            "type": "string",
+            "description": "Base64 encoded QR code for TOTP setup"
+          },
+          "secret": {
+            "type": "string",
+            "description": "TOTP secret key"
+          },
+          "backup_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "One-time backup codes"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Setup instructions for the user"
+          },
+          "failure_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MFAChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_type": {
+            "type": "string",
+            "enum": ["totp", "sms", "email", "webauthn"]
+          },
+          "device_name": {
+            "type": "string"
+          },
+          "qr_code": {
+            "type": "string",
+            "description": "QR code for challenge if applicable"
+          },
+          "backup_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "instructions": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionValidateRequest": {
+        "type": "object",
+        "required": ["access_token"],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "required_clearance": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          }
+        }
+      },
+      "SessionValidateResponse": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "security_clearance": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "requires_mfa": {
+            "type": "boolean"
+          },
+          "failure_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "AssetDiscoveryRequest": {
+        "type": "object",
+        "required": ["tenant_id", "scan_type", "targets"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scan_type": {
+            "type": "string",
+            "enum": ["network", "domain", "cloud"],
+            "example": "network"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["192.168.1.0/24", "10.0.0.0/16"]
+          },
+          "scan_options": {
+            "$ref": "#/components/schemas/AssetScanOptions"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ScanSchedule"
+          }
+        }
+      },
+      "AssetScanOptions": {
+        "type": "object",
+        "properties": {
+          "port_scan": {
+            "type": "boolean",
+            "default": true
+          },
+          "service_detection": {
+            "type": "boolean",
+            "default": true
+          },
+          "os_detection": {
+            "type": "boolean",
+            "default": false
+          },
+          "vulnerability_scan": {
+            "type": "boolean",
+            "default": false
+          },
+          "ping_sweep": {
+            "type": "boolean",
+            "default": true
+          },
+          "dns_resolution": {
+            "type": "boolean",
+            "default": true
+          },
+          "port_range": {
+            "type": "string",
+            "example": "1-1000",
+            "default": "1-1000"
+          }
+        }
+      },
+      "ScanSchedule": {
+        "type": "object",
+        "properties": {
+          "recurring": {
+            "type": "boolean",
+            "default": false
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["hourly", "daily", "weekly", "monthly"]
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AssetDiscoveryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "scan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "completed", "failed"]
+          },
+          "estimated_completion": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "targets_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "AssetDiscoveryScanStatus": {
+        "type": "object",
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "completed", "failed"]
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Scan progress percentage"
+          },
+          "assets_discovered": {
+            "type": "integer"
+          },
+          "targets_scanned": {
+            "type": "integer"
+          },
+          "total_targets": {
+            "type": "integer"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "discovered_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredAsset"
+            }
+          }
+        }
+      },
+      "DiscoveredAsset": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "asset_type": {
+            "type": "string",
+            "enum": ["server", "workstation", "network_device", "mobile", "iot", "unknown"]
+          },
+          "operating_system": {
+            "type": "string"
+          },
+          "open_ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenPort"
+            }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DetectedService"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Detection confidence percentage"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OpenPort": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed", "filtered"]
+          },
+          "service": {
+            "type": "string"
+          }
+        }
+      },
+      "DetectedService": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "banner": {
+            "type": "string"
+          }
+        }
+      },
+      "AssetInventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          },
+          "total_count": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Unique asset identifier"
+          },
+          "ip_address": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "asset_type": {
+            "type": "string",
+            "enum": ["server", "workstation", "network_device", "mobile", "iot", "unknown"]
+          },
+          "operating_system": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "inactive", "unknown"]
+          },
+          "risk_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "criticality": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DetectedService"
+            }
+          },
+          "vulnerabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetVulnerability"
+            }
+          }
+        }
+      },
+      "AssetVulnerability": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string",
+            "example": "CVE-2024-1234"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "cvss_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "description": {
+            "type": "string"
+          },
+          "discovered_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SecurityEventRequest": {
+        "type": "object",
+        "required": ["tenant_id", "event_type", "event_source", "timestamp"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": ["authentication", "authorization", "data_access", "system", "network", "application"]
+          },
+          "event_source": {
+            "type": "string",
+            "example": "webapp"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "user_agent": {
+            "type": "string"
+          },
+          "event_data": {
+            "type": "object",
+            "description": "Event-specific data"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "default": "medium"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EventProcessingResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "correlation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "processing_status": {
+            "type": "string",
+            "enum": ["accepted", "queued", "processing", "completed"]
+          },
+          "risk_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "anomaly_detected": {
+            "type": "boolean"
+          },
+          "related_events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "IDs of related/correlated events"
+          }
+        }
+      },
+      "ThreatAnalysisRequest": {
+        "type": "object",
+        "required": ["tenant_id", "analysis_type", "indicators"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "analysis_type": {
+            "type": "string",
+            "enum": ["file_hash", "ip_address", "domain", "url", "email"]
+          },
+          "indicators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreatIndicator"
+            }
+          },
+          "context": {
+            "type": "object",
+            "description": "Additional context about the threat"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "urgent"],
+            "default": "medium"
+          }
+        }
+      },
+      "ThreatIndicator": {
+        "type": "object",
+        "required": ["type", "value"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["md5", "sha1", "sha256", "ip", "domain", "url", "email"]
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ThreatAnalysisResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "analysis_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "threat_level": {
+            "type": "string",
+            "enum": ["benign", "suspicious", "malicious", "unknown"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "threat_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["malware", "botnet", "c2"]
+          },
+          "intelligence_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreatIntelligenceSource"
+            }
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "analyzed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ThreatIntelligenceSource": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "example": "VirusTotal"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["benign", "suspicious", "malicious"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "details": {
+            "type": "object"
+          }
+        }
+      },
+      "VulnerabilityScanRequest": {
+        "type": "object",
+        "required": ["tenant_id", "targets", "scan_type"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scan_type": {
+            "type": "string",
+            "enum": ["network", "web", "database", "comprehensive"]
+          },
+          "scan_profile": {
+            "type": "string",
+            "enum": ["discovery", "full", "compliance", "custom"]
+          },
+          "exclude_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scan_options": {
+            "$ref": "#/components/schemas/VulnerabilityScanOptions"
+          }
+        }
+      },
+      "VulnerabilityScanOptions": {
+        "type": "object",
+        "properties": {
+          "authenticated": {
+            "type": "boolean",
+            "default": false
+          },
+          "credentials": {
+            "type": "object",
+            "description": "Scan credentials if authenticated scan"
+          },
+          "max_hosts": {
+            "type": "integer",
+            "default": 100
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 3600,
+            "description": "Scan timeout in seconds"
+          },
+          "safe_checks": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "VulnerabilityScanResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "scan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "completed", "failed"]
+          },
+          "estimated_completion": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PushNotificationRequest": {
+        "type": "object",
+        "required": ["tenant_id", "recipients", "message"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationRecipient"
+            }
+          },
+          "message": {
+            "$ref": "#/components/schemas/NotificationMessage"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "normal", "high"],
+            "default": "normal"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/NotificationSchedule"
+          }
+        }
+      },
+      "NotificationRecipient": {
+        "type": "object",
+        "required": ["user_id"],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["fcm", "apns", "email", "sms"]
+            }
+          }
+        }
+      },
+      "NotificationMessage": {
+        "type": "object",
+        "required": ["title", "body"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "data": {
+            "type": "object",
+            "description": "Additional data payload"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationAction"
+            }
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "NotificationAction": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "NotificationSchedule": {
+        "type": "object",
+        "properties": {
+          "send_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "PushNotificationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "notification_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipients_count": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "processing", "sent", "failed"]
+          }
+        }
+      },
+      "AgentRegistrationRequest": {
+        "type": "object",
+        "required": ["tenant_id", "hostname", "platform", "agent_version"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": ["windows", "linux", "macos", "docker"]
+          },
+          "agent_version": {
+            "type": "string"
+          },
+          "system_info": {
+            "$ref": "#/components/schemas/AgentSystemInfo"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["file_monitoring", "process_monitoring", "network_monitoring"]
+          }
+        }
+      },
+      "AgentSystemInfo": {
+        "type": "object",
+        "properties": {
+          "os": {
+            "type": "string"
+          },
+          "os_version": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "cpu_count": {
+            "type": "integer"
+          },
+          "memory_total": {
+            "type": "integer",
+            "description": "Total memory in MB"
+          },
+          "disk_space": {
+            "type": "integer",
+            "description": "Available disk space in GB"
+          }
+        }
+      },
+      "AgentRegistrationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "certificate": {
+            "type": "string",
+            "description": "Agent client certificate"
+          },
+          "private_key": {
+            "type": "string",
+            "description": "Agent private key"
+          },
+          "ca_certificate": {
+            "type": "string",
+            "description": "CA certificate for server verification"
+          },
+          "configuration": {
+            "type": "object",
+            "description": "Agent configuration settings"
+          },
+          "heartbeat_interval": {
+            "type": "integer",
+            "description": "Heartbeat interval in seconds"
+          }
+        }
+      },
+      "SubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Subscription"
+            }
+          }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/SubscriptionPlan"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "suspended", "cancelled", "trial"]
+          },
+          "billing_cycle": {
+            "type": "string",
+            "enum": ["monthly", "yearly"]
+          },
+          "current_period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/SubscriptionUsage"
+          }
+        }
+      },
+      "SubscriptionPlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["basic", "professional", "premium", "enterprise"]
+          },
+          "price": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "users": {
+                "type": "integer"
+              },
+              "events_per_month": {
+                "type": "integer"
+              },
+              "storage_gb": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "SubscriptionUsage": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "integer"
+          },
+          "events_this_month": {
+            "type": "integer"
+          },
+          "storage_used_gb": {
+            "type": "number"
+          }
+        }
+      },
+      "MigrationStartRequest": {
+        "type": "object",
+        "required": ["tenant_id", "source_system", "connection_details"],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_system": {
+            "type": "string",
+            "enum": ["splunk", "qradar", "arcsight", "elasticsearch"]
+          },
+          "connection_details": {
+            "$ref": "#/components/schemas/SourceSystemConnection"
+          },
+          "migration_options": {
+            "$ref": "#/components/schemas/MigrationOptions"
+          },
+          "data_selection": {
+            "$ref": "#/components/schemas/DataSelection"
+          }
+        }
+      },
+      "SourceSystemConnection": {
+        "type": "object",
+        "required": ["host", "credentials"],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "ssl": {
+            "type": "boolean",
+            "default": true
+          },
+          "credentials": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "api_key": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "MigrationOptions": {
+        "type": "object",
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "default": 1000
+          },
+          "parallel_streams": {
+            "type": "integer",
+            "default": 4
+          },
+          "validation": {
+            "type": "boolean",
+            "default": true
+          },
+          "transformation": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "DataSelection": {
+        "type": "object",
+        "properties": {
+          "date_range": {
+            "type": "object",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date"
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          "indices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filters": {
+            "type": "object"
+          }
+        }
+      },
+      "MigrationStartResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "migration_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "initializing", "running", "completed", "failed"]
+          },
+          "estimated_completion": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimated_records": {
+            "type": "integer"
+          }
+        }
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request - Invalid request parameters or body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "example": "invalid_request"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Invalid request format"
+                },
+                "details": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized - Authentication required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "example": "unauthorized"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Authentication required"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too Many Requests - Rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds to wait before retrying",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "example": "rate_limited"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Rate limit exceeded"
+                },
+                "retry_after": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal Server Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string",
+                  "example": "internal_error"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Internal server error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

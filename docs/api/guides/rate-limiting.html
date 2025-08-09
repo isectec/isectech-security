@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rate Limiting Guide - iSECTECH API</title>
+    <link rel="stylesheet" href="../assets/branding.css">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; line-height: 1.6; margin: 0; background: #f8f9fa; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; background: white; }
+        code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 0.2rem; }
+        pre { background: #f8f9fa; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        .limits-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .limits-table th, .limits-table td { border: 1px solid #dee2e6; padding: 0.75rem; text-align: left; }
+        .limits-table th { background: var(--isectech-primary); color: white; }
+        .limits-table tr:nth-child(even) { background: #f8f9fa; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; margin: 1rem 0; }
+        .info { background: #d1ecf1; border-left: 4px solid #17a2b8; padding: 1rem; margin: 1rem 0; }
+        .tip { background: #d4edda; border-left: 4px solid #28a745; padding: 1rem; margin: 1rem 0; }
+    </style>
+</head>
+<body>
+    <div class="isectech-header">
+        <h1>Rate Limiting Guide</h1>
+        <p>Understanding and implementing proper rate limiting for iSECTECH APIs</p>
+    </div>
+
+    <div class="container">
+        <h2>Overview</h2>
+        <p>The iSECTECH API implements intelligent rate limiting to ensure fair usage, maintain system stability, and protect against abuse. Rate limits vary by endpoint type and user tier.</p>
+
+        <div class="warning">
+            <strong>⚠️ Important:</strong> All clients must implement proper rate limit handling to avoid service disruptions. Repeated violations may result in temporary or permanent API access restrictions.
+        </div>
+
+        <h2>Rate Limit Structure</h2>
+        
+        <table class="limits-table">
+            <thead>
+                <tr>
+                    <th>Endpoint Category</th>
+                    <th>Rate Limit</th>
+                    <th>Time Window</th>
+                    <th>Burst Allowance</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Authentication</td>
+                    <td>10 requests</td>
+                    <td>Per minute</td>
+                    <td>3 requests</td>
+                </tr>
+                <tr>
+                    <td>Standard APIs</td>
+                    <td>1,000 requests</td>
+                    <td>Per minute</td>
+                    <td>100 requests</td>
+                </tr>
+                <tr>
+                    <td>Trust Scoring</td>
+                    <td>5,000 requests</td>
+                    <td>Per minute</td>
+                    <td>500 requests</td>
+                </tr>
+                <tr>
+                    <td>Bulk Operations</td>
+                    <td>100 requests</td>
+                    <td>Per minute</td>
+                    <td>10 requests</td>
+                </tr>
+                <tr>
+                    <td>Notification Creation</td>
+                    <td>100 requests</td>
+                    <td>Per minute</td>
+                    <td>20 requests</td>
+                </tr>
+                <tr>
+                    <td>Policy Evaluation</td>
+                    <td>2,000 requests</td>
+                    <td>Per minute</td>
+                    <td>200 requests</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Rate Limit Headers</h2>
+        <p>All API responses include rate limiting information in the headers:</p>
+        
+        <pre><code>X-Rate-Limit-Limit: 1000
+X-Rate-Limit-Remaining: 995
+X-Rate-Limit-Reset: 1640995200
+X-Rate-Limit-Used: 5
+Retry-After: 60</code></pre>
+
+        <h3>Header Descriptions</h3>
+        <ul>
+            <li><strong>X-Rate-Limit-Limit:</strong> Total number of requests allowed in the time window</li>
+            <li><strong>X-Rate-Limit-Remaining:</strong> Number of requests remaining in current window</li>
+            <li><strong>X-Rate-Limit-Reset:</strong> Unix timestamp when the rate limit resets</li>
+            <li><strong>X-Rate-Limit-Used:</strong> Number of requests used in current window</li>
+            <li><strong>Retry-After:</strong> Seconds to wait before retrying (present when rate limited)</li>
+        </ul>
+
+        <h2>HTTP 429 Response</h2>
+        <p>When rate limits are exceeded, the API returns a 429 status code:</p>
+        
+        <pre><code>HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+X-Rate-Limit-Limit: 1000
+X-Rate-Limit-Remaining: 0
+X-Rate-Limit-Reset: 1640995260
+Retry-After: 60
+
+{
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Please retry after 60 seconds.",
+  "retryAfter": 60,
+  "requestId": "req_123456789",
+  "limit": {
+    "requests": 1000,
+    "window": "1 minute",
+    "type": "standard"
+  }
+}</code></pre>
+
+        <h2>Best Practices</h2>
+        
+        <h3>1. Monitor Rate Limit Headers</h3>
+        <p>Always check rate limit headers in responses and adjust your request frequency accordingly:</p>
+        
+        <pre><code>// JavaScript example
+const response = await fetch('/api/endpoint');
+const remaining = parseInt(response.headers.get('X-Rate-Limit-Remaining'));
+const reset = parseInt(response.headers.get('X-Rate-Limit-Reset'));
+
+if (remaining < 10) {
+  const resetTime = new Date(reset * 1000);
+  console.warn(`Low rate limit remaining: ${remaining}. Resets at ${resetTime}`);
+}</code></pre>
+
+        <h3>2. Implement Exponential Backoff</h3>
+        <p>Use exponential backoff when receiving 429 responses:</p>
+        
+        <pre><code>// Python example
+import time
+import random
+
+def make_request_with_backoff(url, max_retries=3):
+    for attempt in range(max_retries + 1):
+        response = requests.get(url)
+        
+        if response.status_code == 429:
+            if attempt == max_retries:
+                raise Exception("Max retries exceeded")
+                
+            retry_after = int(response.headers.get('Retry-After', 60))
+            # Add jitter to prevent thundering herd
+            jitter = random.uniform(0.1, 0.5)
+            sleep_time = retry_after + jitter
+            
+            print(f"Rate limited. Waiting {sleep_time} seconds...")
+            time.sleep(sleep_time)
+            continue
+            
+        return response
+    
+    raise Exception("Request failed after all retries")</code></pre>
+
+        <h3>3. Request Queuing</h3>
+        <p>Implement request queuing to stay within rate limits:</p>
+        
+        <pre><code>// Go example
+type RateLimiter struct {
+    requests chan struct{}
+    ticker   *time.Ticker
+}
+
+func NewRateLimiter(requestsPerMinute int) *RateLimiter {
+    rl := &RateLimiter{
+        requests: make(chan struct{}, requestsPerMinute),
+        ticker:   time.NewTicker(time.Minute / time.Duration(requestsPerMinute)),
+    }
+    
+    // Fill the initial bucket
+    for i := 0; i < requestsPerMinute; i++ {
+        rl.requests <- struct{}{}
+    }
+    
+    // Refill the bucket
+    go func() {
+        for range rl.ticker.C {
+            select {
+            case rl.requests <- struct{}{}:
+            default: // Bucket full
+            }
+        }
+    }()
+    
+    return rl
+}
+
+func (rl *RateLimiter) Wait() {
+    <-rl.requests
+}</code></pre>
+
+        <h3>4. Batch Operations</h3>
+        <p>Use bulk endpoints when available to reduce the number of API calls:</p>
+        
+        <pre><code>// Instead of multiple individual requests
+for trustScore in trustScores:
+    POST /trust-score (individual)
+
+// Use bulk endpoint
+POST /trust-score (bulk with array of requests)</code></pre>
+
+        <div class="tip">
+            <strong>💡 Tip:</strong> Bulk operations have lower rate limits but can process multiple items per request, making them more efficient for large datasets.
+        </div>
+
+        <h2>Rate Limit Tiers</h2>
+        
+        <h3>Standard Tier</h3>
+        <ul>
+            <li>Default tier for all authenticated users</li>
+            <li>Rate limits as shown in the table above</li>
+            <li>Suitable for most integration scenarios</li>
+        </ul>
+
+        <h3>Premium Tier</h3>
+        <ul>
+            <li>Available for enterprise customers</li>
+            <li>2x higher rate limits across all endpoints</li>
+            <li>Priority support and SLA guarantees</li>
+            <li>Contact sales for pricing and availability</li>
+        </ul>
+
+        <h3>Partner Tier</h3>
+        <ul>
+            <li>For certified integration partners</li>
+            <li>5x higher rate limits</li>
+            <li>Access to beta endpoints</li>
+            <li>Dedicated technical support</li>
+        </ul>
+
+        <h2>Special Considerations</h2>
+        
+        <h3>Authentication Endpoints</h3>
+        <p>Authentication endpoints have strict rate limits to prevent brute force attacks:</p>
+        <ul>
+            <li><strong>Login attempts:</strong> 10 per minute per IP address</li>
+            <li><strong>Password reset:</strong> 3 per hour per email address</li>
+            <li><strong>MFA verification:</strong> 20 per minute per user</li>
+        </ul>
+
+        <div class="warning">
+            <strong>⚠️ Security Note:</strong> Multiple failed authentication attempts from the same IP may trigger additional security measures, including temporary IP blocking.
+        </div>
+
+        <h3>Trust Scoring</h3>
+        <p>Trust scoring endpoints have higher limits due to their real-time nature, but implement additional protections:</p>
+        <ul>
+            <li>Duplicate request detection (same user/device within 1 minute)</li>
+            <li>Automatic caching of recent scores</li>
+            <li>Bulk calculation support for batch scenarios</li>
+        </ul>
+
+        <h3>Webhook Endpoints</h3>
+        <p>Incoming webhooks are rate limited to prevent abuse:</p>
+        <ul>
+            <li><strong>Per webhook URL:</strong> 100 requests per minute</li>
+            <li><strong>Per source IP:</strong> 500 requests per minute</li>
+            <li>Automatic retry with exponential backoff</li>
+        </ul>
+
+        <h2>Monitoring and Alerting</h2>
+        
+        <p>Set up monitoring to track your API usage:</p>
+        
+        <pre><code># Example metrics to monitor
+- api.requests.total
+- api.requests.rate_limited
+- api.rate_limit.remaining.min
+- api.rate_limit.reset.time
+
+# Alerting thresholds
+- Alert when remaining requests < 10% of limit
+- Alert when rate limit hit more than 5 times per hour
+- Alert when success rate drops below 95%</code></pre>
+
+        <h2>Troubleshooting</h2>
+        
+        <h3>Common Issues</h3>
+        
+        <h4>Persistent 429 Errors</h4>
+        <ul>
+            <li>Check if you're respecting the <code>Retry-After</code> header</li>
+            <li>Verify your rate limiting implementation</li>
+            <li>Consider using bulk endpoints</li>
+            <li>Review your request patterns for optimization opportunities</li>
+        </ul>
+
+        <h4>Inconsistent Rate Limits</h4>
+        <ul>
+            <li>Rate limits are enforced per tenant and API key</li>
+            <li>Shared API keys will have combined usage</li>
+            <li>Different endpoints have different limits</li>
+        </ul>
+
+        <h4>Higher Limits Needed</h4>
+        <ul>
+            <li>Contact support for rate limit increase requests</li>
+            <li>Provide justification and expected usage patterns</li>
+            <li>Consider upgrading to Premium or Partner tier</li>
+        </ul>
+
+        <div class="info">
+            <strong>ℹ️ Need Help?</strong> Our support team can help optimize your integration and recommend the best rate limiting strategy for your use case.
+        </div>
+
+        <h2>Code Libraries</h2>
+        
+        <p>We recommend these libraries for implementing rate limiting in your applications:</p>
+        
+        <ul>
+            <li><strong>JavaScript:</strong> <code>bottleneck</code>, <code>p-limit</code></li>
+            <li><strong>Python:</strong> <code>ratelimit</code>, <code>backoff</code></li>
+            <li><strong>Go:</strong> <code>golang.org/x/time/rate</code></li>
+            <li><strong>Java:</strong> <code>Guava RateLimiter</code></li>
+            <li><strong>PHP:</strong> <code>bandwidth-throttle/token-bucket</code></li>
+        </ul>
+
+        <h2>Support</h2>
+        <p>For rate limiting questions or issues:</p>
+        <ul>
+            <li>📧 Email: <a href="mailto:api@isectech.com">api@isectech.com</a></li>
+            <li>📚 Documentation: <a href="https://docs.isectech.com/rate-limiting">Rate Limiting Documentation</a></li>
+            <li>💬 Community: <a href="https://community.isectech.com">Developer Community</a></li>
+            <li>🎫 Support Portal: <a href="https://support.isectech.com">Support Portal</a></li>
+        </ul>
+    </div>
+</body>
+</html>

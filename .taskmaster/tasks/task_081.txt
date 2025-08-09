@@ -1,0 +1,80 @@
+# Task ID: 81
+# Title: Implement API Endpoint Authorization Matrix
+# Status: pending
+# Dependencies: 80
+# Priority: high
+# Description: Develop a comprehensive API endpoint authorization matrix covering all 200+ endpoints with tenant-aware permission checking.
+# Details:
+1. Document all API endpoints and required permissions
+2. Implement authorization middleware for API gateway
+3. Create permission checking logic integrated with RBAC system
+4. Implement tenant context extraction and validation
+5. Develop caching mechanism for authorization decisions
+6. Set up comprehensive logging for authorization decisions
+7. Create test suite for authorization validation
+
+Authorization middleware pseudocode:
+```javascript
+async function authorizationMiddleware(req, res, next) {
+  try {
+    // Extract user, tenant, and request information
+    const userId = req.user.id;
+    const tenantId = req.headers['x-tenant-id'];
+    const endpoint = req.path;
+    const method = req.method;
+    
+    // Validate tenant context
+    if (!await validateTenantAccess(userId, tenantId)) {
+      return res.status(403).json({ error: 'Tenant access denied' });
+    }
+    
+    // Check endpoint permission using RBAC system
+    const hasPermission = await checkPermission(userId, tenantId, endpoint, method);
+    
+    if (!hasPermission) {
+      // Log authorization failure
+      await logAuthorizationEvent(userId, tenantId, endpoint, method, false);
+      return res.status(403).json({ error: 'Permission denied' });
+    }
+    
+    // Log successful authorization
+    await logAuthorizationEvent(userId, tenantId, endpoint, method, true);
+    
+    // Continue to handler
+    next();
+  } catch (error) {
+    // Log error and return 500
+    await logError('authorization_middleware', error);
+    return res.status(500).json({ error: 'Authorization service error' });
+  }
+}
+
+async function checkPermission(userId, tenantId, endpoint, method) {
+  // Check cache first
+  const cacheKey = `perm:${userId}:${tenantId}:${endpoint}:${method}`;
+  const cachedResult = await cache.get(cacheKey);
+  
+  if (cachedResult !== null) {
+    return cachedResult === 'true';
+  }
+  
+  // Query permission from database
+  const hasPermission = await db.checkEndpointPermission(userId, tenantId, endpoint, method);
+  
+  // Cache result for 5 minutes
+  await cache.set(cacheKey, hasPermission.toString(), 300);
+  
+  return hasPermission;
+}
+```
+
+Implement using Node.js 18+ with Express.js or NestJS for API gateway, with Redis for caching.
+
+# Test Strategy:
+1. Test authorization for all API endpoints
+2. Verify tenant isolation in multi-tenant scenarios
+3. Test permission inheritance through role hierarchy
+4. Validate caching mechanism and expiration
+5. Test performance under high load
+6. Verify audit logging of authorization decisions
+7. Test with various user roles and permissions

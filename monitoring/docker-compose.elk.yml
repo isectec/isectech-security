@@ -1,0 +1,281 @@
+# iSECTECH ELK Stack
+# Production-grade Elasticsearch, Logstash, and Kibana deployment
+
+version: '3.8'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  elk:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  monitoring:
+    external: true
+  isectech-network:
+    external: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOLUME CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+volumes:
+  elasticsearch_data:
+    driver: local
+  elasticsearch_config:
+    driver: local
+  elasticsearch_backups:
+    driver: local
+  logstash_data:
+    driver: local
+  kibana_data:
+    driver: local
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SERVICES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # Elasticsearch - Search and analytics engine
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: isectech-elasticsearch
+    restart: unless-stopped
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=isectech-logging-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - ELASTIC_PASSWORD=isectech_elastic_2024
+      - xpack.security.enabled=true
+      - xpack.security.enrollment.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.ml.enabled=true
+      - action.auto_create_index="+logs-*,+metrics-*,+traces-*,-*"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - elasticsearch_backups:/usr/share/elasticsearch/backups
+      - ./monitoring/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - elk
+      - monitoring
+      - isectech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.elasticsearch.rule=Host(`elasticsearch.isectech.local`)"
+      - "traefik.http.routers.elasticsearch.tls=true"
+      - "traefik.http.services.elasticsearch.loadbalancer.server.port=9200"
+
+  # Logstash - Log processing pipeline
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: isectech-logstash
+    restart: unless-stopped
+    environment:
+      - "LS_JAVA_OPTS=-Xmx1g -Xms1g"
+      - ELASTIC_PASSWORD=isectech_elastic_2024
+      - LOGSTASH_SYSTEM_PASSWORD=isectech_logstash_2024
+    volumes:
+      - logstash_data:/usr/share/logstash/data
+      - ./monitoring/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./monitoring/logstash/templates:/usr/share/logstash/templates:ro
+    ports:
+      - "5044:5044"  # Beats input
+      - "5000:5000"  # TCP input
+      - "5001:5001/udp"  # UDP input
+      - "5514:5514"  # Syslog input
+      - "8080:8080"  # HTTP input
+      - "9600:9600"  # Logstash monitoring API
+    networks:
+      - elk
+      - monitoring
+      - isectech-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9600/_node/stats || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.logstash.rule=Host(`logstash.isectech.local`)"
+      - "traefik.http.routers.logstash.tls=true"
+      - "traefik.http.services.logstash.loadbalancer.server.port=9600"
+
+  # Kibana - Visualization and management interface
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: isectech-kibana
+    restart: unless-stopped
+    environment:
+      - SERVERNAME=isectech-kibana
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=isectech_kibana_2024
+      - KIBANA_SYSTEM_PASSWORD=isectech_kibana_2024
+      - KIBANA_ENCRYPTION_KEY=a7f3e9d2c8b1f4e6a9c2d5e8f1a4b7c0d3e6f9a2b5c8d1e4f7a0b3c6d9e2f5a8
+      - KIBANA_SECURITY_KEY=b8e4f0a3d6c9f2e5a8b1d4e7f0a3b6c9d2e5f8a1b4c7d0e3f6a9b2c5d8e1f4a7
+      - KIBANA_REPORTING_KEY=c9f5a1b4e7d0a3f6c9e2f5a8b1d4e7f0a3b6c9d2e5f8a1b4c7d0e3f6a9b2c5d8
+    volumes:
+      - kibana_data:/usr/share/kibana/data
+      - ./monitoring/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    ports:
+      - "5601:5601"
+    networks:
+      - elk
+      - monitoring
+      - isectech-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kibana.rule=Host(`kibana.isectech.local`)"
+      - "traefik.http.routers.kibana.tls=true"
+      - "traefik.http.services.kibana.loadbalancer.server.port=5601"
+
+  # Filebeat - Log file shipper
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: isectech-filebeat
+    restart: unless-stopped
+    user: root
+    command: filebeat -e -strict.perms=false
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
+      - LOGSTASH_HOST=logstash:5044
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+      - /:/hostfs:ro
+    networks:
+      - elk
+      - monitoring
+      - isectech-network
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  # Metricbeat - System and service metrics
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:8.11.0
+    container_name: isectech-metricbeat
+    restart: unless-stopped
+    user: root
+    command: metricbeat -e -strict.perms=false
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
+    volumes:
+      - ./monitoring/metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+      - /proc:/hostfs/proc:ro
+      - /:/hostfs:ro
+    networks:
+      - elk
+      - monitoring
+      - isectech-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # ElastAlert2 - Alerting for Elasticsearch
+  elastalert:
+    image: jertel/elastalert2:2.8.0
+    container_name: isectech-elastalert
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=isectech_elastic_2024
+    volumes:
+      - ./monitoring/elastalert/config:/opt/elastalert/config:ro
+      - ./monitoring/elastalert/rules:/opt/elastalert/rules:ro
+    networks:
+      - elk
+      - monitoring
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # Curator - Index lifecycle management
+  curator:
+    image: untergeek/curator:8.0.4
+    container_name: isectech-curator
+    restart: "no"
+    environment:
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=isectech_elastic_2024
+    volumes:
+      - ./monitoring/curator:/opt/curator/config:ro
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command: ["curator", "--config", "/opt/curator/config/curator.yml", "/opt/curator/config/actions.yml"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HEALTH CHECK AND MONITORING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+  # Stack monitoring and health check
+  elk-healthcheck:
+    image: curlimages/curl:8.4.0
+    container_name: isectech-elk-healthcheck
+    restart: "no"
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    command: |
+      sh -c '
+        echo "Checking ELK Stack health..."
+        curl -f http://elasticsearch:9200/_cluster/health &&
+        curl -f http://logstash:9600/_node/stats &&
+        curl -f http://kibana:5601/api/status &&
+        echo "ELK Stack is healthy!"
+      '

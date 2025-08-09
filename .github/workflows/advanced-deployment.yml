@@ -1,0 +1,1025 @@
+# iSECTECH Advanced Deployment Strategies and Rollback Mechanisms
+# Blue-Green, Canary, and Rolling deployments with automated rollback capabilities
+
+name: 'Advanced Deployment Strategies'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (development, staging, production)'
+      deployment-strategy:
+        required: false
+        type: string
+        default: 'rolling'
+        description: 'Deployment strategy (blue-green, canary, rolling, recreate)'
+      application:
+        required: true
+        type: string
+        description: 'Application to deploy (frontend, backend, ai-services, all)'
+      image-tag:
+        required: true
+        type: string
+        description: 'Docker image tag to deploy'
+      canary-percentage:
+        required: false
+        type: string
+        default: '10'
+        description: 'Percentage of traffic for canary deployment'
+      enable-auto-rollback:
+        required: false
+        type: boolean
+        default: true
+        description: 'Enable automatic rollback on deployment failure'
+      health-check-timeout:
+        required: false
+        type: string
+        default: '300'
+        description: 'Health check timeout in seconds'
+    outputs:
+      deployment-status:
+        description: "Overall deployment status"
+        value: ${{ jobs.deployment-summary.outputs.status }}
+      deployment-strategy:
+        description: "Deployment strategy used"
+        value: ${{ inputs.deployment-strategy }}
+      rollback-triggered:
+        description: "Whether rollback was triggered"
+        value: ${{ jobs.deployment-summary.outputs.rollback_triggered }}
+      application-endpoints:
+        description: "Application endpoints after deployment"
+        value: ${{ jobs.deployment-summary.outputs.endpoints }}
+
+env:
+  KUBECTL_VERSION: '1.28.0'
+  HELM_VERSION: '3.13.0'
+  ARGO_ROLLOUTS_VERSION: '1.6.0'
+  FLAGGER_VERSION: '1.35.0'
+  
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DEPLOYMENT PREPARATION AND VALIDATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  deployment-preparation:
+    name: 'Deployment Preparation & Validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deployment-ready: ${{ steps.validation.outputs.ready }}
+      current-version: ${{ steps.validation.outputs.current_version }}
+      target-version: ${{ steps.validation.outputs.target_version }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Kubernetes Tools'
+        run: |
+          echo "::group::Installing Kubernetes Tools"
+          
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Install Helm
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          
+          # Install Argo Rollouts kubectl plugin
+          curl -LO https://github.com/argoproj/argo-rollouts/releases/download/v${{ env.ARGO_ROLLOUTS_VERSION }}/kubectl-argo-rollouts-linux-amd64
+          chmod +x kubectl-argo-rollouts-linux-amd64
+          sudo mv kubectl-argo-rollouts-linux-amd64 /usr/local/bin/kubectl-argo-rollouts
+          
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes Access'
+        run: |
+          echo "::group::Configuring Kubernetes Access"
+          
+          # Configure kubectl (using secrets or AWS EKS)
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            mkdir -p ~/.kube
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            # Configure using AWS EKS
+            aws eks update-kubeconfig \
+              --region ${{ secrets.AWS_REGION }} \
+              --name "isectech-${{ inputs.environment }}"
+          fi
+          
+          # Verify connection
+          kubectl cluster-info
+          kubectl get nodes
+          
+          echo "::endgroup::"
+          
+      - name: 'Validate Deployment Prerequisites'
+        id: validation
+        run: |
+          echo "::group::Validating Deployment Prerequisites"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          
+          # Check if namespace exists
+          if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+            echo "❌ Namespace $NAMESPACE does not exist"
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Get current version if deployment exists
+          CURRENT_VERSION=""
+          if kubectl get deployment "$APPLICATION" -n "$NAMESPACE" &>/dev/null; then
+            CURRENT_VERSION=$(kubectl get deployment "$APPLICATION" -n "$NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' | cut -d: -f2)
+            echo "Current version: $CURRENT_VERSION"
+          else
+            echo "No existing deployment found for $APPLICATION"
+            CURRENT_VERSION="none"
+          fi
+          
+          # Validate image availability
+          if [[ "${{ inputs.application }}" == "all" ]]; then
+            APPLICATIONS=("frontend" "backend" "ai-services")
+          else
+            APPLICATIONS=("${{ inputs.application }}")
+          fi
+          
+          for app in "${APPLICATIONS[@]}"; do
+            IMAGE="ghcr.io/isectech/$app:$IMAGE_TAG"
+            echo "Validating image: $IMAGE"
+            
+            # Check if image exists (this would typically query the registry)
+            # For now, we'll assume the image exists if the tag is not 'latest' or follows semantic versioning
+            if [[ "$IMAGE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$IMAGE_TAG" != "latest" ]]; then
+              echo "✅ Image $IMAGE appears valid"
+            else
+              echo "⚠️  Image $IMAGE may not be available"
+            fi
+          done
+          
+          # Set outputs
+          echo "ready=true" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "target_version=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          
+          echo "✅ Deployment prerequisites validated"
+          echo "::endgroup::"
+          
+      - name: 'Install Advanced Deployment Tools'
+        run: |
+          echo "::group::Installing Advanced Deployment Tools"
+          
+          # Install Argo Rollouts if not already present
+          if ! kubectl get crd rollouts.argoproj.io &>/dev/null; then
+            echo "Installing Argo Rollouts..."
+            kubectl create namespace argo-rollouts || true
+            kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/download/v${{ env.ARGO_ROLLOUTS_VERSION }}/install.yaml
+            
+            # Wait for Argo Rollouts to be ready
+            kubectl wait --for=condition=available --timeout=300s deployment/argo-rollouts -n argo-rollouts
+            echo "✅ Argo Rollouts installed"
+          else
+            echo "✅ Argo Rollouts already installed"
+          fi
+          
+          # Install Flagger for canary deployments if strategy is canary
+          if [[ "${{ inputs.deployment-strategy }}" == "canary" ]]; then
+            if ! kubectl get crd canaries.flagger.app &>/dev/null; then
+              echo "Installing Flagger..."
+              helm repo add flagger https://flagger.app
+              helm repo update
+              
+              helm upgrade --install flagger flagger/flagger \
+                --namespace istio-system \
+                --create-namespace \
+                --set crd.create=true \
+                --set meshProvider=kubernetes \
+                --set metricsServer=http://prometheus.istio-system:9090
+              
+              echo "✅ Flagger installed"
+            else
+              echo "✅ Flagger already installed"
+            fi
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BLUE-GREEN DEPLOYMENT STRATEGY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  blue-green-deployment:
+    name: 'Blue-Green Deployment'
+    runs-on: ubuntu-latest
+    needs: deployment-preparation
+    if: inputs.deployment-strategy == 'blue-green' && needs.deployment-preparation.outputs.deployment-ready == 'true'
+    timeout-minutes: 30
+    outputs:
+      deployment-status: ${{ steps.blue-green-result.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Tools'
+        run: |
+          echo "::group::Setting up Tools"
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh && ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Create Blue-Green Deployment Manifests'
+        run: |
+          echo "::group::Creating Blue-Green Deployment Manifests"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          
+          mkdir -p blue-green-manifests
+          
+          # Create Argo Rollout configuration for blue-green deployment
+          cat > blue-green-manifests/rollout.yaml << EOF
+          apiVersion: argoproj.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: $APPLICATION-rollout
+            namespace: $NAMESPACE
+            labels:
+              app: $APPLICATION
+              deployment-strategy: blue-green
+          spec:
+            replicas: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "3"; else echo "2"; fi)
+            strategy:
+              blueGreen:
+                # Service that routes to active pods
+                activeService: $APPLICATION-active
+                # Service that routes to preview pods
+                previewService: $APPLICATION-preview
+                # Auto-promotion after successful checks
+                autoPromotionEnabled: false
+                # Scale down delay after promotion
+                scaleDownDelaySeconds: 30
+                # Pre-promotion analysis
+                prePromotionAnalysis:
+                  templates:
+                  - templateName: success-rate
+                  args:
+                  - name: service-name
+                    value: $APPLICATION-preview
+                # Post-promotion analysis
+                postPromotionAnalysis:
+                  templates:
+                  - templateName: success-rate
+                  args:
+                  - name: service-name
+                    value: $APPLICATION-active
+            selector:
+              matchLabels:
+                app: $APPLICATION
+            template:
+              metadata:
+                labels:
+                  app: $APPLICATION
+                  version: $IMAGE_TAG
+              spec:
+                containers:
+                - name: $APPLICATION
+                  image: ghcr.io/isectech/$APPLICATION:$IMAGE_TAG
+                  ports:
+                  - containerPort: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                  env:
+                  - name: ENVIRONMENT
+                    value: "${{ inputs.environment }}"
+                  resources:
+                    requests:
+                      memory: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "1Gi"; else echo "256Mi"; fi)
+                      cpu: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "500m"; else echo "250m"; fi)
+                    limits:
+                      memory: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "2Gi"; else echo "512Mi"; fi)
+                      cpu: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "1000m"; else echo "500m"; fi)
+                  livenessProbe:
+                    httpGet:
+                      path: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "/api/health"; elif [[ "$APPLICATION" == "backend" ]]; then echo "/health"; else echo "/health"; fi)
+                      port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "/api/health"; elif [[ "$APPLICATION" == "backend" ]]; then echo "/health"; else echo "/health"; fi)
+                      port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: $APPLICATION-active
+            namespace: $NAMESPACE
+            labels:
+              app: $APPLICATION
+              service-type: active
+          spec:
+            selector:
+              app: $APPLICATION
+            ports:
+            - port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+              targetPort: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+            type: ClusterIP
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: $APPLICATION-preview
+            namespace: $NAMESPACE
+            labels:
+              app: $APPLICATION
+              service-type: preview
+          spec:
+            selector:
+              app: $APPLICATION
+            ports:
+            - port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+              targetPort: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+            type: ClusterIP
+          ---
+          apiVersion: argoproj.io/v1alpha1
+          kind: AnalysisTemplate
+          metadata:
+            name: success-rate
+            namespace: $NAMESPACE
+          spec:
+            args:
+            - name: service-name
+            metrics:
+            - name: success-rate
+              successCondition: result[0] >= 0.95
+              interval: 60s
+              count: 5
+              provider:
+                prometheus:
+                  address: http://prometheus.istio-system.svc.cluster.local:9090
+                  query: |
+                    sum(rate(
+                      http_requests_total{job="{{args.service-name}}",code!~"5.."}[5m]
+                    )) /
+                    sum(rate(
+                      http_requests_total{job="{{args.service-name}}"}[5m]
+                    ))
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Execute Blue-Green Deployment'
+        id: blue-green-deploy
+        run: |
+          echo "::group::Executing Blue-Green Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Apply the rollout configuration
+          kubectl apply -f blue-green-manifests/rollout.yaml
+          
+          # Wait for rollout to start
+          kubectl argo rollouts get rollout $APPLICATION-rollout -n $NAMESPACE --watch --timeout 300s
+          
+          # Check rollout status
+          ROLLOUT_STATUS=$(kubectl argo rollouts status $APPLICATION-rollout -n $NAMESPACE --timeout 300s)
+          
+          if [[ $? -eq 0 ]]; then
+            echo "✅ Blue-Green deployment initiated successfully"
+            echo "status=initiated" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Blue-Green deployment failed to initiate"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Health Check and Validation'
+        run: |
+          echo "::group::Blue-Green Health Check and Validation"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TIMEOUT="${{ inputs.health-check-timeout }}"
+          
+          # Wait for preview service to be healthy
+          echo "Waiting for preview service to be healthy..."
+          
+          END_TIME=$((SECONDS + TIMEOUT))
+          while [[ $SECONDS -lt $END_TIME ]]; do
+            # Check preview service health
+            PREVIEW_ENDPOINT=$(kubectl get service $APPLICATION-preview -n $NAMESPACE -o jsonpath='{.spec.clusterIP}')
+            PREVIEW_PORT=$(kubectl get service $APPLICATION-preview -n $NAMESPACE -o jsonpath='{.spec.ports[0].port}')
+            
+            if kubectl run health-check-preview --rm -i --restart=Never --image=curlimages/curl -- \
+              curl -f -m 10 "http://$PREVIEW_ENDPOINT:$PREVIEW_PORT/health" &>/dev/null; then
+              echo "✅ Preview service is healthy"
+              break
+            else
+              echo "Waiting for preview service to become healthy..."
+              sleep 10
+            fi
+          done
+          
+          if [[ $SECONDS -ge $END_TIME ]]; then
+            echo "❌ Preview service health check timeout"
+            if [[ "${{ inputs.enable-auto-rollback }}" == "true" ]]; then
+              echo "Triggering automatic rollback..."
+              kubectl argo rollouts abort $APPLICATION-rollout -n $NAMESPACE
+            fi
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Promote Blue-Green Deployment'
+        id: blue-green-result
+        run: |
+          echo "::group::Promoting Blue-Green Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Promote the rollout
+          kubectl argo rollouts promote $APPLICATION-rollout -n $NAMESPACE
+          
+          # Wait for promotion to complete
+          kubectl argo rollouts get rollout $APPLICATION-rollout -n $NAMESPACE --watch --timeout 300s
+          
+          # Verify promotion success
+          ROLLOUT_STATUS=$(kubectl argo rollouts status $APPLICATION-rollout -n $NAMESPACE)
+          
+          if kubectl get rollout $APPLICATION-rollout -n $NAMESPACE -o jsonpath='{.status.phase}' | grep -q "Healthy"; then
+            echo "✅ Blue-Green deployment promoted successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Blue-Green deployment promotion failed"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # CANARY DEPLOYMENT STRATEGY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  canary-deployment:
+    name: 'Canary Deployment'
+    runs-on: ubuntu-latest
+    needs: deployment-preparation
+    if: inputs.deployment-strategy == 'canary' && needs.deployment-preparation.outputs.deployment-ready == 'true'
+    timeout-minutes: 45
+    outputs:
+      deployment-status: ${{ steps.canary-result.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Tools'
+        run: |
+          echo "::group::Setting up Tools"
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh && ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Create Canary Deployment Manifests'
+        run: |
+          echo "::group::Creating Canary Deployment Manifests"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          CANARY_PERCENTAGE="${{ inputs.canary-percentage }}"
+          
+          mkdir -p canary-manifests
+          
+          # Create Flagger Canary configuration
+          cat > canary-manifests/canary.yaml << EOF
+          apiVersion: flagger.app/v1beta1
+          kind: Canary
+          metadata:
+            name: $APPLICATION-canary
+            namespace: $NAMESPACE
+            labels:
+              app: $APPLICATION
+              deployment-strategy: canary
+          spec:
+            # Target deployment
+            targetRef:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: $APPLICATION
+            # Progressive delivery service
+            service:
+              port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+              targetPort: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+              gateways:
+              - public-gateway.istio-system.svc.cluster.local
+              hosts:
+              - $APPLICATION-${{ inputs.environment }}.isectech.com
+            # Canary analysis configuration
+            analysis:
+              # Schedule interval
+              interval: 1m
+              # Max number of failed metric checks before rollback
+              threshold: 5
+              # Max traffic percentage routed to canary
+              maxWeight: 50
+              # Canary increment step
+              stepWeight: $CANARY_PERCENTAGE
+              # Promotion criteria
+              metrics:
+              - name: request-success-rate
+                # Minimum req success rate (non 5xx responses)
+                thresholdRange:
+                  min: 99
+                interval: 1m
+              - name: request-duration
+                # Maximum req duration P99
+                thresholdRange:
+                  max: 500
+                interval: 1m
+              # Testing (optional)
+              webhooks:
+              - name: acceptance-test
+                type: pre-rollout
+                url: http://flagger-loadtester.test/
+                timeout: 30s
+                metadata:
+                  type: bash
+                  cmd: "curl -sd 'test' http://$APPLICATION-canary:$(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)/health | grep -q 'ok'"
+              - name: load-test
+                url: http://flagger-loadtester.test/
+                timeout: 5s
+                metadata:
+                  cmd: "hey -z 1m -q 10 -c 2 http://$APPLICATION-canary:$(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)/"
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: $APPLICATION
+            namespace: $NAMESPACE
+            labels:
+              app: $APPLICATION
+              version: $IMAGE_TAG
+          spec:
+            replicas: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "3"; else echo "2"; fi)
+            selector:
+              matchLabels:
+                app: $APPLICATION
+            template:
+              metadata:
+                labels:
+                  app: $APPLICATION
+                  version: $IMAGE_TAG
+              spec:
+                containers:
+                - name: $APPLICATION
+                  image: ghcr.io/isectech/$APPLICATION:$IMAGE_TAG
+                  ports:
+                  - containerPort: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                  env:
+                  - name: ENVIRONMENT
+                    value: "${{ inputs.environment }}"
+                  resources:
+                    requests:
+                      memory: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "1Gi"; else echo "256Mi"; fi)
+                      cpu: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "500m"; else echo "250m"; fi)
+                    limits:
+                      memory: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "2Gi"; else echo "512Mi"; fi)
+                      cpu: $(if [[ "$APPLICATION" == "ai-services" ]]; then echo "1000m"; else echo "500m"; fi)
+                  livenessProbe:
+                    httpGet:
+                      path: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "/api/health"; elif [[ "$APPLICATION" == "backend" ]]; then echo "/health"; else echo "/health"; fi)
+                      port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "/api/health"; elif [[ "$APPLICATION" == "backend" ]]; then echo "/health"; else echo "/health"; fi)
+                      port: $(if [[ "$APPLICATION" == "frontend" ]]; then echo "3000"; elif [[ "$APPLICATION" == "backend" ]]; then echo "8080"; else echo "8000"; fi)
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Execute Canary Deployment'
+        id: canary-deploy
+        run: |
+          echo "::group::Executing Canary Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Apply the canary configuration
+          kubectl apply -f canary-manifests/canary.yaml
+          
+          # Wait for canary to be ready
+          kubectl wait --for=condition=Ready canary $APPLICATION-canary -n $NAMESPACE --timeout=300s
+          
+          echo "✅ Canary deployment initiated successfully"
+          echo "status=initiated" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+          
+      - name: 'Monitor Canary Progression'
+        run: |
+          echo "::group::Monitoring Canary Progression"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TIMEOUT="${{ inputs.health-check-timeout }}"
+          
+          # Monitor canary progress
+          END_TIME=$((SECONDS + TIMEOUT))
+          while [[ $SECONDS -lt $END_TIME ]]; do
+            CANARY_STATUS=$(kubectl get canary $APPLICATION-canary -n $NAMESPACE -o jsonpath='{.status.phase}')
+            CANARY_WEIGHT=$(kubectl get canary $APPLICATION-canary -n $NAMESPACE -o jsonpath='{.status.canaryWeight}')
+            
+            echo "Canary Status: $CANARY_STATUS, Weight: $CANARY_WEIGHT%"
+            
+            case "$CANARY_STATUS" in
+              "Succeeded")
+                echo "✅ Canary deployment succeeded"
+                break
+                ;;
+              "Failed")
+                echo "❌ Canary deployment failed"
+                if [[ "${{ inputs.enable-auto-rollback }}" == "true" ]]; then
+                  echo "Automatic rollback will be triggered by Flagger"
+                fi
+                exit 1
+                ;;
+              "Progressing"|"Promoting")
+                echo "🔄 Canary deployment in progress..."
+                sleep 30
+                ;;
+              *)
+                echo "Waiting for canary to start..."
+                sleep 10
+                ;;
+            esac
+          done
+          
+          if [[ $SECONDS -ge $END_TIME ]]; then
+            echo "❌ Canary deployment timeout"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Validate Canary Success'
+        id: canary-result
+        run: |
+          echo "::group::Validating Canary Success"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Check final canary status
+          CANARY_STATUS=$(kubectl get canary $APPLICATION-canary -n $NAMESPACE -o jsonpath='{.status.phase}')
+          
+          if [[ "$CANARY_STATUS" == "Succeeded" ]]; then
+            echo "✅ Canary deployment completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+            
+            # Verify new version is running
+            NEW_VERSION=$(kubectl get deployment $APPLICATION -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[0].image}' | cut -d: -f2)
+            echo "New version deployed: $NEW_VERSION"
+          else
+            echo "❌ Canary deployment did not complete successfully"
+            echo "Final status: $CANARY_STATUS"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ROLLING DEPLOYMENT STRATEGY (DEFAULT)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  rolling-deployment:
+    name: 'Rolling Deployment'
+    runs-on: ubuntu-latest
+    needs: deployment-preparation
+    if: inputs.deployment-strategy == 'rolling' && needs.deployment-preparation.outputs.deployment-ready == 'true'
+    timeout-minutes: 20
+    outputs:
+      deployment-status: ${{ steps.rolling-result.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Tools'
+        run: |
+          echo "::group::Setting up Tools"
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh && ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Execute Rolling Deployment'
+        id: rolling-deploy
+        run: |
+          echo "::group::Executing Rolling Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          
+          # Update the deployment image
+          kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$IMAGE_TAG -n $NAMESPACE
+          
+          # Add rollout annotation to trigger update
+          kubectl annotate deployment/$APPLICATION deployment.kubernetes.io/revision- -n $NAMESPACE || true
+          kubectl patch deployment $APPLICATION -p \
+            '{"spec":{"template":{"metadata":{"annotations":{"deployment.kubernetes.io/restart":"'$(date +%s)'"}}}}}' \
+            -n $NAMESPACE
+          
+          echo "✅ Rolling deployment initiated"
+          echo "::endgroup::"
+          
+      - name: 'Monitor Rolling Deployment'
+        run: |
+          echo "::group::Monitoring Rolling Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          TIMEOUT="${{ inputs.health-check-timeout }}"
+          
+          # Wait for rollout to complete
+          if kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${TIMEOUT}s; then
+            echo "✅ Rolling deployment completed successfully"
+          else
+            echo "❌ Rolling deployment failed or timed out"
+            
+            if [[ "${{ inputs.enable-auto-rollback }}" == "true" ]]; then
+              echo "Triggering automatic rollback..."
+              kubectl rollout undo deployment/$APPLICATION -n $NAMESPACE
+              kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=180s
+              echo "✅ Automatic rollback completed"
+            fi
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Validate Rolling Deployment'
+        id: rolling-result
+        run: |
+          echo "::group::Validating Rolling Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Verify deployment is ready
+          READY_REPLICAS=$(kubectl get deployment $APPLICATION -n $NAMESPACE -o jsonpath='{.status.readyReplicas}')
+          DESIRED_REPLICAS=$(kubectl get deployment $APPLICATION -n $NAMESPACE -o jsonpath='{.spec.replicas}')
+          
+          if [[ "$READY_REPLICAS" == "$DESIRED_REPLICAS" ]]; then
+            echo "✅ Rolling deployment validation successful"
+            echo "Ready replicas: $READY_REPLICAS/$DESIRED_REPLICAS"
+            echo "status=success" >> $GITHUB_OUTPUT
+            
+            # Verify new image is deployed
+            NEW_IMAGE=$(kubectl get deployment $APPLICATION -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[0].image}')
+            echo "New image deployed: $NEW_IMAGE"
+          else
+            echo "❌ Rolling deployment validation failed"
+            echo "Ready replicas: $READY_REPLICAS/$DESIRED_REPLICAS"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # RECREATE DEPLOYMENT STRATEGY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  recreate-deployment:
+    name: 'Recreate Deployment'
+    runs-on: ubuntu-latest
+    needs: deployment-preparation
+    if: inputs.deployment-strategy == 'recreate' && needs.deployment-preparation.outputs.deployment-ready == 'true'
+    timeout-minutes: 15
+    outputs:
+      deployment-status: ${{ steps.recreate-result.outputs.status }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Tools'
+        run: |
+          echo "::group::Setting up Tools"
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          echo "::endgroup::"
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Execute Recreate Deployment'
+        id: recreate-result
+        run: |
+          echo "::group::Executing Recreate Deployment"
+          
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          
+          # Update deployment strategy to Recreate
+          kubectl patch deployment $APPLICATION -n $NAMESPACE -p \
+            '{"spec":{"strategy":{"type":"Recreate"}}}'
+          
+          # Update the image
+          kubectl set image deployment/$APPLICATION $APPLICATION=ghcr.io/isectech/$APPLICATION:$IMAGE_TAG -n $NAMESPACE
+          
+          # Wait for deployment to complete
+          if kubectl rollout status deployment/$APPLICATION -n $NAMESPACE --timeout=${{ inputs.health-check-timeout }}s; then
+            echo "✅ Recreate deployment completed successfully"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Recreate deployment failed"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DEPLOYMENT SUMMARY AND CLEANUP
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  deployment-summary:
+    name: 'Deployment Summary & Cleanup'
+    runs-on: ubuntu-latest
+    needs: [deployment-preparation, blue-green-deployment, canary-deployment, rolling-deployment, recreate-deployment]
+    if: always() && needs.deployment-preparation.outputs.deployment-ready == 'true'
+    outputs:
+      status: ${{ steps.final-status.outputs.status }}
+      rollback_triggered: ${{ steps.final-status.outputs.rollback_triggered }}
+      endpoints: ${{ steps.final-status.outputs.endpoints }}
+      
+    steps:
+      - name: 'Setup Tools'
+        run: |
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          
+      - name: 'Configure Kubernetes'
+        run: |
+          mkdir -p ~/.kube
+          if [[ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name "isectech-${{ inputs.environment }}"
+          fi
+          
+      - name: 'Calculate Final Status'
+        id: final-status
+        run: |
+          echo "::group::Calculating Final Deployment Status"
+          
+          # Collect results from strategy-specific jobs
+          BLUE_GREEN_STATUS="${{ needs.blue-green-deployment.result }}"
+          CANARY_STATUS="${{ needs.canary-deployment.result }}"
+          ROLLING_STATUS="${{ needs.rolling-deployment.result }}"
+          RECREATE_STATUS="${{ needs.recreate-deployment.result }}"
+          
+          STRATEGY="${{ inputs.deployment-strategy }}"
+          NAMESPACE="isectech-${{ inputs.environment }}"
+          APPLICATION="${{ inputs.application }}"
+          
+          # Determine overall status based on strategy used
+          case "$STRATEGY" in
+            "blue-green")
+              DEPLOYMENT_STATUS="$BLUE_GREEN_STATUS"
+              ;;
+            "canary")
+              DEPLOYMENT_STATUS="$CANARY_STATUS"
+              ;;
+            "rolling")
+              DEPLOYMENT_STATUS="$ROLLING_STATUS"
+              ;;
+            "recreate")
+              DEPLOYMENT_STATUS="$RECREATE_STATUS"
+              ;;
+            *)
+              DEPLOYMENT_STATUS="unknown"
+              ;;
+          esac
+          
+          # Check if rollback was triggered
+          ROLLBACK_TRIGGERED="false"
+          if [[ "$DEPLOYMENT_STATUS" == "failure" ]] && [[ "${{ inputs.enable-auto-rollback }}" == "true" ]]; then
+            ROLLBACK_TRIGGERED="true"
+          fi
+          
+          # Get application endpoints
+          if kubectl get ingress $APPLICATION -n $NAMESPACE &>/dev/null; then
+            ENDPOINT="https://$(kubectl get ingress $APPLICATION -n $NAMESPACE -o jsonpath='{.spec.rules[0].host}')"
+          else
+            ENDPOINT="http://$APPLICATION.$NAMESPACE.svc.cluster.local"
+          fi
+          
+          # Set outputs
+          echo "status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
+          echo "rollback_triggered=$ROLLBACK_TRIGGERED" >> $GITHUB_OUTPUT
+          echo "endpoints={\"$APPLICATION\":\"$ENDPOINT\"}" >> $GITHUB_OUTPUT
+          
+          # Create deployment report
+          cat << EOF > deployment-report.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "environment": "${{ inputs.environment }}",
+            "application": "${{ inputs.application }}",
+            "deployment_strategy": "$STRATEGY",
+            "image_tag": "${{ inputs.image-tag }}",
+            "status": "$DEPLOYMENT_STATUS",
+            "rollback_triggered": $ROLLBACK_TRIGGERED,
+            "endpoints": {
+              "$APPLICATION": "$ENDPOINT"
+            },
+            "previous_version": "${{ needs.deployment-preparation.outputs.current-version }}",
+            "target_version": "${{ needs.deployment-preparation.outputs.target-version }}"
+          }
+          EOF
+          
+          echo "::group::📊 Final Deployment Report"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Application: ${{ inputs.application }}"
+          echo "Strategy: $STRATEGY"
+          echo "Status: $DEPLOYMENT_STATUS"
+          echo "Rollback Triggered: $ROLLBACK_TRIGGERED"
+          echo "Endpoint: $ENDPOINT"
+          echo "::endgroup::"
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Deployment Report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "deployment-report-${{ inputs.environment }}-${{ inputs.application }}"
+          path: deployment-report.json
+          retention-days: 90

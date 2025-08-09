@@ -1,0 +1,1194 @@
+# iSECTECH Infrastructure as Code and Deployment Automation
+# Comprehensive infrastructure provisioning and application deployment
+
+name: 'Infrastructure & Deployment'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (development, staging, production)'
+      action:
+        required: true
+        type: string
+        description: 'Action to perform (plan, apply, deploy, destroy)'
+      infrastructure-stack:
+        required: false
+        type: string
+        default: 'kubernetes'
+        description: 'Infrastructure stack (kubernetes, serverless, hybrid)'
+      deployment-strategy:
+        required: false
+        type: string
+        default: 'rolling'
+        description: 'Deployment strategy (blue-green, canary, rolling)'
+      auto-approve:
+        required: false
+        type: boolean
+        default: false
+        description: 'Auto-approve infrastructure changes'
+    outputs:
+      deployment-status:
+        description: "Overall deployment status"
+        value: ${{ jobs.deployment-summary.outputs.status }}
+      infrastructure-status:
+        description: "Infrastructure provisioning status"
+        value: ${{ jobs.terraform-apply.outputs.status }}
+      application-endpoints:
+        description: "Deployed application endpoints"
+        value: ${{ jobs.deployment-summary.outputs.endpoints }}
+
+env:
+  TERRAFORM_VERSION: '1.6.0'
+  KUBECTL_VERSION: '1.28.0'
+  HELM_VERSION: '3.13.0'
+  AWS_REGION: 'us-west-2'
+  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+  
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE VALIDATION AND PLANNING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  terraform-plan:
+    name: 'Terraform Infrastructure Planning'
+    runs-on: ubuntu-latest
+    if: inputs.action == 'plan' || inputs.action == 'apply'
+    timeout-minutes: 30
+    outputs:
+      plan-status: ${{ steps.plan-result.outputs.status }}
+      changes-detected: ${{ steps.plan-result.outputs.changes }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+          
+      - name: 'Configure AWS Credentials'
+        if: contains(inputs.infrastructure-stack, 'aws')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          
+      - name: 'Create Terraform Configuration'
+        run: |
+          echo "::group::Creating Terraform Infrastructure Configuration"
+          
+          # Create main Terraform configuration
+          mkdir -p infrastructure/terraform/environments/${{ inputs.environment }}
+          
+          cat > infrastructure/terraform/main.tf << 'EOF'
+          # iSECTECH Infrastructure as Code
+          # Production-grade Kubernetes infrastructure with security hardening
+          
+          terraform {
+            required_version = ">= 1.6.0"
+            required_providers {
+              aws = {
+                source  = "hashicorp/aws"
+                version = "~> 5.0"
+              }
+              kubernetes = {
+                source  = "hashicorp/kubernetes"
+                version = "~> 2.20"
+              }
+              helm = {
+                source  = "hashicorp/helm"
+                version = "~> 2.10"
+              }
+              random = {
+                source  = "hashicorp/random"
+                version = "~> 3.5"
+              }
+            }
+            
+            backend "s3" {
+              bucket         = "isectech-terraform-state-${var.environment}"
+              key            = "infrastructure/terraform.tfstate"
+              region         = var.aws_region
+              encrypt        = true
+              dynamodb_table = "isectech-terraform-locks"
+            }
+          }
+          
+          # Provider Configuration
+          provider "aws" {
+            region = var.aws_region
+            
+            default_tags {
+              tags = {
+                Project     = "iSECTECH"
+                Environment = var.environment
+                ManagedBy   = "Terraform"
+                Team        = "DevOps"
+                CostCenter  = "Infrastructure"
+              }
+            }
+          }
+          
+          provider "kubernetes" {
+            host                   = module.eks.cluster_endpoint
+            cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+            token                  = data.aws_eks_cluster_auth.cluster.token
+          }
+          
+          provider "helm" {
+            kubernetes {
+              host                   = module.eks.cluster_endpoint
+              cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+              token                  = data.aws_eks_cluster_auth.cluster.token
+            }
+          }
+          
+          # Data Sources
+          data "aws_eks_cluster_auth" "cluster" {
+            name = module.eks.cluster_name
+          }
+          
+          data "aws_availability_zones" "available" {
+            state = "available"
+          }
+          
+          # Local Values
+          locals {
+            cluster_name = "isectech-${var.environment}"
+            
+            common_tags = {
+              Project     = "iSECTECH"
+              Environment = var.environment
+              ManagedBy   = "Terraform"
+            }
+            
+            vpc_cidr = var.environment == "production" ? "10.0.0.0/16" : "10.1.0.0/16"
+            
+            azs = slice(data.aws_availability_zones.available.names, 0, 3)
+          }
+          EOF
+          
+          # Create variables configuration
+          cat > infrastructure/terraform/variables.tf << 'EOF'
+          variable "environment" {
+            description = "Environment name"
+            type        = string
+            validation {
+              condition     = contains(["development", "staging", "production"], var.environment)
+              error_message = "Environment must be development, staging, or production."
+            }
+          }
+          
+          variable "aws_region" {
+            description = "AWS region"
+            type        = string
+            default     = "us-west-2"
+          }
+          
+          variable "cluster_version" {
+            description = "Kubernetes cluster version"
+            type        = string
+            default     = "1.28"
+          }
+          
+          variable "node_instance_types" {
+            description = "Instance types for worker nodes"
+            type        = list(string)
+            default     = ["t3.medium", "t3.large"]
+          }
+          
+          variable "min_size" {
+            description = "Minimum number of worker nodes"
+            type        = number
+            default     = 2
+          }
+          
+          variable "max_size" {
+            description = "Maximum number of worker nodes"  
+            type        = number
+            default     = 10
+          }
+          
+          variable "desired_size" {
+            description = "Desired number of worker nodes"
+            type        = number
+            default     = 3
+          }
+          
+          variable "enable_monitoring" {
+            description = "Enable cluster monitoring"
+            type        = bool
+            default     = true
+          }
+          
+          variable "enable_logging" {
+            description = "Enable cluster logging"
+            type        = bool
+            default     = true
+          }
+          EOF
+          
+          # Create EKS module configuration
+          cat > infrastructure/terraform/eks.tf << 'EOF'
+          module "eks" {
+            source  = "terraform-aws-modules/eks/aws"
+            version = "~> 19.0"
+          
+            cluster_name    = local.cluster_name
+            cluster_version = var.cluster_version
+          
+            vpc_id                         = module.vpc.vpc_id
+            subnet_ids                     = module.vpc.private_subnets
+            cluster_endpoint_public_access = true
+            cluster_endpoint_private_access = true
+            
+            cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+            
+            cluster_addons = {
+              coredns = {
+                most_recent = true
+              }
+              kube-proxy = {
+                most_recent = true
+              }
+              vpc-cni = {
+                most_recent = true
+              }
+              aws-ebs-csi-driver = {
+                most_recent = true
+              }
+            }
+          
+            eks_managed_node_groups = {
+              main = {
+                name = "${local.cluster_name}-main"
+                
+                instance_types = var.node_instance_types
+                
+                min_size     = var.min_size
+                max_size     = var.max_size
+                desired_size = var.desired_size
+                
+                ami_type       = "AL2_x86_64"
+                capacity_type  = "ON_DEMAND"
+                
+                update_config = {
+                  max_unavailable_percentage = 25
+                }
+                
+                labels = {
+                  Environment = var.environment
+                  NodeGroup   = "main"
+                }
+                
+                tags = local.common_tags
+              }
+              
+              spot = {
+                name = "${local.cluster_name}-spot"
+                
+                instance_types = ["t3.medium", "t3.large", "m5.large"]
+                
+                min_size     = 0
+                max_size     = 5
+                desired_size = var.environment == "production" ? 2 : 1
+                
+                ami_type      = "AL2_x86_64"
+                capacity_type = "SPOT"
+                
+                labels = {
+                  Environment = var.environment
+                  NodeGroup   = "spot"
+                }
+                
+                taints = {
+                  spot = {
+                    key    = "spot-instance"
+                    value  = "true"
+                    effect = "NO_SCHEDULE"
+                  }
+                }
+                
+                tags = merge(local.common_tags, {
+                  "k8s.io/cluster-autoscaler/node-template/label/spot" = "true"
+                })
+              }
+            }
+          
+            # Cluster security group additional rules
+            cluster_security_group_additional_rules = {
+              ingress_nodes_ephemeral_ports_tcp = {
+                description                = "Node groups to cluster API"
+                protocol                   = "tcp"
+                from_port                  = 1025
+                to_port                    = 65535
+                type                       = "ingress"
+                source_node_security_group = true
+              }
+            }
+          
+            # Node security group additional rules
+            node_security_group_additional_rules = {
+              ingress_self_all = {
+                description = "Node to node all ports/protocols"
+                protocol    = "-1"
+                from_port   = 0
+                to_port     = 0
+                type        = "ingress"
+                self        = true
+              }
+              
+              egress_all = {
+                description      = "Node group egress"
+                protocol         = "-1"
+                from_port        = 0
+                to_port          = 0
+                type             = "egress"
+                cidr_blocks      = ["0.0.0.0/0"]
+                ipv6_cidr_blocks = ["::/0"]
+              }
+            }
+          
+            tags = local.common_tags
+          }
+          EOF
+          
+          # Create VPC configuration
+          cat > infrastructure/terraform/vpc.tf << 'EOF'
+          module "vpc" {
+            source  = "terraform-aws-modules/vpc/aws"
+            version = "~> 5.0"
+          
+            name = "${local.cluster_name}-vpc"
+            cidr = local.vpc_cidr
+          
+            azs             = local.azs
+            private_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k)]
+            public_subnets  = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k + 4)]
+          
+            enable_nat_gateway     = true
+            single_nat_gateway     = var.environment != "production"
+            enable_vpn_gateway     = false
+            enable_dns_hostnames   = true
+            enable_dns_support     = true
+          
+            # Kubernetes-specific tags
+            public_subnet_tags = {
+              "kubernetes.io/role/elb" = "1"
+              "kubernetes.io/cluster/${local.cluster_name}" = "owned"
+            }
+          
+            private_subnet_tags = {
+              "kubernetes.io/role/internal-elb" = "1"
+              "kubernetes.io/cluster/${local.cluster_name}" = "owned"
+            }
+          
+            tags = local.common_tags
+          }
+          EOF
+          
+          # Create outputs
+          cat > infrastructure/terraform/outputs.tf << 'EOF'
+          output "cluster_endpoint" {
+            description = "Endpoint for EKS control plane"
+            value       = module.eks.cluster_endpoint
+          }
+          
+          output "cluster_security_group_id" {
+            description = "Security group ids attached to the cluster control plane"
+            value       = module.eks.cluster_security_group_id
+          }
+          
+          output "cluster_name" {
+            description = "Kubernetes Cluster Name"
+            value       = module.eks.cluster_name
+          }
+          
+          output "cluster_certificate_authority_data" {
+            description = "Base64 encoded certificate data required to communicate with the cluster"
+            value       = module.eks.cluster_certificate_authority_data
+          }
+          
+          output "vpc_id" {
+            description = "ID of the VPC where the cluster is deployed"
+            value       = module.vpc.vpc_id
+          }
+          
+          output "private_subnets" {
+            description = "List of IDs of private subnets"
+            value       = module.vpc.private_subnets
+          }
+          
+          output "public_subnets" {
+            description = "List of IDs of public subnets"
+            value       = module.vpc.public_subnets
+          }
+          EOF
+          
+          # Create environment-specific tfvars
+          cat > infrastructure/terraform/environments/${{ inputs.environment }}/terraform.tfvars << EOF
+          environment = "${{ inputs.environment }}"
+          aws_region  = "${{ env.AWS_REGION }}"
+          
+          cluster_version = "1.28"
+          
+          # Environment-specific sizing
+          $(if [[ "${{ inputs.environment }}" == "production" ]]; then
+            echo 'node_instance_types = ["m5.large", "m5.xlarge"]'
+            echo 'min_size = 3'
+            echo 'max_size = 20'
+            echo 'desired_size = 6'
+          elif [[ "${{ inputs.environment }}" == "staging" ]]; then
+            echo 'node_instance_types = ["t3.medium", "t3.large"]'
+            echo 'min_size = 2'
+            echo 'max_size = 8'
+            echo 'desired_size = 3'
+          else
+            echo 'node_instance_types = ["t3.small", "t3.medium"]'
+            echo 'min_size = 1'
+            echo 'max_size = 4'
+            echo 'desired_size = 2'
+          fi)
+          
+          enable_monitoring = true
+          enable_logging    = true
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Terraform Format Check'
+        run: |
+          echo "::group::Terraform Format Validation"
+          cd infrastructure/terraform
+          terraform fmt -check -recursive
+          echo "::endgroup::"
+          
+      - name: 'Terraform Init'
+        run: |
+          echo "::group::Terraform Initialization"
+          cd infrastructure/terraform
+          terraform init \
+            -backend-config="bucket=isectech-terraform-state-${{ inputs.environment }}" \
+            -backend-config="key=infrastructure/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+          echo "::endgroup::"
+          
+      - name: 'Terraform Validate'
+        run: |
+          echo "::group::Terraform Configuration Validation"
+          cd infrastructure/terraform
+          terraform validate
+          echo "::endgroup::"
+          
+      - name: 'Terraform Plan'
+        id: plan
+        run: |
+          echo "::group::Terraform Infrastructure Planning"
+          cd infrastructure/terraform
+          
+          terraform plan \
+            -var-file="environments/${{ inputs.environment }}/terraform.tfvars" \
+            -out="tfplan-${{ inputs.environment }}" \
+            -detailed-exitcode
+          
+          PLAN_EXIT_CODE=$?
+          
+          # Save plan output for review
+          terraform show -json "tfplan-${{ inputs.environment }}" > "tfplan-${{ inputs.environment }}.json"
+          terraform show "tfplan-${{ inputs.environment }}" > "tfplan-${{ inputs.environment }}.txt"
+          
+          echo "plan_exit_code=$PLAN_EXIT_CODE" >> $GITHUB_ENV
+          echo "::endgroup::"
+          
+      - name: 'Process Plan Results'
+        id: plan-result
+        run: |
+          echo "::group::Processing Terraform Plan Results"
+          
+          case "${{ env.plan_exit_code }}" in
+            0)
+              echo "status=no-changes" >> $GITHUB_OUTPUT
+              echo "changes=false" >> $GITHUB_OUTPUT
+              echo "✅ No infrastructure changes detected"
+              ;;
+            1)
+              echo "status=error" >> $GITHUB_OUTPUT
+              echo "changes=false" >> $GITHUB_OUTPUT
+              echo "❌ Terraform plan failed"
+              exit 1
+              ;;
+            2)
+              echo "status=changes-detected" >> $GITHUB_OUTPUT
+              echo "changes=true" >> $GITHUB_OUTPUT
+              echo "📋 Infrastructure changes detected"
+              ;;
+          esac
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Terraform Plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "terraform-plan-${{ inputs.environment }}"
+          path: |
+            infrastructure/terraform/tfplan-${{ inputs.environment }}*
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE PROVISIONING
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  terraform-apply:
+    name: 'Terraform Infrastructure Apply'
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: inputs.action == 'apply' && (needs.terraform-plan.outputs.changes-detected == 'true' || inputs.auto-approve)
+    timeout-minutes: 60
+    outputs:
+      status: ${{ steps.apply-result.outputs.status }}
+      cluster-endpoint: ${{ steps.apply-result.outputs.cluster_endpoint }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+          
+      - name: 'Configure AWS Credentials'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          
+      - name: 'Download Terraform Plan'
+        uses: actions/download-artifact@v4
+        with:
+          name: "terraform-plan-${{ inputs.environment }}"
+          path: infrastructure/terraform/
+          
+      - name: 'Terraform Init'
+        run: |
+          echo "::group::Terraform Initialization for Apply"
+          cd infrastructure/terraform
+          terraform init \
+            -backend-config="bucket=isectech-terraform-state-${{ inputs.environment }}" \
+            -backend-config="key=infrastructure/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+          echo "::endgroup::"
+          
+      - name: 'Terraform Apply'
+        id: apply
+        run: |
+          echo "::group::Applying Terraform Infrastructure Changes"
+          cd infrastructure/terraform
+          
+          if [[ "${{ inputs.auto-approve }}" == "true" ]]; then
+            terraform apply -auto-approve "tfplan-${{ inputs.environment }}"
+          else
+            terraform apply "tfplan-${{ inputs.environment }}"
+          fi
+          
+          # Capture outputs
+          terraform output -json > terraform-outputs.json
+          
+          echo "::endgroup::"
+          
+      - name: 'Process Apply Results'
+        id: apply-result
+        run: |
+          echo "::group::Processing Terraform Apply Results"
+          
+          cd infrastructure/terraform
+          
+          if [[ -f "terraform-outputs.json" ]]; then
+            CLUSTER_ENDPOINT=$(jq -r '.cluster_endpoint.value' terraform-outputs.json)
+            CLUSTER_NAME=$(jq -r '.cluster_name.value' terraform-outputs.json)
+            
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "cluster_endpoint=$CLUSTER_ENDPOINT" >> $GITHUB_OUTPUT
+            echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+            
+            echo "✅ Infrastructure successfully provisioned"
+            echo "Cluster Endpoint: $CLUSTER_ENDPOINT"
+            echo "Cluster Name: $CLUSTER_NAME"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Infrastructure provisioning failed"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Terraform State'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "terraform-outputs-${{ inputs.environment }}"
+          path: |
+            infrastructure/terraform/terraform-outputs.json
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # KUBERNETES CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  kubernetes-setup:
+    name: 'Kubernetes Cluster Configuration'
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    if: always() && (needs.terraform-apply.outputs.status == 'success' || inputs.action == 'deploy')
+    timeout-minutes: 30
+    
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Kubernetes Tools'
+        run: |
+          echo "::group::Installing Kubernetes Tools"
+          
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Install Helm
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          
+          echo "::endgroup::"
+          
+      - name: 'Configure kubectl'
+        run: |
+          echo "::group::Configuring kubectl"
+          
+          # Configure kubeconfig from secrets or terraform output
+          if [[ -n "${{ env.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ env.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            # Configure using AWS EKS
+            aws eks update-kubeconfig \
+              --region ${{ env.AWS_REGION }} \
+              --name "isectech-${{ inputs.environment }}"
+          fi
+          
+          # Verify cluster connection
+          kubectl cluster-info
+          kubectl get nodes
+          
+          echo "::endgroup::"
+          
+      - name: 'Create Kubernetes Manifests'
+        run: |
+          echo "::group::Creating Kubernetes Manifests"
+          
+          mkdir -p infrastructure/kubernetes/manifests
+          
+          # Create namespace
+          cat > infrastructure/kubernetes/manifests/namespace.yaml << 'EOF'
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: isectech-${{ inputs.environment }}
+            labels:
+              name: isectech-${{ inputs.environment }}
+              environment: ${{ inputs.environment }}
+              managed-by: terraform
+          ---
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: isectech-monitoring
+            labels:
+              name: isectech-monitoring
+              environment: ${{ inputs.environment }}
+              managed-by: terraform
+          EOF
+          
+          # Create RBAC configuration
+          cat > infrastructure/kubernetes/manifests/rbac.yaml << 'EOF'
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: isectech-deployer
+            namespace: isectech-${{ inputs.environment }}
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: isectech-deployer
+          rules:
+          - apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
+            verbs: ["*"]
+          - apiGroups: ["apps"]
+            resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+            verbs: ["*"]
+          - apiGroups: ["extensions"]
+            resources: ["deployments", "ingresses"]
+            verbs: ["*"]
+          - apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses", "networkpolicies"]
+            verbs: ["*"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: isectech-deployer
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: isectech-deployer
+          subjects:
+          - kind: ServiceAccount
+            name: isectech-deployer
+            namespace: isectech-${{ inputs.environment }}
+          EOF
+          
+          # Create network policies
+          cat > infrastructure/kubernetes/manifests/network-policy.yaml << 'EOF'
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: isectech-network-policy
+            namespace: isectech-${{ inputs.environment }}
+          spec:
+            podSelector: {}
+            policyTypes:
+            - Ingress
+            - Egress
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchLabels:
+                    name: isectech-${{ inputs.environment }}
+              - namespaceSelector:
+                  matchLabels:
+                    name: isectech-monitoring
+            egress:
+            - {}
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Apply Kubernetes Base Configuration'
+        run: |
+          echo "::group::Applying Kubernetes Base Configuration"
+          
+          # Apply manifests
+          kubectl apply -f infrastructure/kubernetes/manifests/
+          
+          # Wait for namespace to be ready
+          kubectl wait --for=condition=Active --timeout=60s namespace/isectech-${{ inputs.environment }}
+          kubectl wait --for=condition=Active --timeout=60s namespace/isectech-monitoring
+          
+          echo "✅ Kubernetes base configuration applied"
+          echo "::endgroup::"
+          
+      - name: 'Install Core Helm Charts'
+        run: |
+          echo "::group::Installing Core Helm Charts"
+          
+          # Add required Helm repositories
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add cert-manager https://charts.jetstack.io
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          
+          # Install NGINX Ingress Controller
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --set controller.metrics.enabled=true \
+            --wait
+          
+          # Install cert-manager for TLS
+          helm upgrade --install cert-manager cert-manager/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --set installCRDs=true \
+            --wait
+          
+          # Install monitoring stack (if not production - use separate workflow for production)
+          if [[ "${{ inputs.environment }}" != "production" ]]; then
+            helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+              --namespace isectech-monitoring \
+              --set grafana.adminPassword=admin123 \
+              --set prometheus.prometheusSpec.retention=7d \
+              --wait
+          fi
+          
+          echo "✅ Core Helm charts installed"
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # APPLICATION DEPLOYMENT
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  application-deployment:
+    name: 'Application Deployment'
+    runs-on: ubuntu-latest
+    needs: [kubernetes-setup]
+    if: inputs.action == 'deploy'
+    timeout-minutes: 45
+    outputs:
+      deployment-status: ${{ steps.deploy-result.outputs.status }}
+      frontend-endpoint: ${{ steps.deploy-result.outputs.frontend_endpoint }}
+      backend-endpoint: ${{ steps.deploy-result.outputs.backend_endpoint }}
+      
+    steps:
+      - name: 'Checkout Code'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Deployment Tools'
+        run: |
+          echo "::group::Setting up Deployment Tools"
+          
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/v${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Install Helm
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh --version v${{ env.HELM_VERSION }}
+          
+          echo "::endgroup::"
+          
+      - name: 'Configure kubectl'
+        run: |
+          echo "::group::Configuring kubectl for Deployment"
+          
+          if [[ -n "${{ env.KUBE_CONFIG_DATA }}" ]]; then
+            echo "${{ env.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            aws eks update-kubeconfig \
+              --region ${{ env.AWS_REGION }} \
+              --name "isectech-${{ inputs.environment }}"
+          fi
+          
+          kubectl cluster-info
+          echo "::endgroup::"
+          
+      - name: 'Create Helm Charts'
+        run: |
+          echo "::group::Creating Helm Charts for iSECTECH Applications"
+          
+          # Create Helm chart structure
+          mkdir -p infrastructure/helm/isectech/{templates,charts}
+          
+          # Create Chart.yaml
+          cat > infrastructure/helm/isectech/Chart.yaml << 'EOF'
+          apiVersion: v2
+          name: isectech
+          description: iSECTECH Cybersecurity Platform
+          type: application
+          version: 1.0.0
+          appVersion: "1.0.0"
+          maintainers:
+            - name: iSECTECH DevOps Team
+              email: devops@isectech.com
+          EOF
+          
+          # Create values.yaml
+          cat > infrastructure/helm/isectech/values.yaml << 'EOF'
+          # Global configuration
+          global:
+            environment: ${{ inputs.environment }}
+            registry: ghcr.io/isectech
+            pullPolicy: Always
+            
+          # Frontend configuration
+          frontend:
+            enabled: true
+            image:
+              repository: frontend
+              tag: latest
+            replicaCount: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "3"; else echo "2"; fi)
+            service:
+              type: ClusterIP
+              port: 3000
+            ingress:
+              enabled: true
+              className: nginx
+              host: ${{ inputs.environment }}.isectech.com
+              tls:
+                enabled: true
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "250m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+                
+          # Backend configuration  
+          backend:
+            enabled: true
+            image:
+              repository: backend
+              tag: latest
+            replicaCount: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "3"; else echo "2"; fi)
+            service:
+              type: ClusterIP
+              port: 8080
+            ingress:
+              enabled: true
+              className: nginx
+              host: api-${{ inputs.environment }}.isectech.com
+              tls:
+                enabled: true
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "500m"
+              limits:
+                memory: "1Gi"
+                cpu: "1000m"
+                
+          # AI Services configuration
+          aiServices:
+            enabled: true
+            image:
+              repository: ai-services
+              tag: latest
+            replicaCount: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "2"; else echo "1"; fi)
+            service:
+              type: ClusterIP
+              port: 8000
+            resources:
+              requests:
+                memory: "1Gi"
+                cpu: "1000m"
+              limits:
+                memory: "2Gi"
+                cpu: "2000m"
+                
+          # Database configuration
+          postgresql:
+            enabled: true
+            auth:
+              database: isectech
+              username: isectech
+              existingSecret: postgres-secret
+            primary:
+              persistence:
+                enabled: true
+                size: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "100Gi"; else echo "20Gi"; fi)
+                
+          # Redis configuration
+          redis:
+            enabled: true
+            auth:
+              enabled: true
+              existingSecret: redis-secret
+            master:
+              persistence:
+                enabled: true
+                size: $(if [[ "${{ inputs.environment }}" == "production" ]]; then echo "20Gi"; else echo "8Gi"; fi)
+          EOF
+          
+          # Create deployment templates
+          cat > infrastructure/helm/isectech/templates/frontend-deployment.yaml << 'EOF'
+          {{- if .Values.frontend.enabled }}
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: {{ include "isectech.fullname" . }}-frontend
+            labels:
+              app.kubernetes.io/component: frontend
+          spec:
+            replicas: {{ .Values.frontend.replicaCount }}
+            strategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 1
+                maxSurge: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/component: frontend
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/component: frontend
+              spec:
+                containers:
+                - name: frontend
+                  image: "{{ .Values.global.registry }}/{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+                  imagePullPolicy: {{ .Values.global.pullPolicy }}
+                  ports:
+                  - containerPort: 3000
+                  env:
+                  - name: NODE_ENV
+                    value: {{ .Values.global.environment }}
+                  - name: NEXT_PUBLIC_API_URL
+                    value: "https://api-{{ .Values.global.environment }}.isectech.com"
+                  resources:
+                    {{- toYaml .Values.frontend.resources | nindent 12 }}
+                  livenessProbe:
+                    httpGet:
+                      path: /api/health
+                      port: 3000
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: /api/health
+                      port: 3000
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+          {{- end }}
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Deploy Application with Helm'
+        id: deploy
+        run: |
+          echo "::group::Deploying iSECTECH Application"
+          
+          # Add required Helm repositories for dependencies
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          
+          # Deploy or upgrade the application
+          helm upgrade --install isectech infrastructure/helm/isectech \
+            --namespace isectech-${{ inputs.environment }} \
+            --create-namespace \
+            --set global.environment=${{ inputs.environment }} \
+            --set global.registry=ghcr.io/isectech \
+            --timeout 15m \
+            --wait
+          
+          echo "✅ Application deployed successfully"
+          echo "::endgroup::"
+          
+      - name: 'Verify Deployment'
+        id: deploy-result
+        run: |
+          echo "::group::Verifying Application Deployment"
+          
+          # Wait for deployments to be ready
+          kubectl wait --for=condition=available --timeout=300s deployment \
+            -l app.kubernetes.io/instance=isectech \
+            -n isectech-${{ inputs.environment }}
+          
+          # Get service endpoints
+          FRONTEND_ENDPOINT=$(kubectl get ingress -n isectech-${{ inputs.environment }} -o jsonpath='{.items[?(@.metadata.name=="isectech-frontend")].spec.rules[0].host}' 2>/dev/null || echo "")
+          BACKEND_ENDPOINT=$(kubectl get ingress -n isectech-${{ inputs.environment }} -o jsonpath='{.items[?(@.metadata.name=="isectech-backend")].spec.rules[0].host}' 2>/dev/null || echo "")
+          
+          if [[ -z "$FRONTEND_ENDPOINT" ]]; then
+            FRONTEND_ENDPOINT="${{ inputs.environment }}.isectech.com"
+          fi
+          
+          if [[ -z "$BACKEND_ENDPOINT" ]]; then
+            BACKEND_ENDPOINT="api-${{ inputs.environment }}.isectech.com"
+          fi
+          
+          # Set outputs
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "frontend_endpoint=https://$FRONTEND_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "backend_endpoint=https://$BACKEND_ENDPOINT" >> $GITHUB_OUTPUT
+          
+          echo "✅ Deployment verification successful"
+          echo "Frontend: https://$FRONTEND_ENDPOINT"
+          echo "Backend: https://$BACKEND_ENDPOINT"
+          
+          echo "::endgroup::"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DEPLOYMENT SUMMARY
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  deployment-summary:
+    name: 'Deployment Summary'
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, terraform-apply, kubernetes-setup, application-deployment]
+    if: always()
+    outputs:
+      status: ${{ steps.overall-status.outputs.status }}
+      endpoints: ${{ steps.overall-status.outputs.endpoints }}
+      
+    steps:
+      - name: 'Calculate Overall Status'
+        id: overall-status
+        run: |
+          echo "::group::Calculating Overall Deployment Status"
+          
+          # Collect results from all jobs
+          TERRAFORM_PLAN_STATUS="${{ needs.terraform-plan.result }}"
+          TERRAFORM_APPLY_STATUS="${{ needs.terraform-apply.result }}"
+          KUBERNETES_SETUP_STATUS="${{ needs.kubernetes-setup.result }}"
+          APPLICATION_DEPLOYMENT_STATUS="${{ needs.application-deployment.result }}"
+          
+          # Get endpoints
+          FRONTEND_ENDPOINT="${{ needs.application-deployment.outputs.frontend-endpoint }}"
+          BACKEND_ENDPOINT="${{ needs.application-deployment.outputs.backend-endpoint }}"
+          
+          # Determine overall status
+          if [[ "$APPLICATION_DEPLOYMENT_STATUS" == "success" ]]; then
+            OVERALL_STATUS="success"
+            echo "✅ Full deployment pipeline successful"
+          elif [[ "$TERRAFORM_APPLY_STATUS" == "success" ]] && [[ "$KUBERNETES_SETUP_STATUS" == "success" ]]; then
+            OVERALL_STATUS="partial"
+            echo "⚠️  Infrastructure ready, application deployment incomplete"
+          elif [[ "$TERRAFORM_PLAN_STATUS" == "success" ]]; then
+            OVERALL_STATUS="planned"
+            echo "📋 Infrastructure planned, not yet applied"
+          else
+            OVERALL_STATUS="failed"
+            echo "❌ Deployment pipeline failed"
+          fi
+          
+          # Create endpoints JSON
+          ENDPOINTS_JSON="{\"frontend\":\"$FRONTEND_ENDPOINT\",\"backend\":\"$BACKEND_ENDPOINT\"}"
+          
+          # Set outputs
+          echo "status=$OVERALL_STATUS" >> $GITHUB_OUTPUT
+          echo "endpoints=$ENDPOINTS_JSON" >> $GITHUB_OUTPUT
+          
+          # Create summary report
+          cat << EOF > deployment-summary.json
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "environment": "${{ inputs.environment }}",
+            "action": "${{ inputs.action }}",
+            "overall_status": "$OVERALL_STATUS",
+            "job_results": {
+              "terraform_plan": "$TERRAFORM_PLAN_STATUS",
+              "terraform_apply": "$TERRAFORM_APPLY_STATUS", 
+              "kubernetes_setup": "$KUBERNETES_SETUP_STATUS",
+              "application_deployment": "$APPLICATION_DEPLOYMENT_STATUS"
+            },
+            "endpoints": {
+              "frontend": "$FRONTEND_ENDPOINT",
+              "backend": "$BACKEND_ENDPOINT"
+            }
+          }
+          EOF
+          
+          echo "::endgroup::"
+          
+      - name: 'Upload Deployment Report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "deployment-summary-${{ inputs.environment }}"
+          path: deployment-summary.json
+          retention-days: 90

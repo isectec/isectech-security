@@ -1,0 +1,461 @@
+// iSECTECH Security Agent Protocol Definitions
+// Production-grade message schemas for secure agent communication
+// Copyright (c) 2024 iSECTECH. All rights reserved.
+
+syntax = "proto3";
+
+package isectech.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/isectech/security-platform/agent/proto";
+option java_package = "com.isectech.agent.proto";
+option java_outer_classname = "AgentProto";
+option csharp_namespace = "ISECTech.Agent.Proto";
+
+// Core agent communication service
+service AgentCommunicationService {
+    // Bidirectional streaming for real-time communication
+    rpc EstablishSecureChannel(stream AgentMessage) returns (stream BackendMessage);
+    
+    // Agent enrollment and authentication
+    rpc EnrollAgent(EnrollmentRequest) returns (EnrollmentResponse);
+    
+    // Heartbeat and health reporting
+    rpc SendHeartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    
+    // Security event reporting
+    rpc ReportSecurityEvents(SecurityEventBatch) returns (EventAcknowledgment);
+    
+    // Policy updates and commands
+    rpc ReceivePolicyUpdates(PolicyRequest) returns (stream PolicyUpdate);
+    
+    // Agent update management
+    rpc CheckForUpdates(UpdateCheckRequest) returns (UpdateCheckResponse);
+    
+    // Emergency communication channel
+    rpc EmergencyAlert(EmergencyAlertRequest) returns (EmergencyAlertResponse);
+}
+
+// Agent-to-backend message wrapper
+message AgentMessage {
+    string agent_id = 1;
+    string message_id = 2; // UUID for message tracking
+    google.protobuf.Timestamp timestamp = 3;
+    MessageType type = 4;
+    google.protobuf.Any payload = 5;
+    MessageSecurity security = 6;
+    
+    enum MessageType {
+        MESSAGE_TYPE_UNSPECIFIED = 0;
+        MESSAGE_TYPE_HEARTBEAT = 1;
+        MESSAGE_TYPE_SECURITY_EVENT = 2;
+        MESSAGE_TYPE_TELEMETRY = 3;
+        MESSAGE_TYPE_ALERT = 4;
+        MESSAGE_TYPE_STATUS_UPDATE = 5;
+        MESSAGE_TYPE_EMERGENCY = 6;
+    }
+}
+
+// Backend-to-agent message wrapper
+message BackendMessage {
+    string target_agent_id = 1;
+    string message_id = 2;
+    string correlation_id = 3; // Links to agent message if response
+    google.protobuf.Timestamp timestamp = 4;
+    CommandType type = 5;
+    google.protobuf.Any payload = 6;
+    MessageSecurity security = 7;
+    
+    enum CommandType {
+        COMMAND_TYPE_UNSPECIFIED = 0;
+        COMMAND_TYPE_POLICY_UPDATE = 1;
+        COMMAND_TYPE_ENFORCEMENT_ACTION = 2;
+        COMMAND_TYPE_CONFIGURATION_UPDATE = 3;
+        COMMAND_TYPE_UPDATE_AGENT = 4;
+        COMMAND_TYPE_SHUTDOWN = 5;
+        COMMAND_TYPE_INVESTIGATE = 6;
+        COMMAND_TYPE_QUARANTINE = 7;
+    }
+}
+
+// Message security metadata
+message MessageSecurity {
+    string signature = 1; // Ed25519 signature
+    string hash = 2; // SHA-256 hash
+    uint64 sequence_number = 3; // Replay protection
+    string encryption_key_id = 4; // Key rotation support
+    SecurityLevel level = 5;
+    
+    enum SecurityLevel {
+        SECURITY_LEVEL_UNSPECIFIED = 0;
+        SECURITY_LEVEL_LOW = 1;
+        SECURITY_LEVEL_MEDIUM = 2;
+        SECURITY_LEVEL_HIGH = 3;
+        SECURITY_LEVEL_CRITICAL = 4;
+    }
+}
+
+// Agent enrollment request
+message EnrollmentRequest {
+    string enrollment_token = 1;
+    AgentMetadata metadata = 2;
+    string public_key = 3; // Ed25519 public key
+    string csr = 4; // Certificate signing request
+    SecurityCapabilities capabilities = 5;
+}
+
+// Agent enrollment response
+message EnrollmentResponse {
+    bool success = 1;
+    string agent_id = 2;
+    string client_certificate = 3; // X.509 certificate
+    string ca_certificate = 4; // Root CA certificate
+    repeated string intermediate_certificates = 5;
+    EnrollmentError error = 6;
+    PolicySet initial_policies = 7;
+    
+    enum EnrollmentError {
+        ENROLLMENT_ERROR_NONE = 0;
+        ENROLLMENT_ERROR_INVALID_TOKEN = 1;
+        ENROLLMENT_ERROR_INVALID_CSR = 2;
+        ENROLLMENT_ERROR_QUOTA_EXCEEDED = 3;
+        ENROLLMENT_ERROR_UNAUTHORIZED = 4;
+        ENROLLMENT_ERROR_INTERNAL = 5;
+    }
+}
+
+// Agent metadata
+message AgentMetadata {
+    string hostname = 1;
+    string operating_system = 2;
+    string architecture = 3;
+    string agent_version = 4;
+    string kernel_version = 5;
+    repeated string ip_addresses = 6;
+    repeated string mac_addresses = 7;
+    string domain = 8;
+    string organization_unit = 9;
+    map<string, string> custom_attributes = 10;
+    ResourceInfo resources = 11;
+    SecurityContext security_context = 12;
+}
+
+// Security capabilities
+message SecurityCapabilities {
+    bool supports_tpm = 1;
+    bool supports_secure_boot = 2;
+    bool supports_hardware_attestation = 3;
+    bool supports_ebpf = 4;
+    bool supports_etw = 5;
+    bool supports_endpoint_security = 6;
+    repeated string supported_collectors = 7;
+    repeated string supported_enforcement_actions = 8;
+    TrustLevel trust_level = 9;
+    
+    enum TrustLevel {
+        TRUST_LEVEL_UNKNOWN = 0;
+        TRUST_LEVEL_UNTRUSTED = 1;
+        TRUST_LEVEL_BASIC = 2;
+        TRUST_LEVEL_ENHANCED = 3;
+        TRUST_LEVEL_HIGH_ASSURANCE = 4;
+    }
+}
+
+// Resource information
+message ResourceInfo {
+    uint64 total_memory_mb = 1;
+    uint64 available_memory_mb = 2;
+    uint32 cpu_cores = 3;
+    uint64 disk_space_mb = 4;
+    double cpu_usage_percent = 5;
+    double memory_usage_percent = 6;
+}
+
+// Security context
+message SecurityContext {
+    string user_context = 1;
+    repeated string user_groups = 2;
+    repeated string privileges = 3;
+    bool is_admin = 4;
+    bool is_system = 5;
+    string security_domain = 6;
+}
+
+// Heartbeat request
+message HeartbeatRequest {
+    string agent_id = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    AgentStatus status = 3;
+    ResourceUsage resource_usage = 4;
+    repeated CollectorStatus collector_status = 5;
+    uint64 events_processed = 6;
+    uint64 threats_detected = 7;
+    uint64 actions_taken = 8;
+}
+
+// Heartbeat response
+message HeartbeatResponse {
+    bool acknowledged = 1;
+    google.protobuf.Timestamp server_timestamp = 2;
+    repeated BackendMessage pending_commands = 3;
+    PolicyUpdateNotification policy_updates = 4;
+    ConfigurationHint configuration_hint = 5;
+}
+
+// Agent status
+message AgentStatus {
+    AgentState state = 1;
+    google.protobuf.Timestamp last_policy_update = 2;
+    google.protobuf.Timestamp last_configuration_update = 3;
+    string version = 4;
+    HealthStatus health = 5;
+    
+    enum AgentState {
+        AGENT_STATE_UNKNOWN = 0;
+        AGENT_STATE_INITIALIZING = 1;
+        AGENT_STATE_RUNNING = 2;
+        AGENT_STATE_UPDATING = 3;
+        AGENT_STATE_ERROR = 4;
+        AGENT_STATE_OFFLINE = 5;
+        AGENT_STATE_QUARANTINED = 6;
+    }
+    
+    enum HealthStatus {
+        HEALTH_STATUS_UNKNOWN = 0;
+        HEALTH_STATUS_HEALTHY = 1;
+        HEALTH_STATUS_DEGRADED = 2;
+        HEALTH_STATUS_UNHEALTHY = 3;
+        HEALTH_STATUS_CRITICAL = 4;
+    }
+}
+
+// Resource usage
+message ResourceUsage {
+    double cpu_percent = 1;
+    uint64 memory_mb = 2;
+    uint64 disk_mb = 3;
+    uint64 network_kbps = 4;
+    uint32 open_file_descriptors = 5;
+    uint32 active_threads = 6;
+}
+
+// Collector status
+message CollectorStatus {
+    string collector_type = 1;
+    bool is_running = 2;
+    bool is_healthy = 3;
+    google.protobuf.Timestamp last_update = 4;
+    uint64 events_collected = 5;
+    uint64 errors_count = 6;
+    string last_error = 7;
+}
+
+// Security event batch
+message SecurityEventBatch {
+    string agent_id = 1;
+    repeated SecurityEvent events = 2;
+    BatchMetadata metadata = 3;
+}
+
+// Individual security event
+message SecurityEvent {
+    string event_id = 1;
+    string agent_id = 2;
+    EventType event_type = 3;
+    Severity severity = 4;
+    google.protobuf.Timestamp timestamp = 5;
+    string source = 6;
+    string description = 7;
+    map<string, string> attributes = 8;
+    bytes raw_data = 9; // Encrypted event data
+    string data_hash = 10; // Integrity verification
+    ThreatIndicators threat_indicators = 11;
+    
+    enum EventType {
+        EVENT_TYPE_UNKNOWN = 0;
+        EVENT_TYPE_PROCESS_CREATION = 1;
+        EVENT_TYPE_PROCESS_TERMINATION = 2;
+        EVENT_TYPE_NETWORK_CONNECTION = 3;
+        EVENT_TYPE_FILE_ACCESS = 4;
+        EVENT_TYPE_FILE_MODIFICATION = 5;
+        EVENT_TYPE_REGISTRY_MODIFICATION = 6;
+        EVENT_TYPE_USER_LOGIN = 7;
+        EVENT_TYPE_USER_LOGOUT = 8;
+        EVENT_TYPE_PRIVILEGE_ESCALATION = 9;
+        EVENT_TYPE_SUSPICIOUS_ACTIVITY = 10;
+        EVENT_TYPE_MALWARE_DETECTION = 11;
+        EVENT_TYPE_POLICY_VIOLATION = 12;
+        EVENT_TYPE_CONFIGURATION_CHANGE = 13;
+        EVENT_TYPE_SYSTEM_ANOMALY = 14;
+    }
+    
+    enum Severity {
+        SEVERITY_UNKNOWN = 0;
+        SEVERITY_INFO = 1;
+        SEVERITY_LOW = 2;
+        SEVERITY_MEDIUM = 3;
+        SEVERITY_HIGH = 4;
+        SEVERITY_CRITICAL = 5;
+    }
+}
+
+// Threat indicators
+message ThreatIndicators {
+    repeated string iocs = 1; // Indicators of compromise
+    repeated string mitre_tactics = 2; // MITRE ATT&CK tactics
+    repeated string mitre_techniques = 3; // MITRE ATT&CK techniques
+    double risk_score = 4; // 0.0 to 1.0
+    string threat_category = 5;
+    bool is_false_positive = 6;
+}
+
+// Batch metadata
+message BatchMetadata {
+    uint32 event_count = 1;
+    google.protobuf.Timestamp batch_start_time = 2;
+    google.protobuf.Timestamp batch_end_time = 3;
+    string compression_algorithm = 4;
+    uint64 compressed_size = 5;
+    uint64 uncompressed_size = 6;
+}
+
+// Event acknowledgment
+message EventAcknowledgment {
+    bool success = 1;
+    repeated string processed_event_ids = 2;
+    repeated EventProcessingError errors = 3;
+    google.protobuf.Timestamp processed_timestamp = 4;
+}
+
+// Event processing error
+message EventProcessingError {
+    string event_id = 1;
+    string error_code = 2;
+    string error_message = 3;
+    bool is_retryable = 4;
+}
+
+// Policy update structures
+message PolicyRequest {
+    string agent_id = 1;
+    google.protobuf.Timestamp last_policy_version = 2;
+    repeated string policy_types = 3;
+}
+
+message PolicyUpdate {
+    string policy_id = 1;
+    string policy_name = 2;
+    PolicyType policy_type = 3;
+    string version = 4;
+    google.protobuf.Timestamp effective_date = 5;
+    bytes policy_content = 6; // Encrypted policy data
+    string content_hash = 7;
+    string signature = 8;
+    
+    enum PolicyType {
+        POLICY_TYPE_UNKNOWN = 0;
+        POLICY_TYPE_SECURITY = 1;
+        POLICY_TYPE_COMPLIANCE = 2;
+        POLICY_TYPE_CONFIGURATION = 3;
+        POLICY_TYPE_ENFORCEMENT = 4;
+        POLICY_TYPE_DATA_COLLECTION = 5;
+    }
+}
+
+message PolicySet {
+    repeated PolicyUpdate policies = 1;
+    string set_version = 2;
+    google.protobuf.Timestamp created_at = 3;
+}
+
+message PolicyUpdateNotification {
+    repeated string updated_policy_ids = 1;
+    bool force_update = 2;
+    google.protobuf.Timestamp deadline = 3;
+}
+
+// Configuration hint
+message ConfigurationHint {
+    map<string, string> suggested_settings = 1;
+    repeated string deprecated_settings = 2;
+    string configuration_version = 3;
+}
+
+// Agent update structures
+message UpdateCheckRequest {
+    string agent_id = 1;
+    string current_version = 2;
+    string update_channel = 3; // stable, beta, dev
+    string platform = 4;
+    string architecture = 5;
+}
+
+message UpdateCheckResponse {
+    bool update_available = 1;
+    UpdateInfo update_info = 2;
+    bool force_update = 3;
+    google.protobuf.Timestamp update_deadline = 4;
+}
+
+message UpdateInfo {
+    string version = 1;
+    string download_url = 2;
+    string checksum = 3;
+    string signature = 4;
+    uint64 file_size = 5;
+    repeated string release_notes = 6;
+    bool is_critical = 7;
+    repeated string compatibility_requirements = 8;
+}
+
+// Emergency alert structures
+message EmergencyAlertRequest {
+    string agent_id = 1;
+    AlertType alert_type = 2;
+    string alert_message = 3;
+    google.protobuf.Timestamp alert_timestamp = 4;
+    map<string, string> context_data = 5;
+    repeated string affected_resources = 6;
+    
+    enum AlertType {
+        ALERT_TYPE_UNKNOWN = 0;
+        ALERT_TYPE_SECURITY_BREACH = 1;
+        ALERT_TYPE_MALWARE_DETECTED = 2;
+        ALERT_TYPE_SYSTEM_COMPROMISE = 3;
+        ALERT_TYPE_DATA_EXFILTRATION = 4;
+        ALERT_TYPE_PRIVILEGE_ESCALATION = 5;
+        ALERT_TYPE_AGENT_TAMPERING = 6;
+        ALERT_TYPE_NETWORK_INTRUSION = 7;
+    }
+}
+
+message EmergencyAlertResponse {
+    bool acknowledged = 1;
+    string incident_id = 2;
+    repeated EmergencyAction immediate_actions = 3;
+    ContactInfo emergency_contact = 4;
+}
+
+message EmergencyAction {
+    ActionType action_type = 1;
+    string action_description = 2;
+    map<string, string> action_parameters = 3;
+    uint32 priority = 4;
+    
+    enum ActionType {
+        ACTION_TYPE_ISOLATE_NETWORK = 0;
+        ACTION_TYPE_QUARANTINE_FILES = 1;
+        ACTION_TYPE_TERMINATE_PROCESSES = 2;
+        ACTION_TYPE_LOCK_USER_SESSIONS = 3;
+        ACTION_TYPE_COLLECT_FORENSICS = 4;
+        ACTION_TYPE_ESCALATE_TO_SOC = 5;
+    }
+}
+
+message ContactInfo {
+    string incident_hotline = 1;
+    string escalation_email = 2;
+    string on_call_engineer = 3;
+}

@@ -1,0 +1,321 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-honeypot
+  namespace: deception
+  labels:
+    app: api-honeypot
+    honeypot-type: api
+    security.isectech.com/deception: "true"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: api-honeypot
+  template:
+    metadata:
+      labels:
+        app: api-honeypot
+        honeypot-type: api
+      annotations:
+        security.isectech.com/purpose: "api-deception"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: honeypot-service-account
+      containers:
+      - name: api-honeypot
+        image: isectech/api-honeypot:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http-api
+          protocol: TCP
+        - containerPort: 8443
+          name: https-api
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: HONEYPOT_TYPE
+          value: "api"
+        - name: HONEYPOT_MODE
+          value: "production"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ALERT_WEBHOOK
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: alert.webhook.url
+        - name: SIEM_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: deception-config
+              key: siem.endpoint
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: honeypot-secrets
+              key: encryption.key
+        - name: API_SIGNATURES
+          value: |
+            [
+              {
+                "path": "/api/v1/users",
+                "methods": ["GET", "POST"],
+                "auth_required": true,
+                "response_template": "users_response.json"
+              },
+              {
+                "path": "/api/v1/auth/login",
+                "methods": ["POST"],
+                "auth_required": false,
+                "response_template": "login_response.json"
+              },
+              {
+                "path": "/api/v1/admin/users",
+                "methods": ["GET", "POST", "PUT", "DELETE"],
+                "auth_required": true,
+                "admin_required": true,
+                "response_template": "admin_users_response.json"
+              },
+              {
+                "path": "/api/v1/tenants",
+                "methods": ["GET"],
+                "auth_required": true,
+                "response_template": "tenants_response.json"
+              },
+              {
+                "path": "/api/v1/security/alerts",
+                "methods": ["GET", "POST"],
+                "auth_required": true,
+                "response_template": "alerts_response.json"
+              }
+            ]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: response-templates
+          mountPath: /etc/honeypot/templates
+          readOnly: true
+        - name: logs-volume
+          mountPath: /var/log/honeypot
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: response-templates
+        configMap:
+          name: api-honeypot-templates
+      - name: logs-volume
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - api-honeypot
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-honeypot-service
+  namespace: deception
+  labels:
+    app: api-honeypot
+    service-type: honeypot
+spec:
+  selector:
+    app: api-honeypot
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-honeypot-templates
+  namespace: deception
+  labels:
+    app: api-honeypot
+data:
+  users_response.json: |
+    {
+      "users": [
+        {
+          "id": "usr_7f8a9b2c4d1e5f6g",
+          "email": "admin@isectech.com",
+          "name": "Security Admin",
+          "role": "admin",
+          "tenant_id": "tenant_main",
+          "last_login": "2024-01-15T10:30:00Z",
+          "permissions": ["read", "write", "admin"]
+        },
+        {
+          "id": "usr_3e4f5g6h7i8j9k0l",
+          "email": "analyst@isectech.com", 
+          "name": "Security Analyst",
+          "role": "analyst",
+          "tenant_id": "tenant_main",
+          "last_login": "2024-01-15T09:45:00Z",
+          "permissions": ["read", "write"]
+        }
+      ],
+      "total": 2,
+      "page": 1,
+      "per_page": 10
+    }
+  login_response.json: |
+    {
+      "success": true,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfN2Y4YTliMmM0ZDFlNWY2ZyIsImVtYWlsIjoiYWRtaW5AaXNlY3RlY2guY29tIiwicm9sZSI6ImFkbWluIiwiaWF0IjoxNzA1MzE4MjAwLCJleHAiOjE3MDUzMjE4MDB9.fake_signature_for_honeypot",
+      "refresh_token": "rt_9c8b7a6d5f4e3g2h1i0j",
+      "expires_in": 3600,
+      "user": {
+        "id": "usr_7f8a9b2c4d1e5f6g",
+        "email": "admin@isectech.com",
+        "name": "Security Admin",
+        "role": "admin"
+      }
+    }
+  admin_users_response.json: |
+    {
+      "admin_users": [
+        {
+          "id": "usr_7f8a9b2c4d1e5f6g",
+          "email": "admin@isectech.com",
+          "name": "Security Admin",
+          "role": "super_admin",
+          "permissions": ["all"],
+          "api_key": "sk_live_a1b2c3d4e5f6g7h8i9j0",
+          "last_login": "2024-01-15T10:30:00Z",
+          "login_attempts": 1,
+          "account_status": "active"
+        },
+        {
+          "id": "usr_1a2b3c4d5e6f7g8h",
+          "email": "root@isectech.com",
+          "name": "System Administrator",
+          "role": "system_admin",
+          "permissions": ["system", "infrastructure"],
+          "api_key": "sk_live_z9y8x7w6v5u4t3s2r1q0",
+          "last_login": "2024-01-14T16:20:00Z",
+          "login_attempts": 3,
+          "account_status": "active"
+        }
+      ]
+    }
+  tenants_response.json: |
+    {
+      "tenants": [
+        {
+          "id": "tenant_main",
+          "name": "isectech Security Platform",
+          "domain": "isectech.com",
+          "status": "active",
+          "plan": "enterprise",
+          "users_count": 45,
+          "api_calls_today": 12847,
+          "storage_used_gb": 234.5
+        },
+        {
+          "id": "tenant_demo",
+          "name": "Demo Environment",
+          "domain": "demo.isectech.com",
+          "status": "active",
+          "plan": "trial",
+          "users_count": 5,
+          "api_calls_today": 892,
+          "storage_used_gb": 12.3
+        }
+      ]
+    }
+  alerts_response.json: |
+    {
+      "alerts": [
+        {
+          "id": "alert_critical_001",
+          "severity": "critical",
+          "title": "Suspected Data Exfiltration",
+          "description": "Unusual data transfer patterns detected",
+          "status": "open",
+          "created_at": "2024-01-15T10:15:00Z",
+          "affected_systems": ["api-gateway", "database"],
+          "source_ip": "192.168.1.100",
+          "confidence": 0.95
+        },
+        {
+          "id": "alert_high_002",
+          "severity": "high", 
+          "title": "Failed Authentication Attempts",
+          "description": "Multiple failed login attempts from same IP",
+          "status": "investigating",
+          "created_at": "2024-01-15T09:30:00Z",
+          "affected_systems": ["auth-service"],
+          "source_ip": "203.0.113.45",
+          "confidence": 0.87
+        }
+      ],
+      "total": 2,
+      "page": 1,
+      "per_page": 10
+    }

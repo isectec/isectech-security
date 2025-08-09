@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "isectech-protech-project",
+  "private_key_id": "b21b77ed7971bcb6ba1f77226b36367f7f7be44e",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCt2Yuar6oVXShH\noZ9xeZZPHP3hRSsd3WzeW4MnYZ6IrzNj1iPJXT7X8bPp8IWOL94S+jV0p1TtiXaE\nZ8xFyeO5QkUx4u5/4e4RbDJDMekRElodmLkqLg6BHKXjMG0xm/SEFd/k12WGD6pK\n28FsMWTCMZQpDNL2u0Q33ub+7VftodYg1m8/iCat7MnyEfytC6XYuho41j/zHRfl\nhrlYUWJeoA0ZbXSrw60qn4pMmt4HZeD7nrSE6Y6a91hHkC8FowbaA2YdVqWdjSRD\nhmvcbV+1zMmhQRIMgLZFBu8kRZxhwjoDlvh2JVw5a2brN+jmHpz/i4rcZBDjb8YP\nIuDe7dl9AgMBAAECggEADj7xDqhDErnDLuN9R5+EA/rx3uombK2+rxXmpcJ9FYxD\nH3TmZ9Nz7oly3xeuNLGSzBFOx2ldhJLVcGd6Y2RLfIcurmDUfww00ElXxmPU9ROA\n6O32i7tMcE4Nqz6bpAtjOl5PLixsYv5DoRtoOoUYUZrIc6Nbt4uEPTkkdVKzotg+\nP4+J500VYq587Tc610ddpnymb/cg+bBYrugO3nGF9QCJj4fAKmEan1t08LYMABo4\neo9J8P7q42oftosFTZvDSpgYQGlf1YS4iWHKcTBizuEhWVrIOiPqgGm335sUb2yq\n35b91XEtfXblcl2AdP2Lissuzfvs+L2+ejheWtLpjQKBgQDxcD0fz9kdJ6UnakEe\n45I4/VLuehx1wQLyMtRbF4NAo7Ee/MlAYuSyqt5DXrGor7yukSwtSpG9y7ZiSevC\nZ6xUybAoyUTD7oRDqA0/UtD4C6YeomX/tpotSRTQ6zc9QnQsZNXyjy9XWBt9QpB/\njVivGt+y00QsinKXvr/phlkXuwKBgQC4VcBYX7sk7f+T3M2Cyzps+ayxNKHxLpdP\nIGFXUTNcvFLt6wC6nEuZ0dJkXXUt3fuCjvD8o8MwNjgGV2Js78bjVjjCON5W4DgF\nCaMpwf78NJXqzTW6DkM8tqfqQ4ebyABq4XtHUMlK6FEoB5DjZ4TNs0h4+aEHu+6l\nsg1rief0JwKBgHFz2IU2WkPE+WqIF4m4TmHRSEMfxnfe9s9w6zDS365kPTredoN2\n9RiwCjmGKd2mlvdA6I1v2QRi0ZVmPw7fQK+nBsxjp5iaYDSap372H5QvhSQoE94R\npGlbShjSLubub0DdMVwFxK06jdBSkywc82t1KWESvZpghHCiBfRqWTs5AoGAMux1\no7RmpfAd8AJKv/xW2q4q+BV7O37MjC581bt3/gGEw3dtjyAIfqkJf3KWIaK2jb3h\nc1nmXVZNKetQJJolDr7OFVHSkpuEvleIPMv8Hj6EwAYK9qhkCMzJHJ2lQ/L/socy\nIGSAB3KgoPdeHoSFmrIRrmIAC3vulNXYgUHq03cCgYBJgsNzDEZ8o0YXfV/Fp+IS\nXYCkFptS+Aqu4LbpOiLfxp/xoPNHZtavKQik0y7sOJKeKAqRnQi+DXBcjbQxy6pE\nwwjl/fRseQR8f8xgo3x3GhrxhhDM7XL3rpjPanVcpLE4QRfpXvjtHKZ1mKvsqKpc\n6eTBqjs5PRFKKNj0zzk6wg==\n-----END PRIVATE KEY-----\n",
+  "client_email": "monitoring-sa@isectech-protech-project.iam.gserviceaccount.com",
+  "client_id": "102910546545894686452",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/monitoring-sa%40isectech-protech-project.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
