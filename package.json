@@ -36,7 +36,6 @@
     "test:pact:consumer": "jest --testNamePattern=pact",
     "test:pact:provider": "npm run pact:verify",
     "test:load": "k6 run __tests__/performance/load-test.js",
-    "test:load:artillery": "artillery run __tests__/performance/artillery-config.yml",
     "pact:publish": "pact-broker publish pacts --consumer-app-version=$npm_package_version",
     "pact:verify": "pact verify --provider-base-url=http://localhost:8080",
     "storybook": "storybook dev -p 6006",
@@ -54,9 +53,9 @@
     "docs:watch": "nodemon --watch 'app/api/*.json' --watch 'backend/*.json' --ext json --exec 'npm run docs:generate'"
   },
   "dependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "next": "15.4.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "next": "^15.4.5",
     "@mui/material": "^5.15.10",
     "@mui/icons-material": "^5.15.10",
     "@mui/x-charts": "^6.19.5",
@@ -147,7 +146,6 @@
     "@pact-foundation/pact-node": "^10.17.7",
     "jest-pact": "^0.11.0",
     "k6": "^0.0.0",
-    "artillery": "^2.0.11",
     "@redocly/cli": "^1.6.0",
     "@stoplight/spectral-cli": "^6.11.0",
     "swagger-parser": "^10.0.3",
