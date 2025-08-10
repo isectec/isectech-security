@@ -2,7 +2,7 @@ steps:
   # Install dependencies using Node 22 to avoid npm version issues
   - name: 'node:22'
     entrypoint: npm  
-    args: ['ci', '--no-audit', '--no-fund']
+    args: ['install', '--no-audit', '--no-fund']
     env:
       - 'NPM_CONFIG_LOGLEVEL=warn'
       - 'NPM_CONFIG_PROGRESS=false'
