@@ -1,7 +1,7 @@
-# iSECTECH Frontend Application - Production-Grade Dockerfile
+# iSECTECH Frontend Application - Production-Grade Dockerfile with BuildKit
 # Multi-stage build for optimal security, performance, and size
 # Author: Claude Code - iSECTECH Infrastructure Team
-# Version: 2.0.0
+# Version: 2.0.1 - BuildKit Enhanced
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BASE STAGE - Common Node.js setup with security hardening
@@ -12,8 +12,8 @@ FROM node:20-alpine AS base
 # Security and operational labels
 LABEL maintainer="iSECTECH Infrastructure Team <infrastructure@isectech.com>" \
   name="isectech-frontend" \
-  version="2.0.0" \
-  description="iSECTECH Security Platform Frontend Application" \
+  version="2.0.1" \
+  description="iSECTECH Security Platform Frontend Application (BuildKit Enhanced)" \
   vendor="iSECTECH" \
   architecture="amd64" \
   security.scan="true" \
@@ -53,7 +53,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
   NPM_CONFIG_LOGLEVEL=warn
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DEPENDENCIES STAGE - Install production dependencies
+# DEPENDENCIES STAGE - Install production dependencies with BuildKit caching
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FROM base AS deps
@@ -61,8 +61,10 @@ FROM base AS deps
 # Copy package files for dependency installation
 COPY package.json package-lock.json* ./
 
-# Install production dependencies with security and performance optimizations
-RUN npm install --only=production --legacy-peer-deps --no-audit --no-fund --omit=optional --prefer-offline && \
+# Install production dependencies with BuildKit cache mount for optimal performance
+RUN --mount=type=cache,target=/tmp/.npm,sharing=locked \
+  --mount=type=cache,target=/app/.npm,sharing=locked \
+  npm install --only=production --legacy-peer-deps --no-audit --no-fund --omit=optional --prefer-offline && \
   npm cache clean --force
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -74,8 +76,10 @@ FROM base AS deps-dev
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install all dependencies including dev dependencies
-RUN npm install --legacy-peer-deps --no-audit --no-fund --prefer-offline
+# Install all dependencies including dev dependencies with BuildKit cache mount
+RUN --mount=type=cache,target=/tmp/.npm,sharing=locked \
+  --mount=type=cache,target=/app/.npm,sharing=locked \
+  npm install --legacy-peer-deps --no-audit --no-fund --prefer-offline
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY AUDIT STAGE - Security vulnerability scanning
@@ -105,7 +109,7 @@ COPY --chown=isectech:isectech . .
 
 # Build arguments for version and configuration
 ARG BUILD_DATE
-ARG BUILD_VERSION=2.0.0
+ARG BUILD_VERSION=2.0.1
 ARG BUILD_COMMIT
 ARG NODE_ENV=production
 ARG NEXT_PUBLIC_APP_ENV=production
@@ -130,16 +134,15 @@ ENV NODE_ENV=${NODE_ENV} \
 # Use the repo's production Next.js config (TypeScript) for the build
 RUN cp -f next.config.production.ts next.config.ts
 
-# Build the application with optimization
-RUN npm run build
+# Build the application with optimization and BuildKit cache mount for Next.js cache
+RUN --mount=type=cache,target=/app/.next/cache,sharing=locked \
+  npm run build
 
 # Verify build output
 RUN ls -la .next/
 
 # Clean up dev dependencies and cache
 RUN rm -rf node_modules && npm cache clean --force
-
-# Nginx stage removed – not used by the final image and caused COPY failures when 'out/' is not produced
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RUNTIME STAGE - Final production image with Next.js standalone
@@ -166,10 +169,6 @@ RUN mkdir -p /app/logs /app/tmp /app/.next/cache && \
   chmod 755 /app && \
   chmod 700 /app/logs /app/tmp /app/.next/cache
 
-## Simplified startup handled by CMD below (no inline shell script to avoid Dockerfile parser issues)
-
-## Healthcheck script removed; rely on Cloud Run's HTTP checks hitting /api/health
-
 # Switch to non-root user
 USER 10001:10001
 
@@ -179,7 +178,7 @@ USER 10001:10001
 
 # Environment variables optimized for Cloud Run and production
 ENV SERVICE_NAME=isectech-frontend \
-  SERVICE_VERSION=2.0.0 \
+  SERVICE_VERSION=2.0.1 \
   NODE_ENV=production \
   # Next.js configuration
   NEXT_TELEMETRY_DISABLED=1 \
@@ -237,125 +236,26 @@ ENV SERVICE_NAME=isectech-frontend \
   TRACING_ENABLED=false \
   # Build information
   NEXT_PUBLIC_BUILD_DATE= \
-  NEXT_PUBLIC_BUILD_VERSION=2.0.0 \
+  NEXT_PUBLIC_BUILD_VERSION=2.0.1 \
   NEXT_PUBLIC_BUILD_COMMIT=
 
 # Expose port
 EXPOSE 3000
-
-## Healthcheck disabled at container level
-
-# Resource limits (can be overridden by Cloud Run/Kubernetes)
-# Default memory limit: 1Gi
-# Default CPU limit: 1000m (1 CPU)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STARTUP CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECURITY HARDENING
+# BUILD INSTRUCTIONS (BuildKit Enhanced)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Security: Enhanced container security
-# - Using minimal Alpine base image
-# - Non-root user (UID 10001)
-# - No package manager in final image
-# - Comprehensive security headers
-# - Content Security Policy enforcement
-# - HTTP Strict Transport Security
-# - Rate limiting and DDoS protection
-# - Secure session management
-# - Input validation and XSS protection
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CLOUD RUN OPTIMIZATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# This image is optimized for Google Cloud Run:
-# - Fast cold starts (< 5s startup time)
-# - Non-root user for security compliance
-# - Proper health checks for service mesh
-# - Environment variable configuration
-# - PORT environment variable support for Cloud Run
-# - Signal handling for graceful shutdown
-# - Efficient resource usage and memory management
-# - Container-optimized logging and monitoring
-# - Next.js standalone mode for better performance
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# KUBERNETES COMPATIBILITY
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Kubernetes compatibility features:
-# - Proper liveness, readiness, and startup probe endpoints
-# - Configurable via environment variables and ConfigMaps
-# - Secret manager integration ready
-# - Single port exposure (HTTP)
-# - Resource request and limit aware
-# - PodSecurityPolicy compliant
-# - Network policy compatible
-# - Security context compatible
-# - Horizontal Pod Autoscaler compatible
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FRONTEND OPTIMIZATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Frontend optimizations:
-# - Next.js standalone mode for reduced bundle size
-# - Static asset optimization and compression
-# - Image optimization with WebP/AVIF support
-# - Bundle splitting and code optimization
-# - Service Worker for offline functionality
-# - Progressive Web App features
-# - SEO optimization and meta tags
-# - Accessibility compliance (WCAG 2.1)
-# - Performance monitoring and analytics
-# - Real-time WebSocket connections
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BUILD INSTRUCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Build command:
-# docker build -f Dockerfile.frontend.production -t isectech-frontend:latest .
+# Build with BuildKit (recommended):
+# DOCKER_BUILDKIT=1 docker build -f Dockerfile.frontend.production.buildkit -t isectech-frontend:latest .
 #
-# Build with build args:
-# docker build -f Dockerfile.frontend.production \
+# Build with build args and BuildKit:
+# DOCKER_BUILDKIT=1 docker build -f Dockerfile.frontend.production.buildkit \
 #   --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-#   --build-arg BUILD_VERSION=v2.0.0 \
+#   --build-arg BUILD_VERSION=v2.0.1 \
 #   --build-arg BUILD_COMMIT=$(git rev-parse HEAD) \
-#   -t isectech-frontend:v2.0.0 .
-#
-# Multi-platform build:
-# docker buildx build \
-#   --platform linux/amd64,linux/arm64 \
-#   -f Dockerfile.frontend.production \
-#   -t isectech-frontend:latest \
-#   --push .
-#
-# Security scan:
-# docker scout cves isectech-frontend:latest
-# trivy image isectech-frontend:latest
-# 
-# Image analysis:
-# docker history isectech-frontend:latest
-# docker inspect isectech-frontend:latest
-#
-# Development mode:
-# docker run -p 3000:3000 \
-#   -e NODE_ENV=development \
-#   -e NEXT_PUBLIC_API_URL=http://localhost:8080 \
-#   isectech-frontend:latest
-#
-# Production mode with secrets:
-# docker run -p 3000:3000 \
-#   -e NEXTAUTH_SECRET="your-secret-here" \
-#   -e NEXTAUTH_URL="https://protect.isectech.com" \
-#   -e NEXT_PUBLIC_API_URL="https://api.isectech.com" \
-#   isectech-frontend:latest
+#   -t isectech-frontend:v2.0.1 .

@@ -13,8 +13,10 @@ steps:
         echo '--- .dockerignore (top) ---'
         head -n 120 .dockerignore || true
 
-  # Build Docker image (Dockerfile handles install and Next.js build)
+  # Build Docker image using BuildKit for advanced features
   - name: 'gcr.io/cloud-builders/docker'
+    env:
+      - 'DOCKER_BUILDKIT=1'
     args: [
       'build',
       '--no-cache',
@@ -38,6 +40,6 @@ images:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
-  substitutionOption: 'ALLOW_LOOSE'
+  substitution_option: 'ALLOW_LOOSE'
   
 timeout: '1800s'
