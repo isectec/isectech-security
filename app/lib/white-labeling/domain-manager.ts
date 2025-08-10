@@ -3,7 +3,6 @@
  * Production-grade domain configuration with DNS validation and SSL management
  */
 
-import dns from 'dns/promises';
 import crypto from 'crypto';
 import type { 
   DomainConfiguration,
@@ -482,18 +481,23 @@ export class DomainManager {
 
   private async queryDnsRecord(name: string, type: string): Promise<string[]> {
     try {
-      switch (type.toLowerCase()) {
-        case 'a':
-          return await dns.resolve4(name);
-        case 'cname':
-          return await dns.resolveCname(name);
-        case 'txt':
-          const txtRecords = await dns.resolveTxt(name);
-          return txtRecords.flat();
-        default:
-          throw new Error(`Unsupported DNS record type: ${type}`);
+      // Use API endpoint for DNS queries to avoid client-side Node.js imports
+      const response = await fetch('/api/dns-query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, type }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`DNS query failed: ${response.statusText}`);
       }
+
+      const data = await response.json();
+      return data.records || [];
     } catch (error) {
+      console.warn(`DNS query failed for ${name} (${type}):`, error);
       return [];
     }
   }
