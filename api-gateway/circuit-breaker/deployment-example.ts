@@ -18,7 +18,8 @@ import {
   createMasterResilienceSystem,
   MasterResilienceConfig 
 } from './master-resilience-system';
-import { kongGatewayManager } from '../kong/kong-gateway-manager';
+// Note: Kong gateway integration components available but not used in this example
+// import { kongGatewayManager } from '../kong/kong-gateway-manager';
 import { isectechCircuitBreakerManager } from '../kong/plugins/circuit-breaker-config';
 
 /**

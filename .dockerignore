@@ -149,6 +149,7 @@ config/production.*
 docker-compose*.yml
 Dockerfile*
 !Dockerfile.frontend
+!Dockerfile.frontend.production
 !Dockerfile.backend
 !Dockerfile.ai
 

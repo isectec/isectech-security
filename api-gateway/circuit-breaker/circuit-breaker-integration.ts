@@ -24,13 +24,11 @@ import {
   CircuitBreakerState
 } from './intelligent-circuit-breaker';
 import { 
-  KongCircuitBreakerPluginManager,
-  KongCircuitBreakerPluginConfig 
+  KongCircuitBreakerPluginManager
 } from '../kong/plugins/kong-circuit-breaker-plugin';
 import { 
   isectechCircuitBreakerManager,
-  ISECTECHCircuitBreakerManager,
-  CircuitBreakerMetrics
+  ISECTECHCircuitBreakerManager
 } from '../kong/plugins/circuit-breaker-config';
 import { kongGatewayManager } from '../kong/kong-gateway-manager';
 import { z } from 'zod';
@@ -127,14 +125,22 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     this.logger = logger;
     
     // Initialize Redis connection
-    this.redis = new Redis({
+    const redisOptions: any = {
       host: this.config.redis.host,
       port: this.config.redis.port,
-      password: this.config.redis.password,
       db: this.config.redis.db,
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
-    });
+      retryStrategy: (times: number) => {
+        return Math.min(times * 100, 2000);
+      }
+    };
+    
+    // Only add password if it's defined
+    if (this.config.redis.password) {
+      redisOptions.password = this.config.redis.password;
+    }
+    
+    this.redis = new Redis(redisOptions);
     
     // Initialize core systems
     this.circuitBreakerSystem = new IntelligentCircuitBreakerSystem(
@@ -227,7 +233,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('Failed to initialize Circuit Breaker Integration System', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -282,7 +288,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
         };
 
         // Initialize circuit breaker
-        const circuitBreaker = await this.circuitBreakerSystem.getCircuitBreaker(circuitConfig);
+        await this.circuitBreakerSystem.getCircuitBreaker(circuitConfig);
         
         this.logger.info('Initialized circuit breaker for service', {
           component: 'CircuitBreakerIntegrationSystem',
@@ -296,7 +302,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
         this.logger.error('Failed to initialize circuit breaker', {
           component: 'CircuitBreakerIntegrationSystem',
           serviceName,
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -317,7 +323,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('Failed to deploy Kong plugins', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
       
       if (!this.config.integration.autoRecovery) {
@@ -361,7 +367,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
   /**
    * Generate failover endpoints for a service
    */
-  private generateFailoverEndpoints(serviceName: string, primaryEndpoint: string): string[] {
+  private generateFailoverEndpoints(_serviceName: string, primaryEndpoint: string): string[] {
     // Generate failover endpoints based on service name and deployment strategy
     const baseEndpoint = primaryEndpoint.replace('-upstream', '');
     
@@ -427,7 +433,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
   /**
    * Handle service failure and trigger failover if necessary
    */
-  private async handleServiceFailure(serviceName: string, error: any): Promise<void> {
+  private async handleServiceFailure(serviceName: string, _error: any): Promise<void> {
     const failoverStatus = this.serviceFailoverStatus.get(serviceName);
     if (!failoverStatus) {
       return;
@@ -505,7 +511,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
       this.logger.error('Failed to trigger service failover', {
         component: 'CircuitBreakerIntegrationSystem',
         serviceName,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -513,7 +519,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
   /**
    * Check if an endpoint is healthy
    */
-  private async checkEndpointHealth(endpoint: string): Promise<boolean> {
+  private async checkEndpointHealth(_endpoint: string): Promise<boolean> {
     try {
       // This would typically make a health check request to the endpoint
       // For now, we'll simulate the health check
@@ -539,7 +545,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
         component: 'CircuitBreakerIntegrationSystem',
         serviceName,
         newEndpoint,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -626,7 +632,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('Failed to collect integration metrics', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -690,7 +696,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('System health check failed', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -738,7 +744,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
       this.logger.error('Failed to recover service from failover', {
         component: 'CircuitBreakerIntegrationSystem',
         serviceName,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -760,7 +766,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('Auto-recovery operation failed', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -815,6 +821,14 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
 
     const endpoint = targetEndpoint || failoverStatus.failoverEndpoints[0];
     
+    if (!endpoint) {
+      this.logger.error('No failover endpoint available', {
+        component: 'CircuitBreakerIntegrationSystem',
+        serviceName,
+      });
+      return;
+    }
+    
     failoverStatus.currentEndpoint = endpoint;
     failoverStatus.isInFailover = true;
     failoverStatus.failoverCount++;
@@ -864,7 +878,7 @@ export class CircuitBreakerIntegrationSystem extends EventEmitter {
     } catch (error) {
       this.logger.error('Error during shutdown', {
         component: 'CircuitBreakerIntegrationSystem',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 

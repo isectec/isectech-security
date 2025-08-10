@@ -506,6 +506,17 @@ export {
   SystemMetricsCollector as SystemMetrics
 };
 
+// Named export for convenient access
+export const metrics = {
+  increment: incrementCounter,
+  gauge: setGauge,
+  histogram: recordHistogram,
+  timer: { start: startTimer, stop: stopTimer },
+  get: getMetrics,
+  business: getBusinessMetrics,
+  system: getSystemMetrics
+};
+
 export default {
   incrementCounter,
   setGauge,

@@ -569,7 +569,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
   /**
    * Collect metrics from Prometheus
    */
-  private async collectPrometheusMetrics(timestamp: Date): Promise<void> {
+  private async collectPrometheusMetrics(_timestamp: Date): Promise<void> {
     // Implementation would query Prometheus endpoint
     // This is a placeholder for the actual Prometheus integration
     console.log('Collecting Prometheus metrics...');
@@ -578,7 +578,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
   /**
    * Collect custom metric data
    */
-  private async collectCustomMetric(metric: any, timestamp: Date): Promise<void> {
+  private async collectCustomMetric(metric: any, _timestamp: Date): Promise<void> {
     // Implementation would execute the custom metric query
     // This is a placeholder for actual metric collection
     console.log(`Collecting custom metric: ${metric.name}`);
@@ -625,7 +625,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
   /**
    * Generate sample data for testing
    */
-  private generateSampleData(panelType: string, target: any): any[] {
+  private generateSampleData(panelType: string, _target: any): any[] {
     const now = Date.now();
     const dataPoints = [];
     
@@ -671,7 +671,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
   /**
    * Evaluate an alert rule condition
    */
-  private async evaluateAlertRule(rule: any): Promise<boolean> {
+  private async evaluateAlertRule(_rule: any): Promise<boolean> {
     // This would evaluate the actual condition against metrics
     // For now, randomly triggering alerts for demonstration
     return Math.random() > 0.95; // 5% chance of alert
@@ -832,7 +832,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
     return { start, end };
   }
 
-  private async generateReportSummary(period: any): Promise<any> {
+  private async generateReportSummary(_period: any): Promise<any> {
     // Generate sample summary data
     return {
       totalRequests: Math.floor(Math.random() * 100000) + 50000,
@@ -851,7 +851,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
     };
   }
 
-  private async generateReportMetrics(period: any): Promise<any> {
+  private async generateReportMetrics(_period: any): Promise<any> {
     // Generate sample metrics data
     return {
       requestVolume: [],
@@ -862,7 +862,7 @@ export class ISECTECHRateLimitingAnalyticsDashboard {
     };
   }
 
-  private async generateRecommendations(summary: any, metrics: any): Promise<any[]> {
+  private async generateRecommendations(summary: any, _metrics: any): Promise<any[]> {
     const recommendations = [];
     
     // Generate recommendations based on data

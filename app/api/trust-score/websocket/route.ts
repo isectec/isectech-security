@@ -100,7 +100,7 @@ class TrustScoreWebSocketManager {
     this.startHeartbeat(clientId);
 
     logger.info(`Trust Score WebSocket client connected: ${clientId}`);
-    metrics.increment('trust_score.websocket.connections', { tenantId });
+    metrics.increment('trust_score.websocket.connections', 1, { tenantId });
 
     return clientId;
   }
@@ -118,7 +118,7 @@ class TrustScoreWebSocketManager {
     logger.info(`Trust Score WebSocket client disconnected: ${clientId}`);
     
     if (client.tenantId) {
-      metrics.increment('trust_score.websocket.disconnections', { 
+      metrics.increment('trust_score.websocket.disconnections', 1, { 
         tenantId: client.tenantId 
       });
     }
@@ -235,7 +235,7 @@ class TrustScoreWebSocketManager {
       timestamp: new Date(),
     });
 
-    metrics.increment('trust_score.websocket.subscriptions', {
+    metrics.increment('trust_score.websocket.subscriptions', 1, {
       tenantId: client.tenantId,
     });
   }
@@ -278,9 +278,8 @@ class TrustScoreWebSocketManager {
       timestamp: new Date().toISOString(),
     });
 
-    metrics.increment('trust_score.websocket.unsubscriptions', {
+    metrics.increment('trust_score.websocket.unsubscriptions', removedIds.length, {
       tenantId: client.tenantId,
-      count: removedIds.length.toString(),
     });
   }
 
@@ -340,7 +339,7 @@ class TrustScoreWebSocketManager {
       });
     }
 
-    metrics.increment('trust_score.websocket.events_broadcast', {
+    metrics.increment('trust_score.websocket.events_broadcast', 1, {
       eventType,
       recipientCount: matchingSubscriptions.length.toString(),
     });
