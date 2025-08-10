@@ -4,11 +4,12 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  // swcMinify is removed in Next.js 15; SWC minification is always on
   
   // Experimental features for optimization
   experimental: {
-    serverComponentsExternalPackages: ['sharp'],
+    // migrate to supported key
+    serverExternalPackages: ['sharp'],
     optimizePackageImports: ['@mui/material', '@mui/icons-material', 'lodash-es'],
   },
 

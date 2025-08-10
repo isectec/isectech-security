@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
     const { action, ...parameters } = body;
 
     switch (action) {
-      case 'schedule':
+      case 'schedule': {
         const { framework, scheduledDate, assessorId, type } = parameters;
         
         // Validate required parameters
@@ -259,13 +259,13 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const assessmentId = `ASSESS_${Date.now()}`;
+        const scheduledAssessmentId = `ASSESS_${Date.now()}`;
         
         return NextResponse.json({
           success: true,
           message: `Assessment scheduled for ${framework}`,
           data: {
-            assessmentId,
+            assessmentId: scheduledAssessmentId,
             framework,
             scheduledDate,
             assessorId: assessorId || 'compliance-team@isectech.com',
@@ -280,8 +280,9 @@ export async function POST(request: NextRequest) {
           },
           timestamp: new Date().toISOString()
         });
+      }
 
-      case 'initiate':
+      case 'initiate': {
         const { assessmentPlan } = parameters;
         
         return NextResponse.json({
@@ -298,15 +299,16 @@ export async function POST(request: NextRequest) {
           },
           timestamp: new Date().toISOString()
         });
+      }
 
-      case 'submit_evidence':
-        const { assessmentId, evidenceType, files } = parameters;
+      case 'submit_evidence': {
+        const { assessmentId: evidenceAssessmentId, evidenceType, files } = parameters;
         
         return NextResponse.json({
           success: true,
           message: 'Evidence submitted successfully',
           data: {
-            assessmentId,
+            assessmentId: evidenceAssessmentId,
             evidenceId: `EVIDENCE_${Date.now()}`,
             evidenceType,
             filesProcessed: files?.length || 1,
@@ -315,8 +317,9 @@ export async function POST(request: NextRequest) {
           },
           timestamp: new Date().toISOString()
         });
+      }
 
-      case 'update_progress':
+      case 'update_progress': {
         const { assessmentId: updateId, phase, percentage } = parameters;
         
         return NextResponse.json({
@@ -331,8 +334,9 @@ export async function POST(request: NextRequest) {
           },
           timestamp: new Date().toISOString()
         });
+      }
 
-      default:
+      default: {
         return NextResponse.json(
           {
             success: false,
@@ -341,6 +345,7 @@ export async function POST(request: NextRequest) {
           },
           { status: 400 }
         );
+      }
     }
 
   } catch (error) {
