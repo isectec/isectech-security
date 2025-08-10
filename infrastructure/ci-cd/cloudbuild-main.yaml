@@ -274,7 +274,7 @@ steps:
         echo "Python AI services build completed"
 
   # Step 7: Build and test React frontend
-  - name: 'node:18-alpine'
+  - name: 'node:22-alpine'
     id: 'build-frontend'
     entrypoint: 'sh'
     args:
@@ -283,8 +283,8 @@ steps:
         set -euo pipefail
         echo "Building and testing React frontend..."
         
-        # Install dependencies
-        npm ci --only=production=false
+        # Install dependencies (dev + prod)
+        npm ci
         
         # Run security audit
         npm audit --audit-level=high || echo "npm audit completed with findings"

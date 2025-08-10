@@ -1,11 +1,11 @@
 steps:
-  # Install dependencies
-  - name: 'node:18'
+  # Install dependencies with legacy peer deps support
+  - name: 'node:22'
     entrypoint: npm
-    args: ['install', '--production=false', '--legacy-peer-deps']
+    args: ['install', '--legacy-peer-deps', '--no-audit', '--no-fund', '--prefer-offline']
     
   # Build the Next.js application
-  - name: 'node:18'
+  - name: 'node:22'
     entrypoint: npm
     args: ['run', 'build']
     env:
