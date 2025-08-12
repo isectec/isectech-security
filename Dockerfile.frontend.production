@@ -130,7 +130,7 @@ ENV NODE_ENV=${NODE_ENV} \
 # Use the repo's production Next.js config (TypeScript) for the build
 RUN cp -f next.config.production.ts next.config.ts
 
-# Build the application with optimization
+# Build the application with optimization (Next.js handles TypeScript)
 RUN npm run build
 
 # Verify build output
@@ -160,6 +160,9 @@ COPY --from=builder --chown=isectech:isectech /app/public ./public
 # Copy package.json for runtime
 COPY --chown=isectech:isectech package.json ./
 
+# Copy custom server.js that binds to PORT environment variable
+COPY --chown=isectech:isectech server.js ./
+
 # Create required directories with proper permissions
 RUN mkdir -p /app/logs /app/tmp /app/.next/cache && \
   chown -R isectech:isectech /app && \
@@ -183,7 +186,6 @@ ENV SERVICE_NAME=isectech-frontend \
   NODE_ENV=production \
   # Next.js configuration
   NEXT_TELEMETRY_DISABLED=1 \
-  PORT=3000 \
   HOSTNAME=0.0.0.0 \
   # Security configuration
   SECURITY_HEADERS_ENABLED=true \
@@ -240,8 +242,8 @@ ENV SERVICE_NAME=isectech-frontend \
   NEXT_PUBLIC_BUILD_VERSION=2.0.0 \
   NEXT_PUBLIC_BUILD_COMMIT=
 
-# Expose port
-EXPOSE 3000
+# Expose port (Cloud Run will set $PORT, commonly 8080)
+EXPOSE 8080
 
 ## Healthcheck disabled at container level
 
@@ -255,6 +257,7 @@ EXPOSE 3000
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
+# Run the Next.js standalone server (copied to image root)
 CMD ["node", "server.js"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
